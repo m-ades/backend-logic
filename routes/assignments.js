@@ -6,7 +6,6 @@ import {
   AssignmentExtension,
   Accommodation,
   CourseEnrollment,
-  QuestionBank,
   AssignmentGrade,
   User,
   Submission,
@@ -125,7 +124,6 @@ router.get('/:id', async (req, res) => {
 
     const questions = await AssignmentQuestion.findAll({
       where: { assignment_id: assignment.id },
-      include: [{ model: QuestionBank }],
       order: [['order_index', 'ASC']],
     });
 
@@ -139,7 +137,6 @@ router.get('/:id/questions', async (req, res) => {
   try {
     const questions = await AssignmentQuestion.findAll({
       where: { assignment_id: req.params.id },
-      include: [{ model: QuestionBank }],
       order: [['order_index', 'ASC']],
     });
     res.json(questions);

@@ -31,6 +31,14 @@ export default function initAssignment(sequelize) {
         allowNull: false,
         defaultValue: false,
       },
+      chapter: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+      },
+      subchapter: {
+        type: DataTypes.STRING,
+        allowNull: false,
+      },
       due_date: {
         type: DataTypes.DATE,
       },

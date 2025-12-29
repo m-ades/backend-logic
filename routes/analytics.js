@@ -200,12 +200,11 @@ router.get('/instructor', async (req, res) => {
 
     const timeByCategoryQuery = `
       SELECT
-        COALESCE(qb.logic_problem_type, aq.question_snapshot->>'logic_problem_type') AS category,
+        aq.question_snapshot->>'logic_problem_type' AS category,
         AVG(EXTRACT(EPOCH FROM (qs.ended_at - qs.started_at)) / 60)::float AS avg_minutes
       FROM question_sessions qs
       JOIN assignment_questions aq ON aq.id = qs.assignment_question_id
       JOIN assignments a ON a.id = aq.assignment_id
-      LEFT JOIN question_bank qb ON qb.id = aq.question_id
       WHERE a.course_id = $1
         AND qs.ended_at IS NOT NULL
       GROUP BY category

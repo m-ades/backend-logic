@@ -6,7 +6,6 @@ import usersRouter from './routes/users.js';
 import authRouter from './routes/auth.js';
 import coursesRouter from './routes/courses.js';
 import courseEnrollmentsRouter from './routes/course-enrollments.js';
-import questionBankRouter from './routes/question-bank.js';
 import assignmentsRouter from './routes/assignments.js';
 import assignmentQuestionsRouter from './routes/assignment-questions.js';
 import assignmentDraftsRouter from './routes/assignment-drafts.js';
@@ -24,6 +23,7 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const API_KEY = process.env.API_KEY;
 
 app.use(cors());
 app.use(express.json());
@@ -33,11 +33,21 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' });
 });
 
+app.use('/api', (req, res, next) => {
+  if (!API_KEY) {
+    return res.status(500).json({ message: 'API key not configured' });
+  }
+  const providedKey = req.get('x-api-key');
+  if (providedKey !== API_KEY) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+  return next();
+});
+
 app.use('/api/auth', authRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/courses', coursesRouter);
 app.use('/api/course-enrollments', courseEnrollmentsRouter);
-app.use('/api/question-bank', questionBankRouter);
 app.use('/api/assignments', assignmentsRouter);
 app.use('/api/assignment-questions', assignmentQuestionsRouter);
 app.use('/api/assignment-drafts', assignmentDraftsRouter);

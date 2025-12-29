@@ -14,9 +14,6 @@ export default function initAssignmentQuestion(sequelize) {
         type: DataTypes.INTEGER,
         allowNull: false,
       },
-      question_id: {
-        type: DataTypes.INTEGER,
-      },
       question_snapshot: {
         type: DataTypes.JSONB,
         allowNull: false,

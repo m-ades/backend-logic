@@ -42,16 +42,4 @@ router.get('/:id/grades', async (req, res) => {
   }
 });
 
-router.get('/:id/enrollments', async (req, res) => {
-  try {
-    const enrollments = await CourseEnrollment.findAll({
-      where: { user_id: req.params.id },
-      include: [{ model: Course }],
-    });
-    res.json(enrollments);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
 export default router;
