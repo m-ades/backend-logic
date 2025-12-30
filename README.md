@@ -1,6 +1,6 @@
 # 275 Backend
 
-Node.js/Express backend API for the 275 course management system.
+Node.js/Express backend API for the Philo 275 Open Logic Project.
 
 ## Prerequisites
 
@@ -14,21 +14,11 @@ Node.js/Express backend API for the 275 course management system.
 npm install
 ```
 
-2. Create a `.env` file based on `.env.example`:
-```bash
-cp .env.example .env
-```
+2. Create an `.env` file with your PostgreSQL credentials.
 
-3. Update the `.env` file with your PostgreSQL credentials.
-
-4. Start the development server:
+3. Start the development server:
 ```bash
 npm run dev
-```
-
-Or start the production server:
-```bash
-npm start
 ```
 
 ## API Endpoints
