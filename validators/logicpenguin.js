@@ -8,6 +8,7 @@ import multipleChoice from '../lib/logicpenguin/checkers/multiple-choice.js';
 import trueFalse from '../lib/logicpenguin/checkers/true-false.js';
 import evaluateTruth from '../lib/logicpenguin/checkers/evaluate-truth.js';
 import validCorrectSound from '../lib/logicpenguin/checkers/valid-correct-sound.js';
+import singleRowTruthTable from '../lib/logicpenguin/checkers/single-row-truth-table.js';
 import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
 import { formulaTable, equivTables, argumentTables, libtf } from '../lib/logicpenguin/symbolic/libsemantics.js';
 
@@ -23,6 +24,7 @@ const CHECKERS = {
   'true-false': trueFalse,
   'evaluate-truth': evaluateTruth,
   'valid-correct-sound': validCorrectSound,
+  'single-row-truth-table': singleRowTruthTable,
 };
 
 function pickDefined(...values) {
@@ -89,6 +91,20 @@ function computeEvaluateTruthAnswer(question, options) {
   return Boolean(result.tv);
 }
 
+function computeSingleRowTruthTableAnswer(question, options) {
+  const notation = options?.notation || 'hurley';
+  const Formula = getFormulaClass(notation);
+  const statement = question.statement || question.evaluateTruth;
+  const interpretation = question.interpretation || {};
+  const f = Formula.from(statement);
+  const result = libtf.evaluate(f, interpretation);
+  return {
+    row: result.row,
+    opspot: result.opspot,
+    tv: Boolean(result.tv),
+  };
+}
+
 function computeAnswer(question, options) {
   const type = normalizeType(question);
 
@@ -98,6 +114,10 @@ function computeAnswer(question, options) {
 
   if (type === 'evaluate-truth') {
     return computeEvaluateTruthAnswer(question, options);
+  }
+
+  if (type === 'single-row-truth-table') {
+    return computeSingleRowTruthTableAnswer(question, options);
   }
 
   if (type === 'multiple-choice') {
