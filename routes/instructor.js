@@ -127,6 +127,43 @@ router.get('/courses/:id/accommodations', async (req, res) => {
   }
 });
 
+router.post('/courses/:id/accommodations', async (req, res) => {
+  try {
+    const courseId = Number(req.params.id);
+    const userId = Number(req.query.userId);
+    if (!courseId || !userId) {
+      return res.status(400).json({ message: 'courseId and userId are required' });
+    }
+
+    if (!(await requireInstructor(courseId, userId))) {
+      return res.status(403).json({ message: 'Instructor access required' });
+    }
+
+    const targetUserId = Number(req.body.user_id ?? req.body.student_id);
+    if (!targetUserId) {
+      return res.status(400).json({ message: 'target user_id is required' });
+    }
+
+    const payload = {
+      user_id: targetUserId,
+      course_id: courseId,
+      late_penalty_waived: Boolean(req.body.late_penalty_waived),
+      extra_late_days: Number.isFinite(Number(req.body.extra_late_days))
+        ? Number(req.body.extra_late_days)
+        : 0,
+    };
+
+    const existing = await Accommodation.findOne({
+      where: { user_id: targetUserId, course_id: courseId },
+    });
+
+    const record = existing ? await existing.update(payload) : await Accommodation.create(payload);
+    res.status(existing ? 200 : 201).json(record);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
 router.get('/assignments/:id/extensions', async (req, res) => {
   try {
     const assignmentId = Number(req.params.id);
@@ -153,6 +190,97 @@ router.get('/assignments/:id/extensions', async (req, res) => {
     res.json(extensions);
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+});
+
+router.post('/assignments/:id/extensions', async (req, res) => {
+  try {
+    const assignmentId = Number(req.params.id);
+    const userId = Number(req.query.userId);
+    if (!assignmentId || !userId) {
+      return res.status(400).json({ message: 'assignmentId and userId are required' });
+    }
+
+    const assignment = await Assignment.findByPk(assignmentId);
+    if (!assignment) {
+      return res.status(404).json({ message: 'Assignment not found' });
+    }
+
+    if (!(await requireInstructor(assignment.course_id, userId))) {
+      return res.status(403).json({ message: 'Instructor access required' });
+    }
+
+    const targetUserId = Number(req.body.user_id ?? req.body.student_id);
+    const extendedDueDate = req.body.extended_due_date;
+    if (!targetUserId || !extendedDueDate) {
+      return res.status(400).json({ message: 'user_id and extended_due_date are required' });
+    }
+
+    const payload = {
+      assignment_id: assignmentId,
+      user_id: targetUserId,
+      extended_due_date: extendedDueDate,
+      reason: req.body.reason ?? null,
+      granted_by: userId,
+    };
+
+    const existing = await AssignmentExtension.findOne({
+      where: { assignment_id: assignmentId, user_id: targetUserId },
+    });
+
+    const record = existing ? await existing.update(payload) : await AssignmentExtension.create(payload);
+    res.status(existing ? 200 : 201).json(record);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+router.post('/assignments/:id/extensions/classwide', async (req, res) => {
+  try {
+    const assignmentId = Number(req.params.id);
+    const userId = Number(req.query.userId);
+    if (!assignmentId || !userId) {
+      return res.status(400).json({ message: 'assignmentId and userId are required' });
+    }
+
+    const assignment = await Assignment.findByPk(assignmentId);
+    if (!assignment) {
+      return res.status(404).json({ message: 'Assignment not found' });
+    }
+
+    if (!(await requireInstructor(assignment.course_id, userId))) {
+      return res.status(403).json({ message: 'Instructor access required' });
+    }
+
+    const extendedDueDate = req.body.extended_due_date;
+    if (!extendedDueDate) {
+      return res.status(400).json({ message: 'extended_due_date is required' });
+    }
+
+    const enrollments = await CourseEnrollment.findAll({
+      where: { course_id: assignment.course_id, role: 'student' },
+      attributes: ['user_id'],
+    });
+
+    if (enrollments.length === 0) {
+      return res.status(200).json({ updated: 0 });
+    }
+
+    const payload = enrollments.map((enrollment) => ({
+      assignment_id: assignmentId,
+      user_id: enrollment.user_id,
+      extended_due_date: extendedDueDate,
+      reason: req.body.reason ?? null,
+      granted_by: userId,
+    }));
+
+    await AssignmentExtension.bulkCreate(payload, {
+      updateOnDuplicate: ['extended_due_date', 'reason', 'granted_by'],
+    });
+
+    res.status(200).json({ updated: payload.length });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
   }
 });
 
