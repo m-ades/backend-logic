@@ -18,6 +18,7 @@ import assignmentGradesRouter from './routes/assignment-grades.js';
 import analyticsRouter from './routes/analytics.js';
 import validateRouter from './routes/validate.js';
 import instructorRouter from './routes/instructor.js';
+import requireAuth from './middleware/auth.js';
 
 dotenv.config();
 
@@ -45,6 +46,13 @@ app.use('/api', (req, res, next) => {
 });
 
 app.use('/api/auth', authRouter);
+app.use('/api', (req, res, next) => {
+  // let login through without a jwt
+  if (req.path === '/auth/login') {
+    return next();
+  }
+  return requireAuth(req, res, next); // everything else under /api needs a valid jwt
+});
 app.use('/api/users', usersRouter);
 app.use('/api/courses', coursesRouter);
 app.use('/api/course-enrollments', courseEnrollmentsRouter);
