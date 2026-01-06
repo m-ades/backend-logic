@@ -129,6 +129,7 @@ router.post('/submission', async (req, res) => {
       ok: true,
       submission,
       validation: validation.result,
+      attempt_limit: assignmentQuestion.attempt_limit,
     });
   } catch (error) {
     
