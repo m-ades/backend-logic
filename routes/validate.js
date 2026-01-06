@@ -26,7 +26,7 @@ router.post('/submission', async (req, res) => {
     } = req.body;
 
     // require fields that are definitely needed to accept a submission
-    if (!assignment_question_id || !user_id || !submission_data) {
+    if (!assignment_question_id || !user_id || submission_data === undefined) {
       return res.status(400).json({ message: 'assignment_question_id, user_id, and submission_data are required' });
     }
 
