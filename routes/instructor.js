@@ -1,4 +1,5 @@
 import express from 'express';
+import { body } from 'express-validator';
 import {
   Assignment,
   AssignmentExtension,
@@ -11,17 +12,25 @@ import {
 } from '../models/index.js';
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { hashPassword } from '../utils/passwords.js';
+import { handleValidationResult } from '../middleware/validation.js';
+import {
+  assignmentIdParam,
+  courseIdParam,
+  userIdQuery,
+} from '../validators/common.js';
 
 const router = express.Router();
+const courseAccessValidators = [courseIdParam, userIdQuery, handleValidationResult];
+const assignmentAccessValidators = [assignmentIdParam, userIdQuery, handleValidationResult];
 
-async function requireInstructor(courseId, userId) {
+export async function requireInstructor(courseId, userId) {
   const enrollment = await CourseEnrollment.findOne({
     where: { course_id: courseId, user_id: userId },
   });
   return enrollment?.role === 'instructor' || enrollment?.role === 'ta';
 }
 
-async function requireInstructorOrAdmin(courseId, userId) {
+export async function requireInstructorOrAdmin(courseId, userId) {
   const user = await User.findByPk(userId, { attributes: ['is_system_admin'] });
   if (user?.is_system_admin) {
     return true;
@@ -35,22 +44,25 @@ const sanitizeUser = (user) => {
   return data;
 };
 
-router.post('/courses/:id/students', async (req, res) => {
+router.post(
+  '/courses/:id/students',
+  [
+    courseIdParam,
+    userIdQuery,
+    body('username').isString().trim().notEmpty().withMessage('username is required'),
+    body('password').isString().notEmpty().withMessage('password is required'),
+    handleValidationResult,
+  ],
+  async (req, res, next) => {
   try {
-    const courseId = Number(req.params.id);
-    const userId = Number(req.query.userId);
-    if (!courseId || !userId) {
-      return res.status(400).json({ message: 'courseId and userId are required' });
-    }
+    const courseId = req.params.id;
+    const userId = req.query.userId;
 
     if (!(await requireInstructorOrAdmin(courseId, userId))) {
       return res.status(403).json({ message: 'Instructor or admin access required' });
     }
 
     const { username, password } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ message: 'username and password are required' });
-    }
 
     const existing = await User.findOne({
       where: {
@@ -75,17 +87,14 @@ router.post('/courses/:id/students', async (req, res) => {
 
     res.status(201).json({ user: sanitizeUser(newUser) });
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    next(error);
   }
 });
 
-router.get('/courses/:id/roster', async (req, res) => {
+router.get('/courses/:id/roster', courseAccessValidators, async (req, res, next) => {
   try {
-    const courseId = Number(req.params.id);
-    const userId = Number(req.query.userId);
-    if (!courseId || !userId) {
-      return res.status(400).json({ message: 'courseId and userId are required' });
-    }
+    const courseId = req.params.id;
+    const userId = req.query.userId;
 
     if (!(await requireInstructor(courseId, userId))) {
       return res.status(403).json({ message: 'Instructor access required' });
@@ -99,17 +108,14 @@ router.get('/courses/:id/roster', async (req, res) => {
 
     res.json(roster);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 
-router.get('/courses/:id/accommodations', async (req, res) => {
+router.get('/courses/:id/accommodations', courseAccessValidators, async (req, res, next) => {
   try {
-    const courseId = Number(req.params.id);
-    const userId = Number(req.query.userId);
-    if (!courseId || !userId) {
-      return res.status(400).json({ message: 'courseId and userId are required' });
-    }
+    const courseId = req.params.id;
+    const userId = req.query.userId;
 
     if (!(await requireInstructor(courseId, userId))) {
       return res.status(403).json({ message: 'Instructor access required' });
@@ -123,17 +129,14 @@ router.get('/courses/:id/accommodations', async (req, res) => {
 
     res.json(accommodations);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 
-router.post('/courses/:id/accommodations', async (req, res) => {
+router.post('/courses/:id/accommodations', courseAccessValidators, async (req, res, next) => {
   try {
-    const courseId = Number(req.params.id);
-    const userId = Number(req.query.userId);
-    if (!courseId || !userId) {
-      return res.status(400).json({ message: 'courseId and userId are required' });
-    }
+    const courseId = req.params.id;
+    const userId = req.query.userId;
 
     if (!(await requireInstructor(courseId, userId))) {
       return res.status(403).json({ message: 'Instructor access required' });
@@ -160,17 +163,14 @@ router.post('/courses/:id/accommodations', async (req, res) => {
     const record = existing ? await existing.update(payload) : await Accommodation.create(payload);
     res.status(existing ? 200 : 201).json(record);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    next(error);
   }
 });
 
-router.get('/assignments/:id/extensions', async (req, res) => {
+router.get('/assignments/:id/extensions', assignmentAccessValidators, async (req, res, next) => {
   try {
-    const assignmentId = Number(req.params.id);
-    const userId = Number(req.query.userId);
-    if (!assignmentId || !userId) {
-      return res.status(400).json({ message: 'assignmentId and userId are required' });
-    }
+    const assignmentId = req.params.id;
+    const userId = req.query.userId;
 
     const assignment = await Assignment.findByPk(assignmentId);
     if (!assignment) {
@@ -189,17 +189,14 @@ router.get('/assignments/:id/extensions', async (req, res) => {
 
     res.json(extensions);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 
-router.post('/assignments/:id/extensions', async (req, res) => {
+router.post('/assignments/:id/extensions', assignmentAccessValidators, async (req, res, next) => {
   try {
-    const assignmentId = Number(req.params.id);
-    const userId = Number(req.query.userId);
-    if (!assignmentId || !userId) {
-      return res.status(400).json({ message: 'assignmentId and userId are required' });
-    }
+    const assignmentId = req.params.id;
+    const userId = req.query.userId;
 
     const assignment = await Assignment.findByPk(assignmentId);
     if (!assignment) {
@@ -231,17 +228,14 @@ router.post('/assignments/:id/extensions', async (req, res) => {
     const record = existing ? await existing.update(payload) : await AssignmentExtension.create(payload);
     res.status(existing ? 200 : 201).json(record);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    next(error);
   }
 });
 
-router.post('/assignments/:id/extensions/classwide', async (req, res) => {
+router.post('/assignments/:id/extensions/classwide', assignmentAccessValidators, async (req, res, next) => {
   try {
-    const assignmentId = Number(req.params.id);
-    const userId = Number(req.query.userId);
-    if (!assignmentId || !userId) {
-      return res.status(400).json({ message: 'assignmentId and userId are required' });
-    }
+    const assignmentId = req.params.id;
+    const userId = req.query.userId;
 
     const assignment = await Assignment.findByPk(assignmentId);
     if (!assignment) {
@@ -280,17 +274,14 @@ router.post('/assignments/:id/extensions/classwide', async (req, res) => {
 
     res.status(200).json({ updated: payload.length });
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    next(error);
   }
 });
 
-router.get('/assignments/:id/submissions', async (req, res) => {
+router.get('/assignments/:id/submissions', assignmentAccessValidators, async (req, res, next) => {
   try {
-    const assignmentId = Number(req.params.id);
-    const userId = Number(req.query.userId);
-    if (!assignmentId || !userId) {
-      return res.status(400).json({ message: 'assignmentId and userId are required' });
-    }
+    const assignmentId = req.params.id;
+    const userId = req.query.userId;
 
     const assignment = await Assignment.findByPk(assignmentId);
     if (!assignment) {
@@ -314,17 +305,14 @@ router.get('/assignments/:id/submissions', async (req, res) => {
 
     res.json(submissions);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 
-router.get('/assignments/:id/grades', async (req, res) => {
+router.get('/assignments/:id/grades', assignmentAccessValidators, async (req, res, next) => {
   try {
-    const assignmentId = Number(req.params.id);
-    const userId = Number(req.query.userId);
-    if (!assignmentId || !userId) {
-      return res.status(400).json({ message: 'assignmentId and userId are required' });
-    }
+    const assignmentId = req.params.id;
+    const userId = req.query.userId;
 
     const assignment = await Assignment.findByPk(assignmentId);
     if (!assignment) {
@@ -343,17 +331,14 @@ router.get('/assignments/:id/grades', async (req, res) => {
 
     res.json(grades);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 
-router.get('/courses/:id/deadlines', async (req, res) => {
+router.get('/courses/:id/deadlines', courseAccessValidators, async (req, res, next) => {
   try {
-    const courseId = Number(req.params.id);
-    const userId = Number(req.query.userId);
-    if (!courseId || !userId) {
-      return res.status(400).json({ message: 'courseId and userId are required' });
-    }
+    const courseId = req.params.id;
+    const userId = req.query.userId;
 
     if (!(await requireInstructor(courseId, userId))) {
       return res.status(403).json({ message: 'Instructor access required' });
@@ -382,7 +367,7 @@ router.get('/courses/:id/deadlines', async (req, res) => {
 
     res.json(policies);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 

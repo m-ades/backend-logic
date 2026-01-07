@@ -1,9 +1,11 @@
 import { createCrudRouter } from './crud.js';
 import { Course, Assignment, CourseEnrollment, User } from '../models/index.js';
+import { handleValidationResult } from '../middleware/validation.js';
+import { courseIdParam } from '../validators/common.js';
 
 const router = createCrudRouter(Course);
 
-router.get('/:id/assignments', async (req, res) => {
+router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (req, res, next) => {
   try {
     const assignments = await Assignment.findAll({
       where: { course_id: req.params.id },
@@ -11,11 +13,11 @@ router.get('/:id/assignments', async (req, res) => {
     });
     res.json(assignments);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 
-router.get('/:id/enrollments', async (req, res) => {
+router.get('/:id/enrollments', [courseIdParam, handleValidationResult], async (req, res, next) => {
   try {
     const enrollments = await CourseEnrollment.findAll({
       where: { course_id: req.params.id },
@@ -23,7 +25,7 @@ router.get('/:id/enrollments', async (req, res) => {
     });
     res.json(enrollments);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 

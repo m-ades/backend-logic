@@ -1,6 +1,8 @@
 import { createCrudRouter } from './crud.js';
 import { User, AssignmentGrade, Assignment, CourseEnrollment, Course } from '../models/index.js';
 import { hashPassword } from '../utils/passwords.js';
+import { handleValidationResult } from '../middleware/validation.js';
+import { userIdParam } from '../validators/common.js';
 
 const sanitizeUser = (user) => {
   const data = user.toJSON ? user.toJSON() : user;
@@ -29,7 +31,7 @@ const router = createCrudRouter(User, {
   },
 });
 
-router.get('/:id/grades', async (req, res) => {
+router.get('/:id/grades', [userIdParam, handleValidationResult], async (req, res, next) => {
   try {
     const grades = await AssignmentGrade.findAll({
       where: { user_id: req.params.id },
@@ -38,7 +40,7 @@ router.get('/:id/grades', async (req, res) => {
     });
     res.json(grades);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 
