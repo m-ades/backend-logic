@@ -10,6 +10,7 @@ import {
 } from '../models/index.js';
 import { validateLogicPenguin } from '../validators/logicpenguin.js';
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
+import { recomputeAssignmentGrade } from '../utils/grades.js';
 import { handleValidationResult } from '../middleware/validation.js';
 
 const router = express.Router();
@@ -129,6 +130,8 @@ router.post(
       validated_at: new Date(),
       validation_version: validation_version || 'lp-v1',
     });
+
+    await recomputeAssignmentGrade({ assignmentId: assignment.id, userId: user_id });
 
     // return the saved submission and the grading output
     res.json({

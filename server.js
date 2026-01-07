@@ -20,6 +20,7 @@ import validateRouter from './routes/validate.js';
 import instructorRouter from './routes/instructor.js';
 import requireAuth from './middleware/auth.js';
 import errorHandler from './middleware/error-handler.js';
+import { scheduleAutoSubmitSweep } from './jobs/autoSubmit.js';
 
 dotenv.config();
 
@@ -86,8 +87,11 @@ app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
 
+const autoSubmitInterval = scheduleAutoSubmitSweep();
+
 process.on('SIGTERM', async () => {
   console.log('SIGTERM signal received: closing HTTP server');
+  clearInterval(autoSubmitInterval);
   await sequelize.close();
   process.exit(0);
 });
