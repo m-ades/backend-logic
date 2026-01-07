@@ -19,6 +19,7 @@ import analyticsRouter from './routes/analytics.js';
 import validateRouter from './routes/validate.js';
 import instructorRouter from './routes/instructor.js';
 import requireAuth from './middleware/auth.js';
+import errorHandler from './middleware/error-handler.js';
 
 dotenv.config();
 
@@ -79,6 +80,7 @@ app.use('/api/analytics', analyticsRouter);
 app.use('/api/validate', validateRouter);
 app.use('/api/instructor', instructorRouter);
 
+app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
