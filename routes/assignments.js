@@ -7,6 +7,7 @@ import {
   AssignmentExtension,
   Accommodation,
   AssignmentGrade,
+  Submission,
   User,
 } from '../models/index.js';
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
