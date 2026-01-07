@@ -1,4 +1,6 @@
 import express from 'express';
+import { param } from 'express-validator';
+import { handleValidationResult } from '../middleware/validation.js';
 
 export function createCrudRouter(model, options = {}) {
   const {
@@ -11,18 +13,22 @@ export function createCrudRouter(model, options = {}) {
     disableGetById = false,
   } = options;
   const router = express.Router();
+  const idValidators = [
+    param('id').isInt({ gt: 0 }).toInt().withMessage('id must be a positive integer'),
+    handleValidationResult,
+  ];
 
-  router.get('/', async (_req, res) => {
+  router.get('/', async (_req, res, next) => {
     try {
       const records = await model.findAll({ order: [defaultOrder] });
       res.json(sanitize ? records.map((record) => sanitize(record)) : records);
     } catch (error) {
-      res.status(500).json({ message: error.message });
+      next(error);
     }
   });
 
   if (!disableGetById) {
-    router.get('/:id', async (req, res) => {
+    router.get('/:id', idValidators, async (req, res, next) => {
       try {
         const record = await model.findByPk(req.params.id);
         if (!record) {
@@ -30,24 +36,24 @@ export function createCrudRouter(model, options = {}) {
         }
         res.json(sanitize ? sanitize(record) : record);
       } catch (error) {
-        res.status(500).json({ message: error.message });
+        next(error);
       }
     });
   }
 
   if (allowCreate) {
-    router.post('/', async (req, res) => {
+    router.post('/', async (req, res, next) => {
       try {
         const payload = beforeCreate ? await beforeCreate(req.body) : req.body;
         const record = await model.create(payload);
         res.status(201).json(sanitize ? sanitize(record) : record);
       } catch (error) {
-        res.status(400).json({ message: error.message });
+        next(error);
       }
     });
   }
 
-  router.put('/:id', async (req, res) => {
+  router.put('/:id', idValidators, async (req, res, next) => {
     try {
       const record = await model.findByPk(req.params.id);
       if (!record) {
@@ -57,12 +63,12 @@ export function createCrudRouter(model, options = {}) {
       await record.update(payload);
       res.json(sanitize ? sanitize(record) : record);
     } catch (error) {
-      res.status(400).json({ message: error.message });
+      next(error);
     }
   });
 
   if (allowDelete) {
-    router.delete('/:id', async (req, res) => {
+    router.delete('/:id', idValidators, async (req, res, next) => {
       try {
         const record = await model.findByPk(req.params.id);
         if (!record) {
@@ -71,7 +77,7 @@ export function createCrudRouter(model, options = {}) {
         await record.destroy();
         res.status(204).end();
       } catch (error) {
-        res.status(500).json({ message: error.message });
+        next(error);
       }
     });
   }
