@@ -1,16 +1,25 @@
 import express from 'express';
+import { body } from 'express-validator';
 import { createCrudRouter } from './crud.js';
 import { AssignmentQuestion, sequelize } from '../models/index.js';
+import { handleValidationResult } from '../middleware/validation.js';
+import {
+  assignmentIdBody,
+} from '../validators/common.js';
 
 const router = express.Router();
 
-router.post('/bulk', async (req, res) => {
+router.post(
+  '/bulk',
+  [
+    assignmentIdBody,
+    body('questions').isArray({ min: 1 }).withMessage('questions must be a non-empty array'),
+    handleValidationResult,
+  ],
+  async (req, res, next) => {
   try {
-    const assignmentId = Number(req.body.assignment_id);
+    const assignmentId = req.body.assignment_id;
     const questions = Array.isArray(req.body.questions) ? req.body.questions : null;
-    if (!assignmentId || !questions?.length) {
-      return res.status(400).json({ message: 'assignment_id and questions are required' });
-    }
 
     // keep everything tied to one assignment + confirm correct format
     const payload = questions.map((question) => ({
@@ -32,17 +41,21 @@ router.post('/bulk', async (req, res) => {
     });
     res.status(201).json(created);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    next(error);
   }
 });
 
-router.put('/reorder', async (req, res) => {
+router.put(
+  '/reorder',
+  [
+    assignmentIdBody,
+    body('order').isArray({ min: 1 }).withMessage('order must be a non-empty array'),
+    handleValidationResult,
+  ],
+  async (req, res, next) => {
   try {
-    const assignmentId = Number(req.body.assignment_id);
+    const assignmentId = req.body.assignment_id;
     const order = Array.isArray(req.body.order) ? req.body.order : null;
-    if (!assignmentId || !order?.length) {
-      return res.status(400).json({ message: 'assignment_id and order are required' });
-    }
 
     // only accept id & new order_index here.
     const updates = order.map((item) => ({
@@ -81,17 +94,21 @@ router.put('/reorder', async (req, res) => {
 
     res.json({ updated: updates.length });
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    next(error);
   }
 });
 
-router.delete('/', async (req, res) => {
+router.delete(
+  '/',
+  [
+    assignmentIdBody,
+    body('ids').isArray({ min: 1 }).withMessage('ids must be a non-empty array'),
+    handleValidationResult,
+  ],
+  async (req, res, next) => {
   try {
-    const assignmentId = Number(req.body.assignment_id);
+    const assignmentId = req.body.assignment_id;
     const ids = Array.isArray(req.body.ids) ? req.body.ids : null;
-    if (!assignmentId || !ids?.length) {
-      return res.status(400).json({ message: 'assignment_id and ids are required' });
-    }
 
     // delete multiple question ids in one go
     const deleted = await AssignmentQuestion.destroy({
@@ -100,7 +117,7 @@ router.delete('/', async (req, res) => {
 
     res.json({ deleted });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 

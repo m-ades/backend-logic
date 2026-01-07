@@ -1,4 +1,6 @@
 import { createCrudRouter } from './crud.js';
+import { handleValidationResult } from '../middleware/validation.js';
+import { assignmentIdParam, userIdOptionalQuery } from '../validators/common.js';
 import {
   Assignment,
   AssignmentQuestion,
@@ -98,14 +100,14 @@ async function autoSubmitIfPastDeadline(assignment, userId) {
   return { ran: true, created };
 }
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', [assignmentIdParam, userIdOptionalQuery, handleValidationResult], async (req, res, next) => {
   try {
     const assignment = await Assignment.findByPk(req.params.id);
     if (!assignment) {
       return res.status(404).json({ message: 'Not found' });
     }
 
-    const userId = Number(req.query.userId);
+    const userId = req.query.userId;
     let policy = null;
     if (userId) {
       const extension = await AssignmentExtension.findOne({
@@ -129,11 +131,11 @@ router.get('/:id', async (req, res) => {
 
     res.json({ assignment, questions, policy });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 
-router.get('/:id/questions', async (req, res) => {
+router.get('/:id/questions', [assignmentIdParam, handleValidationResult], async (req, res, next) => {
   try {
     const questions = await AssignmentQuestion.findAll({
       where: { assignment_id: req.params.id },
@@ -141,11 +143,11 @@ router.get('/:id/questions', async (req, res) => {
     });
     res.json(questions);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 
-router.get('/:id/grades', async (req, res) => {
+router.get('/:id/grades', [assignmentIdParam, handleValidationResult], async (req, res, next) => {
   try {
     const grades = await AssignmentGrade.findAll({
       where: { assignment_id: req.params.id },
@@ -154,11 +156,11 @@ router.get('/:id/grades', async (req, res) => {
     });
     res.json(grades);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 
-router.get('/:id/submissions', async (req, res) => {
+router.get('/:id/submissions', [assignmentIdParam, userIdOptionalQuery, handleValidationResult], async (req, res, next) => {
   try {
     const submissions = await Submission.findAll({
       include: [
@@ -172,7 +174,7 @@ router.get('/:id/submissions', async (req, res) => {
     });
     res.json(submissions);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 

@@ -1,14 +1,25 @@
 import { createCrudRouter } from './crud.js';
+import { body } from 'express-validator';
+import { handleValidationResult } from '../middleware/validation.js';
+import {
+  assignmentQuestionIdBody,
+  userIdBody,
+} from '../validators/common.js';
 import { AssignmentDraft } from '../models/index.js';
 
 const router = createCrudRouter(AssignmentDraft);
 
-router.put('/', async (req, res) => {
+router.put(
+  '/',
+  [
+    assignmentQuestionIdBody,
+    userIdBody,
+    body('draft_data').exists().withMessage('draft_data is required'),
+    handleValidationResult,
+  ],
+  async (req, res, next) => {
   try {
     const { assignment_question_id, user_id, draft_data } = req.body;
-    if (!assignment_question_id || !user_id || !draft_data) {
-      return res.status(400).json({ message: 'assignment_question_id, user_id, and draft_data are required' });
-    }
 
     const existing = await AssignmentDraft.findOne({
       where: { assignment_question_id, user_id },
@@ -27,7 +38,7 @@ router.put('/', async (req, res) => {
     });
     res.status(201).json(created);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    next(error);
   }
 });
 

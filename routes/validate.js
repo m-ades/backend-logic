@@ -1,4 +1,5 @@
 import express from 'express';
+import { body } from 'express-validator';
 import {
   Assignment,
   AssignmentQuestion,
@@ -9,10 +10,19 @@ import {
 } from '../models/index.js';
 import { validateLogicPenguin } from '../validators/logicpenguin.js';
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
+import { handleValidationResult } from '../middleware/validation.js';
 
 const router = express.Router();
 
-router.post('/submission', async (req, res) => {
+router.post(
+  '/submission',
+  [
+    body('assignment_question_id').isInt({ gt: 0 }).toInt().withMessage('assignment_question_id is required'),
+    body('user_id').isInt({ gt: 0 }).toInt().withMessage('user_id is required'),
+    body('submission_data').exists().withMessage('submission_data is required'),
+    handleValidationResult,
+  ],
+  async (req, res, next) => {
   try {
     // pull fields from the request body
     const {
@@ -26,10 +36,6 @@ router.post('/submission', async (req, res) => {
     } = req.body;
 
     // require fields that are definitely needed to accept a submission
-    if (!assignment_question_id || !user_id || submission_data === undefined) {
-      return res.status(400).json({ message: 'assignment_question_id, user_id, and submission_data are required' });
-    }
-
     // load the question and its assignment for policy checks
     const assignmentQuestion = await AssignmentQuestion.findByPk(assignment_question_id, {
       include: [{ model: Assignment }],
@@ -132,8 +138,7 @@ router.post('/submission', async (req, res) => {
       attempt_limit: assignmentQuestion.attempt_limit,
     });
   } catch (error) {
-    
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 
