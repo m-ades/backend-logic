@@ -4,6 +4,16 @@ import { verifyPassword } from '../utils/passwords.js';
 import { signUserToken } from '../utils/jwt.js';
 
 const router = express.Router();
+const COOKIE_NAME = 'auth_token';
+const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+const getCookieOptions = () => ({
+  httpOnly: true,
+  sameSite: 'lax',
+  secure: process.env.NODE_ENV === 'production',
+  maxAge: COOKIE_MAX_AGE_MS,
+  path: '/',
+});
 
 const sanitizeUser = (user) => {
   const data = user.toJSON ? user.toJSON() : user;
@@ -35,7 +45,8 @@ router.post('/login', async (req, res) => {
 
     // issue jwt 
     const token = signUserToken(user);
-    res.json({ user: sanitizeUser(user), token });
+    res.cookie(COOKIE_NAME, token, getCookieOptions());
+    res.json({ user: sanitizeUser(user) });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -43,6 +54,7 @@ router.post('/login', async (req, res) => {
 
 router.post('/logout', (_req, res) => {
   // jwt logout drop the token
+  res.clearCookie(COOKIE_NAME, getCookieOptions());
   res.json({ ok: true });
 });
 
@@ -60,6 +72,7 @@ router.post('/logout-all', async (req, res) => {
     }
 
     await user.update({ token_version: user.token_version + 1 });
+    res.clearCookie(COOKIE_NAME, getCookieOptions());
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ message: error.message });

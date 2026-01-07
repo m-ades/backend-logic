@@ -1,11 +1,30 @@
 import { User } from '../models/index.js';
 import { verifyUserToken } from '../utils/jwt.js';
 
+const COOKIE_NAME = 'auth_token';
+
+const parseCookies = (cookieHeader) => {
+  if (!cookieHeader) return {};
+  return cookieHeader.split(';').reduce((acc, part) => {
+    const trimmed = part.trim();
+    if (!trimmed) return acc;
+    const eqIndex = trimmed.indexOf('=');
+    if (eqIndex === -1) return acc;
+    const name = trimmed.slice(0, eqIndex);
+    const value = trimmed.slice(eqIndex + 1);
+    acc[name] = decodeURIComponent(value);
+    return acc;
+  }, {});
+};
+
 export default async function requireAuth(req, res, next) {
   const authHeader = req.get('authorization') || '';
-  const token = authHeader.startsWith('Bearer ')
+  const tokenFromHeader = authHeader.startsWith('Bearer ')
     ? authHeader.replace('Bearer ', '').trim()
     : null;
+  const cookieHeader = req.get('cookie') || '';
+  const tokenFromCookie = parseCookies(cookieHeader)[COOKIE_NAME] || null;
+  const token = tokenFromHeader || tokenFromCookie;
 
   if (!token) {
     return res.status(401).json({ message: 'unauthorized' });
