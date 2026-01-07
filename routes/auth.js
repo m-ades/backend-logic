@@ -1,7 +1,9 @@
 import express from 'express';
+import { body } from 'express-validator';
 import { User } from '../models/index.js';
 import { verifyPassword } from '../utils/passwords.js';
 import { signUserToken } from '../utils/jwt.js';
+import { handleValidationResult } from '../middleware/validation.js';
 
 const router = express.Router();
 const COOKIE_NAME = 'auth_token';
@@ -21,12 +23,16 @@ const sanitizeUser = (user) => {
   return data;
 };
 
-router.post('/login', async (req, res) => {
+router.post(
+  '/login',
+  [
+    body('username').isString().trim().notEmpty().withMessage('username is required'),
+    body('password').isString().notEmpty().withMessage('password is required'),
+    handleValidationResult,
+  ],
+  async (req, res, next) => {
   try {
     const { username, password } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ message: 'username & password required' });
-    }
 
     const user = await User.findOne({
       where: {
@@ -48,7 +54,7 @@ router.post('/login', async (req, res) => {
     res.cookie(COOKIE_NAME, token, getCookieOptions());
     res.json({ user: sanitizeUser(user) });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 
@@ -58,7 +64,7 @@ router.post('/logout', (_req, res) => {
   res.json({ ok: true });
 });
 
-router.post('/logout-all', async (req, res) => {
+router.post('/logout-all', async (req, res, next) => {
   try {
     // bump token_version so all existing tokens become invalid
     const userId = req.user?.id;
@@ -75,7 +81,7 @@ router.post('/logout-all', async (req, res) => {
     res.clearCookie(COOKIE_NAME, getCookieOptions());
     res.json({ ok: true });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 });
 
