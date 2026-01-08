@@ -18,13 +18,14 @@ export async function fetchAssignmentAnalytics(sequelize, courseId) {
       FROM assignments a
       LEFT JOIN assignment_questions aq ON aq.assignment_id = a.id
       LEFT JOIN submissions s ON s.assignment_question_id = aq.id
-      WHERE ($1::int IS NULL OR a.course_id = $1::int)
+      WHERE (:courseId::int IS NULL OR a.course_id = :courseId::int)
       GROUP BY a.id
       ORDER BY a.id;
     `;
 
-    const replacements = [courseId ?? null];
-    const [rows] = await sequelize.query(query, { replacements });
+    const [rows] = await sequelize.query(query, {
+      replacements: { courseId: courseId ?? null },
+    });
     return rows;
   } catch (error) {
     throw new Error(`failed to fetch assignment analytics: ${error.message}`);
@@ -56,13 +57,13 @@ export async function fetchStudentAssignments(sequelize, userId, courseId) {
         ag.graded_at
       FROM assignments a
       LEFT JOIN assignment_grades ag
-        ON ag.assignment_id = a.id AND ag.user_id = $1
-      WHERE ($2::int IS NULL OR a.course_id = $2::int)
+        ON ag.assignment_id = a.id AND ag.user_id = :userId
+      WHERE (:courseId::int IS NULL OR a.course_id = :courseId::int)
       ORDER BY a.due_date NULLS LAST, a.id;
     `;
 
     const [assignments] = await sequelize.query(assignmentsQuery, {
-      replacements: [userId, courseId ?? null],
+      replacements: { userId, courseId: courseId ?? null },
     });
     return assignments;
   } catch (error) {
@@ -89,12 +90,12 @@ export async function fetchStudentPerformance(sequelize, userId, courseId) {
       FROM submissions s
       JOIN assignment_questions aq ON aq.id = s.assignment_question_id
       JOIN assignments a ON a.id = aq.assignment_id
-      WHERE s.user_id = $1
-        AND ($2::int IS NULL OR a.course_id = $2::int);
+      WHERE s.user_id = :userId
+        AND (:courseId::int IS NULL OR a.course_id = :courseId::int);
     `;
 
     const [[performance]] = await sequelize.query(performanceQuery, {
-      replacements: [userId, courseId ?? null],
+      replacements: { userId, courseId: courseId ?? null },
     });
     return performance;
   } catch (error) {
@@ -116,12 +117,12 @@ export async function fetchStudentSubmissionCount(sequelize, userId, courseId) {
       FROM submissions s
       JOIN assignment_questions aq ON aq.id = s.assignment_question_id
       JOIN assignments a ON a.id = aq.assignment_id
-      WHERE s.user_id = $1
-        AND ($2::int IS NULL OR a.course_id = $2::int);
+      WHERE s.user_id = :userId
+        AND (:courseId::int IS NULL OR a.course_id = :courseId::int);
     `;
 
     const [[submissionCount]] = await sequelize.query(submissionCountQuery, {
-      replacements: [userId, courseId ?? null],
+      replacements: { userId, courseId: courseId ?? null },
     });
     return submissionCount;
   } catch (error) {
@@ -141,12 +142,12 @@ export async function fetchStudentTime(sequelize, userId) {
       SELECT
         AVG(EXTRACT(EPOCH FROM (qs.ended_at - qs.started_at)) / 60)::float AS avg_minutes_per_question
       FROM question_sessions qs
-      WHERE qs.user_id = $1
+      WHERE qs.user_id = :userId
         AND qs.ended_at IS NOT NULL;
     `;
 
     const [[time]] = await sequelize.query(timeQuery, {
-      replacements: [userId],
+      replacements: { userId },
     });
     return time;
   } catch (error) {
@@ -170,10 +171,12 @@ export async function fetchInstructorGradeSummary(sequelize, courseId) {
         AVG(ag.penalty_percent)::float AS avg_penalty_percent
       FROM assignment_grades ag
       JOIN assignments a ON a.id = ag.assignment_id
-      WHERE a.course_id = $1;
+      WHERE a.course_id = :courseId;
     `;
 
-    const [gradeSummary] = await sequelize.query(gradeSummaryQuery, { replacements: [courseId] });
+    const [gradeSummary] = await sequelize.query(gradeSummaryQuery, {
+      replacements: { courseId },
+    });
     return gradeSummary?.[0] || null;
   } catch (error) {
     throw new Error(`failed to fetch grade summary for course ${courseId}: ${error.message}`);
@@ -199,12 +202,14 @@ export async function fetchInstructorAssignmentStats(sequelize, courseId) {
       FROM assignments a
       LEFT JOIN assignment_questions aq ON aq.assignment_id = a.id
       LEFT JOIN submissions s ON s.assignment_question_id = aq.id
-      WHERE a.course_id = $1
+      WHERE a.course_id = :courseId
       GROUP BY a.id
       ORDER BY a.due_date NULLS LAST, a.id;
     `;
 
-    const [assignmentStats] = await sequelize.query(assignmentStatsQuery, { replacements: [courseId] });
+    const [assignmentStats] = await sequelize.query(assignmentStatsQuery, {
+      replacements: { courseId },
+    });
     return assignmentStats;
   } catch (error) {
     throw new Error(`failed to fetch assignment stats for course ${courseId}: ${error.message}`);
@@ -226,13 +231,15 @@ export async function fetchInstructorTimeByCategory(sequelize, courseId) {
       FROM question_sessions qs
       JOIN assignment_questions aq ON aq.id = qs.assignment_question_id
       JOIN assignments a ON a.id = aq.assignment_id
-      WHERE a.course_id = $1
+      WHERE a.course_id = :courseId
         AND qs.ended_at IS NOT NULL
       GROUP BY category
       ORDER BY avg_minutes DESC NULLS LAST;
     `;
 
-    const [timeByCategory] = await sequelize.query(timeByCategoryQuery, { replacements: [courseId] });
+    const [timeByCategory] = await sequelize.query(timeByCategoryQuery, {
+      replacements: { courseId },
+    });
     return timeByCategory;
   } catch (error) {
     throw new Error(`failed to fetch time by category for course ${courseId}: ${error.message}`);
