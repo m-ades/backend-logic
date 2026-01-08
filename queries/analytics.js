@@ -91,6 +91,7 @@ export async function fetchStudentPerformance(sequelize, userId, courseId) {
       JOIN assignment_questions aq ON aq.id = s.assignment_question_id
       JOIN assignments a ON a.id = aq.assignment_id
       WHERE s.user_id = :userId
+        AND a.kind <> 'practice'
         AND (:courseId::int IS NULL OR a.course_id = :courseId::int);
     `;
 
@@ -104,7 +105,7 @@ export async function fetchStudentPerformance(sequelize, userId, courseId) {
 }
 
 /**
- * fetch submission count for a student.
+ * fetch assignment submission count for a student.
  * @param {import('sequelize').Sequelize} sequelize - db instance
  * @param {number} userId - student id
  * @param {number|null} courseId - filter by course (null for all)
@@ -113,7 +114,7 @@ export async function fetchStudentPerformance(sequelize, userId, courseId) {
 export async function fetchStudentSubmissionCount(sequelize, userId, courseId) {
   try {
     const submissionCountQuery = `
-      SELECT COUNT(*)::int AS submission_count
+      SELECT COUNT(DISTINCT aq.assignment_id)::int AS submission_count
       FROM submissions s
       JOIN assignment_questions aq ON aq.id = s.assignment_question_id
       JOIN assignments a ON a.id = aq.assignment_id
