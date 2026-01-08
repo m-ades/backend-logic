@@ -250,6 +250,7 @@ export function computeGradebookStudents(assignments, enrollments, grades, dropL
         final_score: finalScore,
         max_score: maxScore,
         percent,
+        has_grade: Boolean(grade),
       };
     });
 
