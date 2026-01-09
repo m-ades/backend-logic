@@ -19,6 +19,7 @@ import {
   fetchStudentPerformance,
   fetchStudentSubmissionCount,
   fetchStudentTime,
+  fetchAssignmentGradeSummary,
   fetchInstructorAssignmentStats,
   fetchInstructorGradeSummary,
   fetchInstructorTimeByCategory,
@@ -206,6 +207,22 @@ router.get(
 
     const students = await buildGradebookStudents(assignments, enrollments, dropLowestN);
     res.json(students);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/gradebook-summary', [courseIdParam, handleValidationResult], async (req, res, next) => {
+  try {
+    const { courseId } = req.query;
+    const enrollment = await CourseEnrollment.findOne({
+      where: { course_id: courseId, user_id: req.user.id },
+    });
+    if (!enrollment && !isSystemAdmin(req.user)) {
+      return res.status(403).json({ message: 'Enrollment required' });
+    }
+    const rows = await fetchAssignmentGradeSummary(sequelize, courseId);
+    res.json(rows);
   } catch (error) {
     next(error);
   }

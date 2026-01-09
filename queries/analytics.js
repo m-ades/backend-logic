@@ -218,6 +218,42 @@ export async function fetchInstructorAssignmentStats(sequelize, courseId) {
 }
 
 /**
+ * fetch per-assignment average + median percent for a course.
+ * @param {import('sequelize').Sequelize} sequelize - db instance
+ * @param {number} courseId - course id
+ * @returns {Promise<Array>} assignment summary rows
+ */
+export async function fetchAssignmentGradeSummary(sequelize, courseId) {
+  try {
+    const summaryQuery = `
+      SELECT
+        a.id,
+        a.title,
+        a.due_date,
+        a.total_points,
+        AVG(ag.final_score::float / NULLIF(ag.max_score, 0))
+          FILTER (WHERE ag.max_score > 0) AS avg_percent,
+        percentile_cont(0.5) WITHIN GROUP (
+          ORDER BY ag.final_score::float / NULLIF(ag.max_score, 0)
+        ) FILTER (WHERE ag.max_score > 0) AS median_percent
+      FROM assignments a
+      LEFT JOIN assignment_grades ag ON ag.assignment_id = a.id
+      WHERE a.course_id = :courseId
+        AND a.kind = 'assignment'
+      GROUP BY a.id
+      ORDER BY a.due_date NULLS LAST, a.id;
+    `;
+
+    const [rows] = await sequelize.query(summaryQuery, {
+      replacements: { courseId },
+    });
+    return rows;
+  } catch (error) {
+    throw new Error(`failed to fetch assignment grade summary for course ${courseId}: ${error.message}`);
+  }
+}
+
+/**
  * fetch average time by question category for a course.
  * @param {import('sequelize').Sequelize} sequelize - db instance
  * @param {number} courseId - course id
