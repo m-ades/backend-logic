@@ -9,6 +9,7 @@ import initSubmission from './Submission.js';
 import initAssignmentSession from './AssignmentSession.js';
 import initQuestionSession from './QuestionSession.js';
 import initAssignmentExtension from './AssignmentExtension.js';
+import initAssignmentQuestionOverride from './AssignmentQuestionOverride.js';
 import initAccommodation from './Accommodation.js';
 import initAssignmentGrade from './AssignmentGrade.js';
 
@@ -22,6 +23,7 @@ const Submission = initSubmission(sequelize);
 const AssignmentSession = initAssignmentSession(sequelize);
 const QuestionSession = initQuestionSession(sequelize);
 const AssignmentExtension = initAssignmentExtension(sequelize);
+const AssignmentQuestionOverride = initAssignmentQuestionOverride(sequelize);
 const Accommodation = initAccommodation(sequelize);
 const AssignmentGrade = initAssignmentGrade(sequelize);
 
@@ -49,8 +51,14 @@ AssignmentDraft.belongsTo(User, { foreignKey: 'user_id' });
 AssignmentQuestion.hasMany(Submission, { foreignKey: 'assignment_question_id' });
 Submission.belongsTo(AssignmentQuestion, { foreignKey: 'assignment_question_id' });
 
+AssignmentQuestion.hasMany(AssignmentQuestionOverride, { foreignKey: 'assignment_question_id' });
+AssignmentQuestionOverride.belongsTo(AssignmentQuestion, { foreignKey: 'assignment_question_id' });
+
 User.hasMany(Submission, { foreignKey: 'user_id' });
 Submission.belongsTo(User, { foreignKey: 'user_id' });
+
+User.hasMany(AssignmentQuestionOverride, { foreignKey: 'user_id' });
+AssignmentQuestionOverride.belongsTo(User, { foreignKey: 'user_id' });
 
 Assignment.hasMany(AssignmentSession, { foreignKey: 'assignment_id' });
 AssignmentSession.belongsTo(Assignment, { foreignKey: 'assignment_id' });
@@ -100,6 +108,7 @@ export {
   AssignmentSession,
   QuestionSession,
   AssignmentExtension,
+  AssignmentQuestionOverride,
   Accommodation,
   AssignmentGrade,
 };

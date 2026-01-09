@@ -1,8 +1,9 @@
 import express from 'express';
-import { body } from 'express-validator';
+import { body, param } from 'express-validator';
 import {
   Assignment,
   AssignmentExtension,
+  AssignmentQuestionOverride,
   CourseEnrollment,
   Accommodation,
   AssignmentGrade,
@@ -224,6 +225,49 @@ router.post('/assignments/:id/extensions', assignmentAccessValidators, async (re
     });
 
     const record = existing ? await existing.update(payload) : await AssignmentExtension.create(payload);
+    res.status(existing ? 200 : 201).json(record);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/assignment-questions/:id/overrides', [
+  param('id').isInt({ gt: 0 }).toInt().withMessage('assignment_question_id is required'),
+  body('user_id').isInt({ gt: 0 }).toInt().withMessage('user_id is required'),
+  body('extra_attempts').isInt({ min: 0 }).toInt().withMessage('extra_attempts is required'),
+  handleValidationResult,
+], async (req, res, next) => {
+  try {
+    const assignmentQuestionId = Number(req.params.id);
+    const userId = req.user.id;
+
+    const question = await AssignmentQuestion.findByPk(assignmentQuestionId, {
+      include: [{ model: Assignment }],
+    });
+    if (!question) {
+      return res.status(404).json({ message: 'Assignment question not found' });
+    }
+
+    if (!(await requireInstructor(question.Assignment?.course_id, userId))) {
+      return res.status(403).json({ message: 'Instructor access required' });
+    }
+
+    const targetUserId = Number(req.body.user_id);
+    const extraAttempts = Number(req.body.extra_attempts);
+
+    const payload = {
+      assignment_question_id: assignmentQuestionId,
+      user_id: targetUserId,
+      extra_attempts: extraAttempts,
+      reason: req.body.reason ?? null,
+      granted_by: userId,
+    };
+
+    const existing = await AssignmentQuestionOverride.findOne({
+      where: { assignment_question_id: assignmentQuestionId, user_id: targetUserId },
+    });
+
+    const record = existing ? await existing.update(payload) : await AssignmentQuestionOverride.create(payload);
     res.status(existing ? 200 : 201).json(record);
   } catch (error) {
     next(error);

@@ -4,6 +4,7 @@ import {
   Assignment,
   AssignmentQuestion,
   AssignmentExtension,
+  AssignmentQuestionOverride,
   Accommodation,
   CourseEnrollment,
   Submission,
@@ -58,13 +59,17 @@ router.post(
 
     // apply due date, extensions, and accommodations for non-practice work
     const assignment = assignmentQuestion.Assignment;
+    const accommodation = await Accommodation.findOne({
+      where: { course_id: assignment.course_id, user_id },
+    });
+    const extension = await AssignmentExtension.findOne({
+      where: { assignment_id: assignment.id, user_id },
+    });
+    const questionOverride = await AssignmentQuestionOverride.findOne({
+      where: { assignment_question_id, user_id },
+    });
+
     if (assignment?.kind !== 'practice' && assignment?.due_date) {
-      const extension = await AssignmentExtension.findOne({
-        where: { assignment_id: assignment.id, user_id },
-      });
-      const accommodation = await Accommodation.findOne({
-        where: { course_id: assignment.course_id, user_id },
-      });
       const policy = computeDeadlinePolicy({
         assignment,
         extension,
@@ -98,8 +103,14 @@ router.post(
     });
 
     const nextAttempt = existingAttempts + 1;
+    const baseAttemptLimit = assignmentQuestion.attempt_limit;
+    const extraAttempts = Number.isFinite(questionOverride?.extra_attempts)
+      ? questionOverride.extra_attempts
+      : 0;
+    const effectiveAttemptLimit = Math.max(1, baseAttemptLimit + extraAttempts);
+
     const attemptToUse = attempt || nextAttempt;
-    if (attemptToUse > assignmentQuestion.attempt_limit) {
+    if (attemptToUse > effectiveAttemptLimit) {
       return res.status(400).json({ message: 'Attempt limit exceeded' });
     }
 
@@ -142,7 +153,7 @@ router.post(
       ok: true,
       submission,
       validation: validation.result,
-      attempt_limit: assignmentQuestion.attempt_limit,
+      attempt_limit: effectiveAttemptLimit,
     });
   } catch (error) {
     next(error);
