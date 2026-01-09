@@ -23,12 +23,21 @@ import {
   fetchInstructorGradeSummary,
   fetchInstructorTimeByCategory,
 } from '../queries/analytics.js';
+import { ensureSelfOrAdmin, isSystemAdmin } from '../utils/authorization.js';
+import { requireInstructorOrAdmin } from './instructor.js';
 
 const router = express.Router();
 
 router.get('/assignments', [courseIdOptionalParam, handleValidationResult], async (req, res, next) => {
   try {
     const { courseId } = req.query;
+    if (courseId) {
+      if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
+        return res.status(403).json({ message: 'Instructor or admin access required' });
+      }
+    } else if (!isSystemAdmin(req.user)) {
+      return res.status(403).json({ message: 'Instructor or admin access required' });
+    }
     const rows = await fetchAssignmentAnalytics(sequelize, courseId ?? null);
     res.json(rows);
   } catch (error) {
@@ -43,6 +52,9 @@ router.get(
   try {
     const { userId } = req.query;
     const courseId = req.query.courseId ?? null;
+    if (!ensureSelfOrAdmin(req, res, userId)) {
+      return;
+    }
 
     const assignments = await fetchStudentAssignments(sequelize, userId, courseId);
     const performance = await fetchStudentPerformance(sequelize, userId, courseId);
@@ -112,6 +124,9 @@ router.get(
 router.get('/instructor', [courseIdParam, handleValidationResult], async (req, res, next) => {
   try {
     const { courseId } = req.query;
+    if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
+      return res.status(403).json({ message: 'Instructor or admin access required' });
+    }
 
     const gradeSummary = await fetchInstructorGradeSummary(sequelize, courseId);
     const assignmentStats = await fetchInstructorAssignmentStats(sequelize, courseId);
@@ -133,6 +148,9 @@ router.get(
   async (req, res, next) => {
   try {
     const { courseId } = req.query;
+    if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
+      return res.status(403).json({ message: 'Instructor or admin access required' });
+    }
     const dropLowestN = req.query.dropLowestN ?? 0;
     // assignment list + per-student stats together
 
@@ -158,6 +176,9 @@ router.get(
   async (req, res, next) => {
   try {
     const { courseId } = req.query;
+    if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
+      return res.status(403).json({ message: 'Instructor or admin access required' });
+    }
 
     //  list of assignment records for headers/columns
     const assignments = await fetchGradebookAssignments(courseId);
@@ -174,6 +195,9 @@ router.get(
   async (req, res, next) => {
   try {
     const { courseId } = req.query;
+    if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
+      return res.status(403).json({ message: 'Instructor or admin access required' });
+    }
     const dropLowestN = req.query.dropLowestN ?? 0;
 
     // student rows + per-assignment scores

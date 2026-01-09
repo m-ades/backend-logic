@@ -11,6 +11,10 @@ export function createCrudRouter(model, options = {}) {
     beforeCreate,
     beforeUpdate,
     disableGetById = false,
+    authorizeList,
+    listFilter,
+    authorizeCreate,
+    authorizeRecord,
   } = options;
   const router = express.Router();
   const idValidators = [
@@ -18,9 +22,13 @@ export function createCrudRouter(model, options = {}) {
     handleValidationResult,
   ];
 
-  router.get('/', async (_req, res, next) => {
+  router.get('/', async (req, res, next) => {
     try {
-      const records = await model.findAll({ order: [defaultOrder] });
+      if (authorizeList && !(await authorizeList(req))) {
+        return res.status(403).json({ message: 'Forbidden' });
+      }
+      const extraFilters = listFilter ? await listFilter(req) : {};
+      const records = await model.findAll({ order: [defaultOrder], ...extraFilters });
       res.json(sanitize ? records.map((record) => sanitize(record)) : records);
     } catch (error) {
       next(error);
@@ -34,6 +42,9 @@ export function createCrudRouter(model, options = {}) {
         if (!record) {
           return res.status(404).json({ message: 'Not found' });
         }
+        if (authorizeRecord && !(await authorizeRecord(req, record, 'read'))) {
+          return res.status(403).json({ message: 'Forbidden' });
+        }
         res.json(sanitize ? sanitize(record) : record);
       } catch (error) {
         next(error);
@@ -44,7 +55,10 @@ export function createCrudRouter(model, options = {}) {
   if (allowCreate) {
     router.post('/', async (req, res, next) => {
       try {
-        const payload = beforeCreate ? await beforeCreate(req.body) : req.body;
+        if (authorizeCreate && !(await authorizeCreate(req))) {
+          return res.status(403).json({ message: 'Forbidden' });
+        }
+        const payload = beforeCreate ? await beforeCreate(req, req.body) : req.body;
         const record = await model.create(payload);
         res.status(201).json(sanitize ? sanitize(record) : record);
       } catch (error) {
@@ -59,7 +73,10 @@ export function createCrudRouter(model, options = {}) {
       if (!record) {
         return res.status(404).json({ message: 'Not found' });
       }
-      const payload = beforeUpdate ? await beforeUpdate(req.body) : req.body;
+      if (authorizeRecord && !(await authorizeRecord(req, record, 'update'))) {
+        return res.status(403).json({ message: 'Forbidden' });
+      }
+      const payload = beforeUpdate ? await beforeUpdate(req, req.body, record) : req.body;
       await record.update(payload);
       res.json(sanitize ? sanitize(record) : record);
     } catch (error) {
@@ -73,6 +90,9 @@ export function createCrudRouter(model, options = {}) {
         const record = await model.findByPk(req.params.id);
         if (!record) {
           return res.status(404).json({ message: 'Not found' });
+        }
+        if (authorizeRecord && !(await authorizeRecord(req, record, 'delete'))) {
+          return res.status(403).json({ message: 'Forbidden' });
         }
         await record.destroy();
         res.status(204).end();

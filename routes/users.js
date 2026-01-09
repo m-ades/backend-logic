@@ -1,6 +1,7 @@
 import { createCrudRouter } from './crud.js';
 import { User, AssignmentGrade, Assignment, CourseEnrollment, Course } from '../models/index.js';
 import { hashPassword } from '../utils/passwords.js';
+import { isSelfOrAdmin, isSystemAdmin } from '../utils/authorization.js';
 import { handleValidationResult } from '../middleware/validation.js';
 import { userIdParam } from '../validators/common.js';
 
@@ -13,7 +14,9 @@ const sanitizeUser = (user) => {
 const router = createCrudRouter(User, {
   sanitize: sanitizeUser,
   allowCreate: false,
-  beforeCreate: async (payload) => {
+  authorizeList: (req) => isSystemAdmin(req.user),
+  authorizeRecord: (req, record) => isSelfOrAdmin(req.user, record.id),
+  beforeCreate: async (_req, payload) => {
     const data = { ...payload };
     if (data.password) {
       data.password_hash = await hashPassword(data.password);
@@ -21,7 +24,7 @@ const router = createCrudRouter(User, {
     }
     return data;
   },
-  beforeUpdate: async (payload) => {
+  beforeUpdate: async (_req, payload) => {
     const data = { ...payload };
     if (data.password) {
       data.password_hash = await hashPassword(data.password);
@@ -33,6 +36,9 @@ const router = createCrudRouter(User, {
 
 router.get('/:id/grades', [userIdParam, handleValidationResult], async (req, res, next) => {
   try {
+    if (!isSelfOrAdmin(req.user, req.params.id)) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
     const grades = await AssignmentGrade.findAll({
       where: { user_id: req.params.id },
       include: [{ model: Assignment }],

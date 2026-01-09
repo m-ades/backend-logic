@@ -48,6 +48,6 @@ export default async function requireAuth(req, res, next) {
     return res.status(401).json({ message: 'token revoked' });
   }
 
-  req.user = { id: user.id, username: user.username };
+  req.user = { id: user.id, username: user.username, is_system_admin: user.is_system_admin };
   return next();
 }

@@ -12,6 +12,7 @@ import {
 } from '../models/index.js';
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { autoSubmitIfPastDeadline } from '../utils/autoSubmit.js';
+import { ensureSelfOrAdmin, isSystemAdmin } from '../utils/authorization.js';
 
 const router = createCrudRouter(Assignment, { disableGetById: true });
 
@@ -25,6 +26,9 @@ router.get('/:id', [assignmentIdParam, userIdOptionalQuery, handleValidationResu
     const userId = req.query.userId;
     let policy = null;
     if (userId) {
+      if (!ensureSelfOrAdmin(req, res, userId)) {
+        return;
+      }
       const extension = await AssignmentExtension.findOne({
         where: { assignment_id: assignment.id, user_id: userId },
       });
@@ -64,6 +68,9 @@ router.get('/:id/questions', [assignmentIdParam, handleValidationResult], async 
 
 router.get('/:id/grades', [assignmentIdParam, handleValidationResult], async (req, res, next) => {
   try {
+    if (!isSystemAdmin(req.user)) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
     const grades = await AssignmentGrade.findAll({
       where: { assignment_id: req.params.id },
       include: [{ model: User }],
@@ -77,6 +84,11 @@ router.get('/:id/grades', [assignmentIdParam, handleValidationResult], async (re
 
 router.get('/:id/submissions', [assignmentIdParam, userIdOptionalQuery, handleValidationResult], async (req, res, next) => {
   try {
+    const requestedUserId = req.query.userId;
+    if (requestedUserId && !ensureSelfOrAdmin(req, res, requestedUserId)) {
+      return;
+    }
+    const scopedUserId = requestedUserId || (isSystemAdmin(req.user) ? null : req.user.id);
     const submissions = await Submission.findAll({
       include: [
         {
@@ -84,7 +96,7 @@ router.get('/:id/submissions', [assignmentIdParam, userIdOptionalQuery, handleVa
           where: { assignment_id: req.params.id },
         },
       ],
-      ...(req.query.userId ? { where: { user_id: req.query.userId } } : {}),
+      ...(scopedUserId ? { where: { user_id: scopedUserId } } : {}),
       order: [['submitted_at', 'DESC']],
     });
     res.json(submissions);

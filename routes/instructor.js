@@ -16,12 +16,11 @@ import { handleValidationResult } from '../middleware/validation.js';
 import {
   assignmentIdParam,
   courseIdParam,
-  userIdQuery,
 } from '../validators/common.js';
 
 const router = express.Router();
-const courseAccessValidators = [courseIdParam, userIdQuery, handleValidationResult];
-const assignmentAccessValidators = [assignmentIdParam, userIdQuery, handleValidationResult];
+const courseAccessValidators = [courseIdParam, handleValidationResult];
+const assignmentAccessValidators = [assignmentIdParam, handleValidationResult];
 
 export async function requireInstructor(courseId, userId) {
   const enrollment = await CourseEnrollment.findOne({
@@ -48,7 +47,6 @@ router.post(
   '/courses/:id/students',
   [
     courseIdParam,
-    userIdQuery,
     body('username').isString().trim().notEmpty().withMessage('username is required'),
     body('password').isString().notEmpty().withMessage('password is required'),
     handleValidationResult,
@@ -56,7 +54,7 @@ router.post(
   async (req, res, next) => {
   try {
     const courseId = req.params.id;
-    const userId = req.query.userId;
+    const userId = req.user.id;
 
     if (!(await requireInstructorOrAdmin(courseId, userId))) {
       return res.status(403).json({ message: 'Instructor or admin access required' });
@@ -94,7 +92,7 @@ router.post(
 router.get('/courses/:id/roster', courseAccessValidators, async (req, res, next) => {
   try {
     const courseId = req.params.id;
-    const userId = req.query.userId;
+    const userId = req.user.id;
 
     if (!(await requireInstructor(courseId, userId))) {
       return res.status(403).json({ message: 'Instructor access required' });
@@ -115,7 +113,7 @@ router.get('/courses/:id/roster', courseAccessValidators, async (req, res, next)
 router.get('/courses/:id/accommodations', courseAccessValidators, async (req, res, next) => {
   try {
     const courseId = req.params.id;
-    const userId = req.query.userId;
+    const userId = req.user.id;
 
     if (!(await requireInstructor(courseId, userId))) {
       return res.status(403).json({ message: 'Instructor access required' });
@@ -136,7 +134,7 @@ router.get('/courses/:id/accommodations', courseAccessValidators, async (req, re
 router.post('/courses/:id/accommodations', courseAccessValidators, async (req, res, next) => {
   try {
     const courseId = req.params.id;
-    const userId = req.query.userId;
+    const userId = req.user.id;
 
     if (!(await requireInstructor(courseId, userId))) {
       return res.status(403).json({ message: 'Instructor access required' });
@@ -170,7 +168,7 @@ router.post('/courses/:id/accommodations', courseAccessValidators, async (req, r
 router.get('/assignments/:id/extensions', assignmentAccessValidators, async (req, res, next) => {
   try {
     const assignmentId = req.params.id;
-    const userId = req.query.userId;
+    const userId = req.user.id;
 
     const assignment = await Assignment.findByPk(assignmentId);
     if (!assignment) {
@@ -196,7 +194,7 @@ router.get('/assignments/:id/extensions', assignmentAccessValidators, async (req
 router.post('/assignments/:id/extensions', assignmentAccessValidators, async (req, res, next) => {
   try {
     const assignmentId = req.params.id;
-    const userId = req.query.userId;
+    const userId = req.user.id;
 
     const assignment = await Assignment.findByPk(assignmentId);
     if (!assignment) {
@@ -235,7 +233,7 @@ router.post('/assignments/:id/extensions', assignmentAccessValidators, async (re
 router.post('/assignments/:id/extensions/classwide', assignmentAccessValidators, async (req, res, next) => {
   try {
     const assignmentId = req.params.id;
-    const userId = req.query.userId;
+    const userId = req.user.id;
 
     const assignment = await Assignment.findByPk(assignmentId);
     if (!assignment) {
@@ -281,7 +279,7 @@ router.post('/assignments/:id/extensions/classwide', assignmentAccessValidators,
 router.get('/assignments/:id/submissions', assignmentAccessValidators, async (req, res, next) => {
   try {
     const assignmentId = req.params.id;
-    const userId = req.query.userId;
+    const userId = req.user.id;
 
     const assignment = await Assignment.findByPk(assignmentId);
     if (!assignment) {
@@ -312,7 +310,7 @@ router.get('/assignments/:id/submissions', assignmentAccessValidators, async (re
 router.get('/assignments/:id/grades', assignmentAccessValidators, async (req, res, next) => {
   try {
     const assignmentId = req.params.id;
-    const userId = req.query.userId;
+    const userId = req.user.id;
 
     const assignment = await Assignment.findByPk(assignmentId);
     if (!assignment) {
@@ -338,7 +336,7 @@ router.get('/assignments/:id/grades', assignmentAccessValidators, async (req, re
 router.get('/courses/:id/deadlines', courseAccessValidators, async (req, res, next) => {
   try {
     const courseId = req.params.id;
-    const userId = req.query.userId;
+    const userId = req.user.id;
 
     if (!(await requireInstructor(courseId, userId))) {
       return res.status(403).json({ message: 'Instructor access required' });

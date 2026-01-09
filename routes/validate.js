@@ -12,6 +12,7 @@ import { validateLogicPenguin } from '../validators/logicpenguin.js';
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { recomputeAssignmentGrade } from '../utils/grades.js';
 import { handleValidationResult } from '../middleware/validation.js';
+import { ensureSelfOrAdmin } from '../utils/authorization.js';
 
 const router = express.Router();
 
@@ -35,6 +36,9 @@ router.post(
       ruleset,
       validation_version,
     } = req.body;
+    if (!ensureSelfOrAdmin(req, res, user_id)) {
+      return;
+    }
 
     // require fields that are definitely needed to accept a submission
     // load the question and its assignment for policy checks
