@@ -27,6 +27,24 @@ const CHECKERS = {
   'single-row-truth-table': singleRowTruthTable,
 };
 
+function normalizeComponentCount(question) {
+  const components = question?.components;
+  if (Array.isArray(components)) {
+    return components.length;
+  }
+  if (Number.isFinite(components)) {
+    return Math.max(1, Math.floor(components));
+  }
+  return null;
+}
+
+function clampFraction(value) {
+  if (!Number.isFinite(value)) return 0;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+}
+
 function pickDefined(...values) {
   for (const value of values) {
     if (value !== undefined) {
@@ -196,9 +214,23 @@ export async function validateLogicPenguin({
   );
 
   const isCorrect = checkResult.successstatus === 'correct';
+  const rawScore = Number.isFinite(checkResult.points)
+    ? checkResult.points
+    : (isCorrect ? points : 0);
+  const componentCount = normalizeComponentCount(question);
+  const componentScores = Array.isArray(checkResult.componentScores)
+    ? checkResult.componentScores.map(clampFraction)
+    : null;
+  const effectiveComponentCount = componentCount || componentScores?.length || 1;
+  const normalizedScores = componentScores
+    ? componentScores
+    : Array(effectiveComponentCount).fill(clampFraction(rawScore / points));
+  const score = Math.round(
+    (normalizedScores.reduce((sum, value) => sum + value, 0) / effectiveComponentCount) * 100
+  );
   return {
     isCorrect,
-    score: checkResult.points ?? (isCorrect ? points : 0),
+    score,
     result: checkResult,
   };
 }

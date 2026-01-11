@@ -19,7 +19,7 @@ export async function recomputeAssignmentGrade({ assignmentId, userId }) {
 
   const questions = await AssignmentQuestion.findAll({
     where: { assignment_id: assignmentId },
-    attributes: ['id', 'points_value'],
+    attributes: ['id'],
   });
   if (!questions.length) {
     return null;
@@ -60,7 +60,7 @@ export async function recomputeAssignmentGrade({ assignmentId, userId }) {
     (sum, question) => sum + (scoreByQuestion.get(question.id) || 0),
     0
   );
-  const maxScore = questions.reduce((sum, question) => sum + toNumber(question.points_value), 0);
+  const maxScore = questions.length * 100;
 
   const extension = await AssignmentExtension.findOne({
     where: { assignment_id: assignmentId, user_id: userId },

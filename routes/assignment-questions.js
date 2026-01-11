@@ -26,13 +26,13 @@ router.post(
       assignment_id: assignmentId,
       question_snapshot: question.question_snapshot,
       order_index: question.order_index,
-      points_value: question.points_value,
+      points_value: question.points_value ?? 100,
       attempt_limit: question.attempt_limit ?? 3,
     }));
 
-    if (payload.some((item) => item.question_snapshot == null || item.order_index == null || item.points_value == null)) {
+    if (payload.some((item) => item.question_snapshot == null || item.order_index == null)) {
       return res.status(400).json({
-        message: 'Each question requires question_snapshot, order_index, and points_value',
+        message: 'Each question requires question_snapshot and order_index',
       });
     }
 

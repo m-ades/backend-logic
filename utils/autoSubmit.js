@@ -71,7 +71,7 @@ export async function autoSubmitIfPastDeadline(assignment, userId) {
     const validation = await validateLogicPenguin({
       question: questionSnapshot,
       submission: draft.draft_data,
-      points: question.points_value,
+      points: 100,
       options,
     });
 

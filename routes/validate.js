@@ -130,7 +130,7 @@ router.post(
     const validation = await validateLogicPenguin({
       question: questionSnapshot,
       submission: submission_data,
-      points: assignmentQuestion.points_value,
+      points: 100,
       options,
     });
 
