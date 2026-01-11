@@ -154,6 +154,11 @@ export async function validateLogicPenguin({
   points,
   options = {},
 }) {
+  const mergedOptions = {
+    ...options,
+    ...(question?.options || {}),
+    ...(question?.truthTable?.options || {}),
+  };
   const type = normalizeType(question);
   const checkerKey = type === 'truth-table'
     ? `${question.truthTable?.kind || 'formula'}-truth-table`
@@ -165,11 +170,11 @@ export async function validateLogicPenguin({
   }
 
   process.appsettings = process.appsettings || {};
-  if (options.notation) {
-    process.appsettings.defaultnotation = options.notation;
+  if (mergedOptions.notation) {
+    process.appsettings.defaultnotation = mergedOptions.notation;
   }
 
-  const answer = computeAnswer(question, options);
+  const answer = computeAnswer(question, mergedOptions);
   let givenans = submission;
 
   if (checkerKey === 'derivation-hurley') {
@@ -184,10 +189,10 @@ export async function validateLogicPenguin({
     question,
     answer,
     givenans,
-    Boolean(options.partialcredit),
+    Boolean(mergedOptions.partialcredit),
     points,
     false,
-    options
+    mergedOptions
   );
 
   const isCorrect = checkResult.successstatus === 'correct';
