@@ -7,7 +7,7 @@ import symbolicTranslation from '../lib/logicpenguin/checkers/symbolic-translati
 import multipleChoice from '../lib/logicpenguin/checkers/multiple-choice.js';
 import trueFalse from '../lib/logicpenguin/checkers/true-false.js';
 import evaluateTruth from '../lib/logicpenguin/checkers/evaluate-truth.js';
-import validCorrectSound from '../lib/logicpenguin/checkers/valid-correct-sound.js';
+// import validCorrectSound from '../lib/logicpenguin/checkers/valid-correct-sound.js';
 import singleRowTruthTable from '../lib/logicpenguin/checkers/single-row-truth-table.js';
 import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
 import { formulaTable, equivTables, argumentTables, libtf } from '../lib/logicpenguin/symbolic/libsemantics.js';
@@ -23,7 +23,7 @@ const CHECKERS = {
   'multiple-choice': multipleChoice,
   'true-false': trueFalse,
   'evaluate-truth': evaluateTruth,
-  'valid-correct-sound': validCorrectSound,
+  // 'valid-correct-sound': validCorrectSound,
   'single-row-truth-table': singleRowTruthTable,
 };
 
@@ -139,10 +139,15 @@ function computeAnswer(question, options) {
   }
 
   if (type === 'multiple-choice') {
+    if (Array.isArray(question?.subquestions)) {
+      return question.subquestions;
+    }
     return pickDefined(
+      question?.multipleChoice?.answerIndices,
       question?.multipleChoice?.answerIndex,
       question?.multipleChoice?.correctIndex,
       question?.answerIndex,
+      question?.answerIndices,
       question?.answer
     );
   }
@@ -155,9 +160,9 @@ function computeAnswer(question, options) {
     return pickDefined(question?.answer, question?.translationAnswer);
   }
 
-  if (type === 'valid-correct-sound') {
-    return pickDefined(question?.answer, question?.validCorrectSoundAnswer);
-  }
+  // if (type === 'valid-correct-sound') {
+  //   return pickDefined(question?.answer, question?.validCorrectSoundAnswer);
+  // }
 
   if (type === 'combo-translation-truth-table') {
     return question?.answer;

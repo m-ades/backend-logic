@@ -9,6 +9,7 @@ jest.unstable_mockModule('../models/index.js', () => ({
   Accommodation: {},
   AssignmentGrade: {},
   AssignmentQuestion: {},
+  AssignmentQuestionOverride: {},
   Submission: {},
   CourseEnrollment: { findOne },
   User: { findByPk },

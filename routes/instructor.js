@@ -45,6 +45,70 @@ const sanitizeUser = (user) => {
 };
 
 router.post(
+  '/courses/:id/students/bulk',
+  [
+    courseIdParam,
+    body('students').isArray({ min: 1 }).withMessage('students must be a non-empty array'),
+    body('students.*.username').isString().trim().notEmpty().withMessage('username is required'),
+    body('students.*.password').isString().notEmpty().withMessage('password is required'),
+    handleValidationResult,
+  ],
+  async (req, res, next) => {
+  try {
+    const courseId = req.params.id;
+    const userId = req.user.id;
+
+    if (!(await requireInstructorOrAdmin(courseId, userId))) {
+      return res.status(403).json({ message: 'Instructor or admin access required' });
+    }
+
+    const students = req.body.students || [];
+    const results = {
+      success: true,
+      imported: 0,
+      skipped: 0,
+      errors: [],
+      students: [],
+    };
+
+    for (const student of students) {
+      const username = String(student.username || '').trim();
+      const password = student.password;
+
+      const existing = await User.findOne({ where: { username } });
+      if (existing) {
+        results.skipped += 1;
+        results.errors.push({ username, reason: 'Username already in use' });
+        results.success = false;
+        continue;
+      }
+
+      try {
+        const password_hash = await hashPassword(password);
+        const newUser = await User.create({ username, password_hash });
+
+        await CourseEnrollment.create({
+          course_id: courseId,
+          user_id: newUser.id,
+          role: 'student',
+        });
+
+        results.imported += 1;
+        results.students.push(sanitizeUser(newUser));
+      } catch (error) {
+        results.skipped += 1;
+        results.errors.push({ username, reason: error?.message || 'Failed to create student' });
+        results.success = false;
+      }
+    }
+
+    res.status(201).json(results);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post(
   '/courses/:id/students',
   [
     courseIdParam,
@@ -85,6 +149,38 @@ router.post(
     });
 
     res.status(201).json({ user: sanitizeUser(newUser) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete(
+  '/courses/:id/students/:studentId',
+  [
+    courseIdParam,
+    param('studentId').isInt({ gt: 0 }).toInt().withMessage('studentId must be a positive integer'),
+    handleValidationResult,
+  ],
+  async (req, res, next) => {
+  try {
+    const courseId = req.params.id;
+    const studentId = req.params.studentId;
+    const userId = req.user.id;
+
+    if (!(await requireInstructorOrAdmin(courseId, userId))) {
+      return res.status(403).json({ message: 'Instructor or admin access required' });
+    }
+
+    const enrollment = await CourseEnrollment.findOne({
+      where: { course_id: courseId, user_id: studentId, role: 'student' },
+    });
+
+    if (!enrollment) {
+      return res.status(404).json({ message: 'Enrollment not found' });
+    }
+
+    await enrollment.destroy();
+    res.json({ deleted: true, course_id: Number(courseId), user_id: Number(studentId) });
   } catch (error) {
     next(error);
   }
