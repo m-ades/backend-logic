@@ -14,8 +14,24 @@ import {
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { autoSubmitIfPastDeadline } from '../utils/autoSubmit.js';
 import { ensureSelfOrAdmin, isSystemAdmin } from '../utils/authorization.js';
+import { requireInstructorOrAdmin } from './instructor.js';
 
-const router = createCrudRouter(Assignment, { disableGetById: true });
+const router = createCrudRouter(Assignment, {
+  disableGetById: true,
+  authorizeCreate: async (req) => {
+    const courseId = Number(req.body?.course_id);
+    if (!Number.isFinite(courseId)) {
+      return false;
+    }
+    return requireInstructorOrAdmin(courseId, req.user.id);
+  },
+  authorizeRecord: (req, record, action) => {
+    if (action === 'read') {
+      return true;
+    }
+    return requireInstructorOrAdmin(record.course_id, req.user.id);
+  },
+});
 
 router.get('/:id', [assignmentIdParam, userIdOptionalQuery, handleValidationResult], async (req, res, next) => {
   try {

@@ -1,11 +1,33 @@
 import { createCrudRouter } from './crud.js';
+import { Op } from 'sequelize';
 import { Course, Assignment, CourseEnrollment, User } from '../models/index.js';
 import { handleValidationResult } from '../middleware/validation.js';
 import { courseIdParam } from '../validators/common.js';
 import { isSystemAdmin } from '../utils/authorization.js';
 import { requireInstructorOrAdmin } from './instructor.js';
 
-const router = createCrudRouter(Course);
+async function requireInstructorInAnyCourseOrAdmin(user) {
+  if (isSystemAdmin(user)) {
+    return true;
+  }
+  const enrollment = await CourseEnrollment.findOne({
+    where: {
+      user_id: user.id,
+      role: { [Op.in]: ['instructor', 'ta'] },
+    },
+  });
+  return Boolean(enrollment);
+}
+
+const router = createCrudRouter(Course, {
+  authorizeCreate: (req) => requireInstructorInAnyCourseOrAdmin(req.user),
+  authorizeRecord: (req, record, action) => {
+    if (action === 'read') {
+      return true;
+    }
+    return requireInstructorOrAdmin(record.id, req.user.id);
+  },
+});
 
 async function requireEnrollmentOrAdmin(courseId, user) {
   if (isSystemAdmin(user)) {
