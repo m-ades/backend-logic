@@ -16,7 +16,12 @@ const router = createCrudRouter(User, {
   sanitize: sanitizeUser,
   allowCreate: false,
   authorizeList: (req) => isSystemAdmin(req.user),
-  authorizeRecord: (req, record) => isSelfOrAdmin(req.user, record.id),
+  authorizeRecord: (req, record, action) => {
+    if (action === 'delete') {
+      return isSystemAdmin(req.user); // block self-delete; admin only
+    }
+    return isSelfOrAdmin(req.user, record.id);
+  },
   beforeCreate: async (_req, payload) => {
     const data = { ...payload };
     if (data.password) {
