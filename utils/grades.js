@@ -1,10 +1,12 @@
-import { QueryTypes } from 'sequelize';
+import { QueryTypes, Op } from 'sequelize';
 import {
   Accommodation,
   Assignment,
   AssignmentExtension,
   AssignmentGrade,
   AssignmentQuestion,
+  CourseEnrollment,
+  Submission,
 } from '../models/index.js';
 import { sequelize } from '../config/sequelize.js';
 import { computeDeadlinePolicy } from './assignmentPolicy.js';
@@ -97,4 +99,78 @@ export async function recomputeAssignmentGrade({ assignmentId, userId }) {
 
   const grade = existing ? await existing.update(payload) : await AssignmentGrade.create(payload);
   return grade;
+}
+
+export async function ensureZeroGradesForPastDue({ userId }) {
+  const enrollments = await CourseEnrollment.findAll({
+    where: { user_id: userId },
+    attributes: ['course_id'],
+  });
+  if (!enrollments.length) return;
+  const courseIds = enrollments.map((e) => e.course_id);
+
+  const assignments = await Assignment.findAll({
+    where: {
+      course_id: courseIds,
+      kind: 'assignment',
+      due_date: { [Op.ne]: null },
+    },
+    attributes: [
+      'id',
+      'course_id',
+      'due_date',
+      'late_window_days',
+      'late_penalty_percent',
+      'is_locked',
+    ],
+  });
+
+  if (!assignments.length) return;
+
+  const now = new Date();
+  for (const assignment of assignments) {
+    const questions = await AssignmentQuestion.findAll({
+      where: { assignment_id: assignment.id },
+      attributes: ['id'],
+    });
+    if (!questions.length) continue;
+
+    const extension = await AssignmentExtension.findOne({
+      where: { assignment_id: assignment.id, user_id: userId },
+    });
+    const accommodation = await Accommodation.findOne({
+      where: { course_id: assignment.course_id, user_id: userId },
+    });
+    const policy = computeDeadlinePolicy({ assignment, extension, accommodation });
+    if (!policy.cutoff_at || now <= policy.cutoff_at) {
+      continue;
+    }
+
+    const gradeExists = await AssignmentGrade.findOne({
+      where: { assignment_id: assignment.id, user_id: userId },
+    });
+    if (gradeExists) {
+      continue;
+    }
+
+    const questionIds = questions.map((q) => q.id);
+    const submissionCount = await Submission.count({
+      where: { assignment_question_id: questionIds, user_id: userId },
+    });
+    if (submissionCount > 0) {
+      continue;
+    }
+
+    const maxScore = questions.length * 100;
+    await AssignmentGrade.create({
+      assignment_id: assignment.id,
+      user_id: userId,
+      raw_score: 0,
+      max_score: maxScore,
+      penalty_percent: 0,
+      final_score: 0,
+      graded_at: now,
+      graded_by: null,
+    });
+  }
 }

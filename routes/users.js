@@ -4,6 +4,7 @@ import { hashPassword } from '../utils/passwords.js';
 import { isSelfOrAdmin, isSystemAdmin } from '../utils/authorization.js';
 import { handleValidationResult } from '../middleware/validation.js';
 import { userIdParam } from '../validators/common.js';
+import { ensureZeroGradesForPastDue } from '../utils/grades.js';
 
 const sanitizeUser = (user) => {
   const data = user.toJSON ? user.toJSON() : user;
@@ -39,6 +40,7 @@ router.get('/:id/grades', [userIdParam, handleValidationResult], async (req, res
     if (!isSelfOrAdmin(req.user, req.params.id)) {
       return res.status(403).json({ message: 'Forbidden' });
     }
+    await ensureZeroGradesForPastDue({ userId: req.params.id });
     const grades = await AssignmentGrade.findAll({
       where: { user_id: req.params.id },
       include: [{ model: Assignment }],
