@@ -110,9 +110,13 @@ router.get('/:id', [assignmentIdParam, userIdOptionalQuery, handleValidationResu
         if (attemptCount < data.attempt_limit) {
           const snapshot = data.question_snapshot;
           if (snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)) {
-            if (Object.prototype.hasOwnProperty.call(snapshot, 'answer')) {
+            if (
+              Object.prototype.hasOwnProperty.call(snapshot, 'answer')
+              || Object.prototype.hasOwnProperty.call(snapshot, 'answerIndex')
+            ) {
               const sanitized = { ...snapshot };
               delete sanitized.answer;
+              delete sanitized.answerIndex;
               data.question_snapshot = sanitized;
             }
           }
