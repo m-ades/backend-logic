@@ -17,6 +17,13 @@ const getCookieOptions = () => ({
   path: '/',
 });
 
+const getClearCookieOptions = () => ({
+  httpOnly: true,
+  sameSite: 'lax',
+  secure: process.env.NODE_ENV === 'production',
+  path: '/',
+});
+
 const sanitizeUser = (user) => {
   const data = user.toJSON ? user.toJSON() : user;
   delete data.password_hash;
@@ -60,7 +67,7 @@ router.post(
 
 router.post('/logout', (_req, res) => {
   // jwt logout drop the token
-  res.clearCookie(COOKIE_NAME, getCookieOptions());
+  res.clearCookie(COOKIE_NAME, getClearCookieOptions());
   res.json({ ok: true });
 });
 
@@ -78,7 +85,7 @@ router.post('/logout-all', async (req, res, next) => {
     }
 
     await user.update({ token_version: user.token_version + 1 });
-    res.clearCookie(COOKIE_NAME, getCookieOptions());
+    res.clearCookie(COOKIE_NAME, getClearCookieOptions());
     res.json({ ok: true });
   } catch (error) {
     next(error);

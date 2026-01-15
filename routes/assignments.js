@@ -10,6 +10,7 @@ import {
   AssignmentGrade,
   Submission,
   User,
+  sequelize,
 } from '../models/index.js';
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { autoSubmitIfPastDeadline } from '../utils/autoSubmit.js';
@@ -40,26 +41,26 @@ router.get('/:id', [assignmentIdParam, userIdOptionalQuery, handleValidationResu
       return res.status(404).json({ message: 'Not found' });
     }
 
-    const userId = req.query.userId;
+    const requestedUserId = req.query.userId;
     let policy = null;
     let accommodation = null;
-    if (userId) {
-      if (!ensureSelfOrAdmin(req, res, userId)) {
+    if (requestedUserId) {
+      if (!ensureSelfOrAdmin(req, res, requestedUserId)) {
         return;
       }
       accommodation = await Accommodation.findOne({
-        where: { course_id: assignment.course_id, user_id: userId },
+        where: { course_id: assignment.course_id, user_id: requestedUserId },
       });
       if (assignment?.kind !== 'practice' && assignment?.due_date) {
         const extension = await AssignmentExtension.findOne({
-          where: { assignment_id: assignment.id, user_id: userId },
+          where: { assignment_id: assignment.id, user_id: requestedUserId },
         });
         policy = computeDeadlinePolicy({
           assignment,
           extension,
           accommodation,
         });
-        await autoSubmitIfPastDeadline(assignment, userId);
+        await autoSubmitIfPastDeadline(assignment, requestedUserId);
       }
     }
 
@@ -69,10 +70,10 @@ router.get('/:id', [assignmentIdParam, userIdOptionalQuery, handleValidationResu
     });
 
     let questionsWithLimits = questions;
-    if (userId && questions.length) {
+    if (requestedUserId && questions.length) {
       const questionIds = questions.map((question) => question.id);
       const overrides = await AssignmentQuestionOverride.findAll({
-        where: { assignment_question_id: questionIds, user_id: userId },
+        where: { assignment_question_id: questionIds, user_id: requestedUserId },
       });
       const overrideMap = new Map(
         overrides.map((override) => [override.assignment_question_id, override.extra_attempts])
@@ -83,6 +84,39 @@ router.get('/:id', [assignmentIdParam, userIdOptionalQuery, handleValidationResu
           ? overrideMap.get(question.id)
           : 0;
         data.attempt_limit = Math.max(1, data.attempt_limit + extraAttempts);
+        return data;
+      });
+    }
+
+    const userIdForFiltering = requestedUserId || req.user?.id;
+    const canSeeAnswers = await requireInstructorOrAdmin(assignment.course_id, req.user.id);
+    if (!canSeeAnswers && userIdForFiltering && questionsWithLimits.length) {
+      const questionIds = questionsWithLimits.map((question) => question.id);
+      const attemptCounts = await Submission.findAll({
+        where: { assignment_question_id: questionIds, user_id: userIdForFiltering },
+        attributes: [
+          'assignment_question_id',
+          [sequelize.fn('COUNT', sequelize.col('id')), 'attempt_count'],
+        ],
+        group: ['assignment_question_id'],
+        raw: true,
+      });
+      const attemptCountMap = new Map(
+        attemptCounts.map((row) => [row.assignment_question_id, Number(row.attempt_count)])
+      );
+      questionsWithLimits = questionsWithLimits.map((question) => {
+        const data = question.toJSON ? question.toJSON() : { ...question };
+        const attemptCount = attemptCountMap.get(data.id) ?? 0;
+        if (attemptCount < data.attempt_limit) {
+          const snapshot = data.question_snapshot;
+          if (snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)) {
+            if (Object.prototype.hasOwnProperty.call(snapshot, 'answer')) {
+              const sanitized = { ...snapshot };
+              delete sanitized.answer;
+              data.question_snapshot = sanitized;
+            }
+          }
+        }
         return data;
       });
     }
