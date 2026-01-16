@@ -3,6 +3,7 @@ import formulaTruthTable from '../lib/logicpenguin/checkers/formula-truth-table.
 import equivalenceTruthTable from '../lib/logicpenguin/checkers/equivalence-truth-table.js';
 import argumentTruthTable from '../lib/logicpenguin/checkers/argument-truth-table.js';
 import comboTranslationTruthTable from '../lib/logicpenguin/checkers/combo-translation-truth-table.js';
+import comboTranslationDerivation from '../lib/logicpenguin/checkers/combo-translation-derivation.js';
 import symbolicTranslation from '../lib/logicpenguin/checkers/symbolic-translation.js';
 import multipleChoice from '../lib/logicpenguin/checkers/multiple-choice.js';
 import trueFalse from '../lib/logicpenguin/checkers/true-false.js';
@@ -21,6 +22,7 @@ const CHECKERS = {
   'equivalence-truth-table': equivalenceTruthTable,
   'argument-truth-table': argumentTruthTable,
   'combo-translation-truth-table': comboTranslationTruthTable,
+  'combo-translation-derivation': comboTranslationDerivation,
   'symbolic-translation': symbolicTranslation,
   'multiple-choice': multipleChoice,
   'indirect-truth-table': indirectTruthTable,
@@ -181,6 +183,10 @@ function computeAnswer(question, options) {
   // }
 
   if (type === 'combo-translation-truth-table') {
+    return question?.answer;
+  }
+
+  if (type === 'combo-translation-derivation') {
     return question?.answer;
   }
 
