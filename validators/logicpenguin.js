@@ -163,6 +163,10 @@ function computeAnswer(question, options) {
   }
 
   if (type === 'indirect-truth-table') {
+    const subqs = question?.subquestions || question?.questions;
+    if (Array.isArray(subqs) && subqs.length > 0) {
+      return subqs;
+    }
     return pickDefined(
       question?.answerIndex,
       question?.answerIndices,
@@ -209,6 +213,12 @@ export async function validateLogicPenguin({
     ? `${question.truthTable?.kind || 'formula'}-truth-table`
     : type;
   const checker = CHECKERS[checkerKey];
+  const normalizedQuestion = {
+    ...question,
+  };
+  if (!normalizedQuestion.subquestions && Array.isArray(normalizedQuestion.questions)) {
+    normalizedQuestion.subquestions = normalizedQuestion.questions;
+  }
 
   if (!checker) {
     throw new Error(`Unsupported problem type: ${checkerKey}`);
@@ -219,7 +229,7 @@ export async function validateLogicPenguin({
     process.appsettings.defaultnotation = mergedOptions.notation;
   }
 
-  const answer = computeAnswer(question, mergedOptions);
+  const answer = computeAnswer(normalizedQuestion, mergedOptions);
   let givenans = submission;
 
   if (checkerKey === 'derivation-hurley') {
@@ -231,7 +241,7 @@ export async function validateLogicPenguin({
   }
 
   const checkResult = await checker(
-    question,
+    normalizedQuestion,
     answer,
     givenans,
     Boolean(mergedOptions.partialcredit),
