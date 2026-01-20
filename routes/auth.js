@@ -9,20 +9,26 @@ const router = express.Router();
 const COOKIE_NAME = 'auth_token';
 const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
-const getCookieOptions = () => ({
-  httpOnly: true,
-  sameSite: 'lax',
-  secure: process.env.NODE_ENV === 'production',
-  maxAge: COOKIE_MAX_AGE_MS,
-  path: '/',
-});
+const getCookieOptions = () => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  return {
+    httpOnly: true,
+    sameSite: isProduction ? 'none' : 'lax',
+    secure: isProduction,
+    maxAge: COOKIE_MAX_AGE_MS,
+    path: '/',
+  };
+};
 
-const getClearCookieOptions = () => ({
-  httpOnly: true,
-  sameSite: 'lax',
-  secure: process.env.NODE_ENV === 'production',
-  path: '/',
-});
+const getClearCookieOptions = () => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  return {
+    httpOnly: true,
+    sameSite: isProduction ? 'none' : 'lax',
+    secure: isProduction,
+    path: '/',
+  };
+};
 
 const sanitizeUser = (user) => {
   const data = user.toJSON ? user.toJSON() : user;
