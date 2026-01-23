@@ -1,6 +1,6 @@
 import { createCrudRouter } from './crud.js';
 import { User, AssignmentGrade, Assignment, CourseEnrollment, Course } from '../models/index.js';
-import { hashPassword } from '../utils/passwords.js';
+import { hashPassword, isStrongPassword, PASSWORD_POLICY_MESSAGE } from '../utils/passwords.js';
 import { isSelfOrAdmin, isSystemAdmin } from '../utils/authorization.js';
 import { handleValidationResult } from '../middleware/validation.js';
 import { userIdParam } from '../validators/common.js';
@@ -10,6 +10,14 @@ const sanitizeUser = (user) => {
   const data = user.toJSON ? user.toJSON() : user;
   delete data.password_hash;
   return data;
+};
+
+const assertStrongPassword = (password) => {
+  if (!isStrongPassword(password)) {
+    const error = new Error(PASSWORD_POLICY_MESSAGE);
+    error.status = 400;
+    throw error;
+  }
 };
 
 const router = createCrudRouter(User, {
@@ -25,6 +33,7 @@ const router = createCrudRouter(User, {
   beforeCreate: async (_req, payload) => {
     const data = { ...payload };
     if (data.password) {
+      assertStrongPassword(data.password);
       data.password_hash = await hashPassword(data.password);
       delete data.password;
     }
@@ -33,6 +42,7 @@ const router = createCrudRouter(User, {
   beforeUpdate: async (_req, payload) => {
     const data = { ...payload };
     if (data.password) {
+      assertStrongPassword(data.password);
       data.password_hash = await hashPassword(data.password);
       delete data.password;
     }

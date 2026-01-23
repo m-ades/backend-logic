@@ -12,7 +12,11 @@ import {
   User,
 } from '../models/index.js';
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
-import { hashPassword } from '../utils/passwords.js';
+import {
+  hashPassword,
+  isStrongPassword,
+  PASSWORD_POLICY_MESSAGE,
+} from '../utils/passwords.js';
 import { handleValidationResult } from '../middleware/validation.js';
 import {
   assignmentIdParam,
@@ -22,6 +26,12 @@ import {
 const router = express.Router();
 const courseAccessValidators = [courseIdParam, handleValidationResult];
 const assignmentAccessValidators = [assignmentIdParam, handleValidationResult];
+const validateStrongPassword = (value) => {
+  if (!isStrongPassword(value)) {
+    throw new Error(PASSWORD_POLICY_MESSAGE);
+  }
+  return true;
+};
 
 export async function requireInstructor(courseId, userId) {
   const enrollment = await CourseEnrollment.findOne({
@@ -50,7 +60,12 @@ router.post(
     courseIdParam,
     body('students').isArray({ min: 1 }).withMessage('students must be a non-empty array'),
     body('students.*.username').isString().trim().notEmpty().withMessage('username is required'),
-    body('students.*.password').isString().notEmpty().withMessage('password is required'),
+    body('students.*.password')
+      .isString()
+      .notEmpty()
+      .withMessage('password is required')
+      .bail()
+      .custom(validateStrongPassword),
     handleValidationResult,
   ],
   async (req, res, next) => {
@@ -113,7 +128,12 @@ router.post(
   [
     courseIdParam,
     body('username').isString().trim().notEmpty().withMessage('username is required'),
-    body('password').isString().notEmpty().withMessage('password is required'),
+    body('password')
+      .isString()
+      .notEmpty()
+      .withMessage('password is required')
+      .bail()
+      .custom(validateStrongPassword),
     handleValidationResult,
   ],
   async (req, res, next) => {
