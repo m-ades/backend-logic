@@ -27,7 +27,7 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.API_KEY;
-const rawOrigins = process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
+const rawOrigins = process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || 'https://hunterlogic.vercel.app';
 const allowedOrigins = rawOrigins.split(',').map((origin) => origin.trim()).filter(Boolean);
 
 app.use(cors({
