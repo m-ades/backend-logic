@@ -69,7 +69,8 @@ router.get(
 
     const upcomingList = assignments
       .map((assignment) => {
-        const dueDate = assignment.due_date ? new Date(assignment.due_date) : null;
+        const dueAtValue = assignment.due_at ?? assignment.due_date ?? null;
+        const dueDate = dueAtValue ? new Date(dueAtValue) : null;
         const isComplete = Boolean(assignment.grade_id);
         const lateWindow = assignment.late_window_days || 0;
         const graceEnd = dueDate ? new Date(dueDate.getTime() + lateWindow * 24 * 60 * 60 * 1000) : null;
@@ -94,6 +95,7 @@ router.get(
           title: assignment.title,
           course_id: assignment.course_id,
           due_date: assignment.due_date,
+          due_at: assignment.due_at ?? assignment.due_date ?? null,
           total_points: assignment.total_points,
           status,
         };
@@ -263,6 +265,7 @@ function buildAssignmentMeta(assignments) {
     title: assignment.title,
     total_points: assignment.total_points,
     due_date: assignment.due_date,
+    due_at: assignment.due_at ?? assignment.due_date ?? null,
   }));
 }
 

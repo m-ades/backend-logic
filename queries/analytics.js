@@ -48,6 +48,7 @@ export async function fetchStudentAssignments(sequelize, userId, courseId) {
         a.course_id,
         a.kind,
         a.due_date,
+        a.due_date AS due_at,
         a.late_window_days,
         a.total_points,
         a.is_locked,
@@ -230,6 +231,7 @@ export async function fetchAssignmentGradeSummary(sequelize, courseId) {
         a.id,
         a.title,
         a.due_date,
+        a.due_date AS due_at,
         a.total_points,
         AVG(ag.final_score::float / NULLIF(ag.max_score, 0))
           FILTER (WHERE ag.max_score > 0) AS avg_percent,

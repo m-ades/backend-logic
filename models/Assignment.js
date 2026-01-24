@@ -42,6 +42,12 @@ export default function initAssignment(sequelize) {
       due_date: {
         type: DataTypes.DATE,
       },
+      due_at: {
+        type: DataTypes.VIRTUAL,
+        get() {
+          return this.getDataValue('due_date');
+        },
+      },
       late_window_days: {
         type: DataTypes.INTEGER,
       },
