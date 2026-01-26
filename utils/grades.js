@@ -1,12 +1,10 @@
-import { QueryTypes, Op } from 'sequelize';
+import { QueryTypes } from 'sequelize';
 import {
   Accommodation,
   Assignment,
   AssignmentExtension,
   AssignmentGrade,
   AssignmentQuestion,
-  CourseEnrollment,
-  Submission,
 } from '../models/index.js';
 import { sequelize } from '../config/sequelize.js';
 import { computeDeadlinePolicy } from './assignmentPolicy.js';
@@ -102,75 +100,69 @@ export async function recomputeAssignmentGrade({ assignmentId, userId }) {
 }
 
 export async function ensureZeroGradesForPastDue({ userId }) {
-  const enrollments = await CourseEnrollment.findAll({
-    where: { user_id: userId },
-    attributes: ['course_id'],
-  });
-  if (!enrollments.length) return;
-  const courseIds = enrollments.map((e) => e.course_id);
-
-  const assignments = await Assignment.findAll({
-    where: {
-      course_id: courseIds,
-      kind: 'assignment',
-      due_date: { [Op.ne]: null },
-    },
-    attributes: [
-      'id',
-      'course_id',
-      'due_date',
-      'late_window_days',
-      'late_penalty_percent',
-      'is_locked',
-    ],
-  });
-
-  if (!assignments.length) return;
-
-  const now = new Date();
-  for (const assignment of assignments) {
-    const questions = await AssignmentQuestion.findAll({
-      where: { assignment_id: assignment.id },
-      attributes: ['id'],
-    });
-    if (!questions.length) continue;
-
-    const extension = await AssignmentExtension.findOne({
-      where: { assignment_id: assignment.id, user_id: userId },
-    });
-    const accommodation = await Accommodation.findOne({
-      where: { course_id: assignment.course_id, user_id: userId },
-    });
-    const policy = computeDeadlinePolicy({ assignment, extension, accommodation });
-    if (!policy.cutoff_at || now <= policy.cutoff_at) {
-      continue;
+  if (!userId) return;
+  await sequelize.query(
+    `
+      WITH enrolled_courses AS (
+        SELECT course_id
+        FROM course_enrollments
+        WHERE user_id = :userId
+      ),
+      question_counts AS (
+        SELECT assignment_id, COUNT(*) AS question_count
+        FROM assignment_questions
+        GROUP BY assignment_id
+      ),
+      submitted_assignments AS (
+        SELECT DISTINCT aq.assignment_id
+        FROM assignment_questions aq
+        JOIN submissions s ON s.assignment_question_id = aq.id
+        WHERE s.user_id = :userId
+      )
+      INSERT INTO assignment_grades (
+        assignment_id,
+        user_id,
+        raw_score,
+        max_score,
+        penalty_percent,
+        final_score,
+        graded_at,
+        graded_by
+      )
+      SELECT
+        a.id,
+        :userId,
+        0,
+        qc.question_count * 100,
+        0,
+        0,
+        NOW(),
+        NULL
+      FROM assignments a
+      JOIN enrolled_courses ec ON ec.course_id = a.course_id
+      JOIN question_counts qc ON qc.assignment_id = a.id
+      LEFT JOIN assignment_extensions ext
+        ON ext.assignment_id = a.id AND ext.user_id = :userId
+      LEFT JOIN accommodations acc
+        ON acc.course_id = a.course_id AND acc.user_id = :userId
+      LEFT JOIN assignment_grades ag
+        ON ag.assignment_id = a.id AND ag.user_id = :userId
+      LEFT JOIN submitted_assignments sa
+        ON sa.assignment_id = a.id
+      WHERE a.kind = 'assignment'
+        AND a.due_date IS NOT NULL
+        AND ag.assignment_id IS NULL
+        AND sa.assignment_id IS NULL
+        AND NOW() > (
+          COALESCE(ext.extended_due_date, a.due_date)
+          + (COALESCE(a.late_window_days, 0) + COALESCE(acc.extra_late_days, 0))
+            * INTERVAL '1 day'
+        )
+      ON CONFLICT (assignment_id, user_id) DO NOTHING
+    `,
+    {
+      type: QueryTypes.INSERT,
+      replacements: { userId },
     }
-
-    const gradeExists = await AssignmentGrade.findOne({
-      where: { assignment_id: assignment.id, user_id: userId },
-    });
-    if (gradeExists) {
-      continue;
-    }
-
-    const questionIds = questions.map((q) => q.id);
-    const submissionCount = await Submission.count({
-      where: { assignment_question_id: questionIds, user_id: userId },
-    });
-    if (submissionCount > 0) {
-      continue;
-    }
-
-    const maxScore = questions.length * 100;
-    await AssignmentGrade.create({
-      assignment_id: assignment.id,
-      user_id: userId,
-      raw_score: 0,
-      max_score: maxScore,
-      penalty_percent: 0,
-      final_score: 0,
-      graded_at: now,
-      graded_by: null,
-    });
-  }
+  );
 }
