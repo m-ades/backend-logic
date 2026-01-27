@@ -133,6 +133,36 @@ export async function fetchStudentSubmissionCount(sequelize, userId, courseId) {
 }
 
 /**
+ * fetch assignment ids with submissions for a student.
+ * @param {import('sequelize').Sequelize} sequelize - db instance
+ * @param {number} userId - student id
+ * @param {number|null} courseId - filter by course (null for all)
+ * @returns {Promise<Array>} submission assignment rows
+ */
+export async function fetchStudentSubmittedAssignments(sequelize, userId, courseId) {
+  try {
+    const submittedAssignmentsQuery = `
+      SELECT DISTINCT a.id AS assignment_id
+      FROM submissions s
+      JOIN assignment_questions aq ON aq.id = s.assignment_question_id
+      JOIN assignments a ON a.id = aq.assignment_id
+      WHERE s.user_id = :userId
+        AND a.kind = 'assignment'
+        AND (:courseId::int IS NULL OR a.course_id = :courseId::int);
+    `;
+
+    const [rows] = await sequelize.query(submittedAssignmentsQuery, {
+      replacements: { userId, courseId: courseId ?? null },
+    });
+    return rows;
+  } catch (error) {
+    throw new Error(
+      `failed to fetch submitted assignments for user ${userId}: ${error.message}`
+    );
+  }
+}
+
+/**
  * fetch average minutes per question for a student.
  * @param {import('sequelize').Sequelize} sequelize - db instance
  * @param {number} userId - student id
@@ -232,6 +262,7 @@ export async function fetchAssignmentGradeSummary(sequelize, courseId) {
         a.title,
         a.due_date,
         a.due_date AS due_at,
+        a.is_locked,
         a.total_points,
         AVG(ag.final_score::float / NULLIF(ag.max_score, 0))
           FILTER (WHERE ag.max_score > 0) AS avg_percent,

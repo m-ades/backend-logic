@@ -18,6 +18,7 @@ import {
   fetchStudentAssignments,
   fetchStudentPerformance,
   fetchStudentSubmissionCount,
+  fetchStudentSubmittedAssignments,
   fetchStudentTime,
   fetchAssignmentGradeSummary,
   fetchInstructorAssignmentStats,
@@ -60,6 +61,7 @@ router.get(
     const assignments = await fetchStudentAssignments(sequelize, userId, courseId);
     const performance = await fetchStudentPerformance(sequelize, userId, courseId);
     const submissionCount = await fetchStudentSubmissionCount(sequelize, userId, courseId);
+    const submittedAssignments = await fetchStudentSubmittedAssignments(sequelize, userId, courseId);
     const time = await fetchStudentTime(sequelize, userId);
 
     const now = new Date();
@@ -118,6 +120,7 @@ router.get(
       },
       time: time || { avg_minutes_per_question: null },
       submissionCount: submissionCount?.submission_count || 0,
+      submittedAssignmentIds: submittedAssignments || [],
     });
   } catch (error) {
     next(error);
