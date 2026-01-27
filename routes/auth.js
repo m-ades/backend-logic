@@ -54,12 +54,12 @@ router.post(
     });
 
     if (!user) {
-      return res.status(401).json({ message: 'invalid credentials' });
+      return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     const isValid = await verifyPassword(user.password_hash, password);
     if (!isValid) {
-      return res.status(401).json({ message: 'invalid credentials' });
+      return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     // issue jwt 
