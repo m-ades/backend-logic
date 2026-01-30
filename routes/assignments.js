@@ -16,9 +16,25 @@ import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { autoSubmitIfPastDeadline } from '../utils/autoSubmit.js';
 import { ensureSelfOrAdmin, isSystemAdmin } from '../utils/authorization.js';
 import { requireInstructorOrAdmin } from './instructor.js';
+import { formatDueDateEastern, parseDueDateForStorage } from '../utils/easternDate.js';
+
+function sanitizeAssignment(record) {
+  const data = record?.toJSON ? record.toJSON() : record;
+  if (data?.due_date != null) data.due_date = formatDueDateEastern(data.due_date);
+  return data;
+}
+
+function normalizeDueDate(body) {
+  const b = { ...body };
+  if (b.due_date != null) b.due_date = parseDueDateForStorage(b.due_date);
+  return b;
+}
 
 const router = createCrudRouter(Assignment, {
   disableGetById: true,
+  sanitize: sanitizeAssignment,
+  beforeCreate: async (req, body) => normalizeDueDate(body),
+  beforeUpdate: async (req, body) => normalizeDueDate(body),
   authorizeCreate: async (req) => {
     const courseId = Number(req.body?.course_id);
     if (!Number.isFinite(courseId)) {
@@ -125,7 +141,8 @@ router.get('/:id', [assignmentIdParam, userIdOptionalQuery, handleValidationResu
       });
     }
 
-    res.json({ assignment, questions: questionsWithLimits, policy });
+    const assignmentData = sanitizeAssignment(assignment);
+    res.json({ assignment: assignmentData, questions: questionsWithLimits, policy });
   } catch (error) {
     next(error);
   }

@@ -1,6 +1,7 @@
 import { createCrudRouter } from './crud.js';
 import { Op, QueryTypes } from 'sequelize';
 import { Course, Assignment, CourseEnrollment, User, sequelize } from '../models/index.js';
+import { formatDueDateEastern } from '../utils/easternDate.js';
 import { handleValidationResult } from '../middleware/validation.js';
 import { courseIdParam } from '../validators/common.js';
 import { isSystemAdmin } from '../utils/authorization.js';
@@ -102,6 +103,7 @@ router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (r
       const data = assignment.toJSON ? assignment.toJSON() : assignment;
       const stats = statsMap.get(assignment.id) || { question_count: 0, answered_count: 0 };
       const completed = stats.question_count > 0 && stats.answered_count >= stats.question_count;
+      if (data.due_date != null) data.due_date = formatDueDateEastern(data.due_date);
       return { ...data, ...stats, completed };
     });
     res.json(payload);
