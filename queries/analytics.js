@@ -18,7 +18,12 @@ export async function fetchAssignmentAnalytics(sequelize, courseId) {
       FROM assignments a
       LEFT JOIN assignment_questions aq ON aq.assignment_id = a.id
       LEFT JOIN submissions s ON s.assignment_question_id = aq.id
+      LEFT JOIN course_enrollments ce
+        ON ce.user_id = s.user_id
+        AND ce.course_id = a.course_id
+        AND ce.role = 'student'
       WHERE (:courseId::int IS NULL OR a.course_id = :courseId::int)
+        AND (ce.id IS NOT NULL OR s.id IS NULL)
       GROUP BY a.id
       ORDER BY a.id;
     `;
@@ -91,6 +96,10 @@ export async function fetchStudentPerformance(sequelize, userId, courseId) {
       FROM submissions s
       JOIN assignment_questions aq ON aq.id = s.assignment_question_id
       JOIN assignments a ON a.id = aq.assignment_id
+      JOIN course_enrollments ce
+        ON ce.user_id = s.user_id
+        AND ce.course_id = a.course_id
+        AND ce.role = 'student'
       WHERE s.user_id = :userId
         AND a.kind <> 'practice'
         AND (:courseId::int IS NULL OR a.course_id = :courseId::int);
@@ -119,6 +128,10 @@ export async function fetchStudentSubmissionCount(sequelize, userId, courseId) {
       FROM submissions s
       JOIN assignment_questions aq ON aq.id = s.assignment_question_id
       JOIN assignments a ON a.id = aq.assignment_id
+      JOIN course_enrollments ce
+        ON ce.user_id = s.user_id
+        AND ce.course_id = a.course_id
+        AND ce.role = 'student'
       WHERE s.user_id = :userId
         AND (:courseId::int IS NULL OR a.course_id = :courseId::int);
     `;
@@ -146,6 +159,10 @@ export async function fetchStudentSubmittedAssignments(sequelize, userId, course
       FROM submissions s
       JOIN assignment_questions aq ON aq.id = s.assignment_question_id
       JOIN assignments a ON a.id = aq.assignment_id
+      JOIN course_enrollments ce
+        ON ce.user_id = s.user_id
+        AND ce.course_id = a.course_id
+        AND ce.role = 'student'
       WHERE s.user_id = :userId
         AND a.kind = 'assignment'
         AND (:courseId::int IS NULL OR a.course_id = :courseId::int);
@@ -174,6 +191,12 @@ export async function fetchStudentTime(sequelize, userId) {
       SELECT
         AVG(EXTRACT(EPOCH FROM (qs.ended_at - qs.started_at)) / 60)::float AS avg_minutes_per_question
       FROM question_sessions qs
+      JOIN assignment_questions aq ON aq.id = qs.assignment_question_id
+      JOIN assignments a ON a.id = aq.assignment_id
+      JOIN course_enrollments ce
+        ON ce.user_id = qs.user_id
+        AND ce.course_id = a.course_id
+        AND ce.role = 'student'
       WHERE qs.user_id = :userId
         AND qs.ended_at IS NOT NULL;
     `;
@@ -203,6 +226,10 @@ export async function fetchInstructorGradeSummary(sequelize, courseId) {
         AVG(ag.penalty_percent)::float AS avg_penalty_percent
       FROM assignment_grades ag
       JOIN assignments a ON a.id = ag.assignment_id
+      JOIN course_enrollments ce
+        ON ce.user_id = ag.user_id
+        AND ce.course_id = a.course_id
+        AND ce.role = 'student'
       WHERE a.course_id = :courseId;
     `;
 
@@ -234,7 +261,12 @@ export async function fetchInstructorAssignmentStats(sequelize, courseId) {
       FROM assignments a
       LEFT JOIN assignment_questions aq ON aq.assignment_id = a.id
       LEFT JOIN submissions s ON s.assignment_question_id = aq.id
+      LEFT JOIN course_enrollments ce
+        ON ce.user_id = s.user_id
+        AND ce.course_id = a.course_id
+        AND ce.role = 'student'
       WHERE a.course_id = :courseId
+        AND (ce.id IS NOT NULL OR s.id IS NULL)
       GROUP BY a.id
       ORDER BY a.due_date NULLS LAST, a.id;
     `;
@@ -271,8 +303,13 @@ export async function fetchAssignmentGradeSummary(sequelize, courseId) {
         ) FILTER (WHERE ag.max_score > 0) AS median_percent
       FROM assignments a
       LEFT JOIN assignment_grades ag ON ag.assignment_id = a.id
+      LEFT JOIN course_enrollments ce
+        ON ce.user_id = ag.user_id
+        AND ce.course_id = a.course_id
+        AND ce.role = 'student'
       WHERE a.course_id = :courseId
         AND a.kind = 'assignment'
+        AND (ce.id IS NOT NULL OR ag.id IS NULL)
       GROUP BY a.id
       ORDER BY a.due_date NULLS LAST, a.id;
     `;
@@ -301,6 +338,10 @@ export async function fetchInstructorTimeByCategory(sequelize, courseId) {
       FROM question_sessions qs
       JOIN assignment_questions aq ON aq.id = qs.assignment_question_id
       JOIN assignments a ON a.id = aq.assignment_id
+      JOIN course_enrollments ce
+        ON ce.user_id = qs.user_id
+        AND ce.course_id = a.course_id
+        AND ce.role = 'student'
       WHERE a.course_id = :courseId
         AND qs.ended_at IS NOT NULL
       GROUP BY category
