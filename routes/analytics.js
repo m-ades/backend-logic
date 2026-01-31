@@ -69,6 +69,7 @@ router.get(
     let pending = 0;
     let overdue = 0;
 
+    const upcomingWindowEnd = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
     const upcomingList = assignments
       .map((assignment) => {
         const dueAtValue = assignment.due_at ?? assignment.due_date ?? null;
@@ -98,11 +99,18 @@ router.get(
           course_id: assignment.course_id,
           due_date: assignment.due_date,
           due_at: assignment.due_at ?? assignment.due_date ?? null,
+          is_locked: assignment.is_locked,
           total_points: assignment.total_points,
           status,
         };
       })
-      .filter((item) => item.status === 'upcoming')
+      .filter((item) => {
+        if (item.status !== 'upcoming') return false;
+        if (item.is_locked) return false;
+        if (!item.due_at && !item.due_date) return false;
+        const dueDate = new Date(item.due_at ?? item.due_date);
+        return dueDate <= upcomingWindowEnd;
+      })
       .slice(0, 4);
 
     res.json({
