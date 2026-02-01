@@ -1,7 +1,9 @@
 import express from 'express';
 import { Op } from 'sequelize';
 import {
+  Accommodation,
   Assignment,
+  AssignmentExtension,
   AssignmentGrade,
   CourseEnrollment,
   User,
@@ -26,6 +28,7 @@ import {
   fetchInstructorGradeSummary,
   fetchInstructorTimeByCategory,
 } from '../queries/analytics.js';
+import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { ensureSelfOrAdmin, isSystemAdmin } from '../utils/authorization.js';
 import { requireInstructorOrAdmin } from './instructor.js';
 
@@ -174,7 +177,12 @@ router.get(
 
     const assignmentMeta = buildAssignmentMeta(assignments);
 
-    const students = await buildGradebookStudents(assignments, enrollments, dropLowestN);
+    const students = await buildGradebookStudents(
+      assignments,
+      enrollments,
+      dropLowestN,
+      courseId
+    );
 
     res.json({
       assignments: assignmentMeta,
@@ -219,7 +227,12 @@ router.get(
     const assignments = await fetchGradebookAssignments(courseId);
     const enrollments = await fetchGradebookEnrollments(courseId);
 
-    const students = await buildGradebookStudents(assignments, enrollments, dropLowestN);
+    const students = await buildGradebookStudents(
+      assignments,
+      enrollments,
+      dropLowestN,
+      courseId
+    );
     res.json(students);
   } catch (error) {
     next(error);
@@ -242,16 +255,88 @@ router.get('/gradebook-summary', [courseIdParam, handleValidationResult], async 
   }
 });
 
-async function buildGradebookStudents(assignments, enrollments, dropLowestN) {
-  // shared gradebook calculations here
+/**
+ * Returns grades from DB plus synthetic 0 grades for (user, assignment) where
+ * the student has no grade and the assignment is past cutoff. No DB writes.
+ */
+async function effectiveGradesForGradebook(assignments, enrollments, grades, courseId) {
+  const assignmentIds = assignments.map((a) => a.id);
+  const userIds = enrollments.map((e) => e.user_id);
+  if (!assignmentIds.length || !userIds.length) return grades;
+
+  const hasGrade = new Set(
+    grades.map((g) => `${g.user_id}-${g.assignment_id}`)
+  );
+
+  const [extensions, accommodations] = await Promise.all([
+    AssignmentExtension.findAll({
+      where: {
+        assignment_id: assignmentIds,
+        user_id: userIds,
+      },
+      attributes: ['assignment_id', 'user_id', 'extended_due_date'],
+    }),
+    Accommodation.findAll({
+      where: { course_id: courseId, user_id: userIds },
+      attributes: ['user_id', 'extra_late_days'],
+    }),
+  ]);
+
+  const extensionByKey = new Map(
+    extensions.map((e) => [`${e.assignment_id}-${e.user_id}`, e])
+  );
+  const accommodationByUser = new Map(
+    accommodations.map((a) => [a.user_id, a])
+  );
+
+  const now = new Date();
+  const synthetic = [];
+
+  for (const enrollment of enrollments) {
+    const userId = enrollment.user_id;
+    const accommodation = accommodationByUser.get(userId) ?? null;
+
+    for (const assignment of assignments) {
+      if (!assignment.due_date) continue;
+      if (hasGrade.has(`${userId}-${assignment.id}`)) continue;
+
+      const extension = extensionByKey.get(`${assignment.id}-${userId}`) ?? null;
+      const policy = computeDeadlinePolicy({
+        assignment: { due_date: assignment.due_date, late_window_days: assignment.late_window_days },
+        extension,
+        accommodation,
+      });
+
+      if (!policy.cutoff_at || now <= policy.cutoff_at) continue;
+
+      synthetic.push({
+        user_id: userId,
+        assignment_id: assignment.id,
+        final_score: 0,
+        max_score: assignment.total_points ?? 0,
+      });
+    }
+  }
+
+  return [...grades, ...synthetic];
+}
+
+async function buildGradebookStudents(assignments, enrollments, dropLowestN, courseId) {
   const assignmentIds = assignments.map((assignment) => assignment.id);
   const userIds = enrollments.map((enrollment) => enrollment.user_id);
 
-  const grades = assignmentIds.length && userIds.length
+  const gradesFromDb = assignmentIds.length && userIds.length
     ? await AssignmentGrade.findAll({
       where: { assignment_id: assignmentIds, user_id: userIds },
     })
     : [];
+
+  const grades = await effectiveGradesForGradebook(
+    assignments,
+    enrollments,
+    gradesFromDb,
+    courseId
+  );
 
   return computeGradebookStudents(assignments, enrollments, grades, dropLowestN);
 }

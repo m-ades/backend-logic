@@ -1,4 +1,5 @@
 import express from 'express';
+import { Op } from 'sequelize';
 import { body, param } from 'express-validator';
 import {
   Assignment,
@@ -40,7 +41,7 @@ export async function requireInstructor(courseId, userId) {
   return enrollment?.role === 'instructor' || enrollment?.role === 'ta';
 }
 
-/** Instructor only (not TA). Use for actions that must be restricted to instructors. */
+/** instructor only. use for actions that must be restricted to instructors. */
 export async function requireInstructorOnly(courseId, userId) {
   const enrollment = await CourseEnrollment.findOne({
     where: { course_id: courseId, user_id: userId },
@@ -525,11 +526,70 @@ router.get('/assignments/:id/grades', assignmentAccessValidators, async (req, re
       return res.status(403).json({ message: 'Instructor access required' });
     }
 
-    const grades = await AssignmentGrade.findAll({
-      where: { assignment_id: assignmentId },
-      include: [{ model: User }],
-      order: [['graded_at', 'DESC']],
-    });
+    const [gradesFromDb, enrollments] = await Promise.all([
+      AssignmentGrade.findAll({
+        where: { assignment_id: assignmentId },
+        include: [{ model: User }],
+      }),
+      CourseEnrollment.findAll({
+        where: { course_id: assignment.course_id, role: { [Op.in]: ['student', 'ta'] } },
+        include: [{ model: User }],
+        attributes: ['user_id'],
+      }),
+    ]);
+
+    const gradedUserIds = new Set(gradesFromDb.map((g) => g.user_id));
+    if (!assignment.due_date) {
+      return res.json(gradesFromDb.sort((a, b) => (b.graded_at || 0) - (a.graded_at || 0)));
+    }
+
+    const [extensions, accommodations] = await Promise.all([
+      AssignmentExtension.findAll({
+        where: { assignment_id: assignmentId, user_id: enrollments.map((e) => e.user_id) },
+        attributes: ['user_id', 'extended_due_date'],
+      }),
+      Accommodation.findAll({
+        where: { course_id: assignment.course_id, user_id: enrollments.map((e) => e.user_id) },
+        attributes: ['user_id', 'extra_late_days'],
+      }),
+    ]);
+
+    const extensionByUser = new Map(extensions.map((e) => [e.user_id, e]));
+    const accommodationByUser = new Map(accommodations.map((a) => [a.user_id, a]));
+    const now = new Date();
+    const maxScore = assignment.total_points ?? 0;
+
+    const synthetic = [];
+    for (const enrollment of enrollments) {
+      if (gradedUserIds.has(enrollment.user_id)) continue;
+      const extension = extensionByUser.get(enrollment.user_id) ?? null;
+      const accommodation = accommodationByUser.get(enrollment.user_id) ?? null;
+      const policy = computeDeadlinePolicy({
+        assignment: {
+          due_date: assignment.due_date,
+          late_window_days: assignment.late_window_days,
+        },
+        extension,
+        accommodation,
+      });
+      if (!policy.cutoff_at || now <= policy.cutoff_at) continue;
+      synthetic.push({
+        user_id: enrollment.user_id,
+        assignment_id: Number(assignmentId),
+        raw_score: 0,
+        max_score: maxScore,
+        penalty_percent: 0,
+        final_score: 0,
+        graded_at: null,
+        graded_by: null,
+        User: enrollment.User,
+      });
+    }
+
+    const grades = [
+      ...gradesFromDb,
+      ...synthetic,
+    ].sort((a, b) => (b.graded_at ? new Date(b.graded_at).getTime() : 0) - (a.graded_at ? new Date(a.graded_at).getTime() : 0));
 
     res.json(grades);
   } catch (error) {
