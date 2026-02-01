@@ -37,7 +37,7 @@ export async function requireInstructor(courseId, userId) {
   const enrollment = await CourseEnrollment.findOne({
     where: { course_id: courseId, user_id: userId },
   });
-  return enrollment?.role === 'instructor' || enrollment?.role === 'ta';
+  return enrollment?.role === 'instructor';
 }
 
 export async function requireInstructorOrAdmin(courseId, userId) {

@@ -14,7 +14,7 @@ async function requireInstructorInAnyCourseOrAdmin(user) {
   const enrollment = await CourseEnrollment.findOne({
     where: {
       user_id: user.id,
-      role: { [Op.in]: ['instructor', 'ta'] },
+      role: 'instructor',
     },
   });
   return Boolean(enrollment);
