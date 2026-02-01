@@ -131,11 +131,17 @@ router.get(
         };
       })
       .filter((item) => {
-        if (item.status !== 'upcoming') return false;
-        if (item.is_locked) return false;
-        if (!item.due_at && !item.due_date) return false;
         const dueDate = parseDueDate(item.due_at ?? item.due_date);
-        return dueDate != null && dueDate <= upcomingWindowEnd;
+        if (!dueDate) return false;
+        return dueDate >= now && dueDate <= upcomingWindowEnd;
+      })
+      .sort((a, b) => {
+        const aDate = parseDueDate(a.due_at ?? a.due_date);
+        const bDate = parseDueDate(b.due_at ?? b.due_date);
+        if (aDate && bDate) return aDate - bDate;
+        if (aDate) return -1;
+        if (bDate) return 1;
+        return (a.id ?? 0) - (b.id ?? 0);
       })
       .slice(0, 4);
 
