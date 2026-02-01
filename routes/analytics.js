@@ -1,4 +1,5 @@
 import express from 'express';
+import { Op } from 'sequelize';
 import {
   Assignment,
   AssignmentGrade,
@@ -264,7 +265,11 @@ function fetchGradebookAssignments(courseId) {
 
 function fetchGradebookEnrollments(courseId) {
   return CourseEnrollment.findAll({
-    where: { course_id: courseId, role: 'student' },
+    where: {
+      course_id: courseId,
+      role: { [Op.in]: ['student', 'ta'] },
+    },
+    attributes: ['id', 'user_id', 'course_id', 'role'],
     include: [{ model: User, attributes: ['id', 'username'] }],
     order: [[User, 'username', 'ASC']],
   });
@@ -324,9 +329,12 @@ export function computeGradebookStudents(assignments, enrollments, grades, dropL
       ? droppedTotalScore / droppedTotalPoints
       : null;
 
+    const rawRole = enrollment.dataValues?.role ?? enrollment.get?.('role') ?? enrollment.role;
+    const role = String(rawRole).toLowerCase() === 'ta' ? 'ta' : 'student';
     return {
       user_id: user.id,
       username: user.username,
+      role,
       totals: {
         total_score: totalScore,
         total_points: totalPoints,

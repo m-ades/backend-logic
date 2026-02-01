@@ -37,6 +37,14 @@ export async function requireInstructor(courseId, userId) {
   const enrollment = await CourseEnrollment.findOne({
     where: { course_id: courseId, user_id: userId },
   });
+  return enrollment?.role === 'instructor' || enrollment?.role === 'ta';
+}
+
+/** Instructor only (not TA). Use for actions that must be restricted to instructors. */
+export async function requireInstructorOnly(courseId, userId) {
+  const enrollment = await CourseEnrollment.findOne({
+    where: { course_id: courseId, user_id: userId },
+  });
   return enrollment?.role === 'instructor';
 }
 
@@ -226,6 +234,42 @@ router.get('/courses/:id/roster', courseAccessValidators, async (req, res, next)
     next(error);
   }
 });
+
+router.put(
+  '/courses/:id/roster/:userId/role',
+  courseAccessValidators.concat([
+    param('userId').isInt({ gt: 0 }).toInt().withMessage('userId must be a positive integer'),
+    body('role').isIn(['student', 'ta']).withMessage('role must be student or ta'),
+    handleValidationResult,
+  ]),
+  async (req, res, next) => {
+    try {
+      const courseId = req.params.id;
+      const targetUserId = Number(req.params.userId);
+      const { role } = req.body;
+      const userId = req.user.id;
+
+      if (!(await requireInstructorOnly(courseId, userId))) {
+        return res.status(403).json({ message: 'Only the instructor can change roles' });
+      }
+
+      const enrollment = await CourseEnrollment.findOne({
+        where: { course_id: courseId, user_id: targetUserId },
+      });
+      if (!enrollment) {
+        return res.status(404).json({ message: 'Enrollment not found' });
+      }
+      if (enrollment.role === 'instructor') {
+        return res.status(403).json({ message: 'Cannot change instructor role' });
+      }
+
+      await enrollment.update({ role });
+      res.json(enrollment);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 router.get('/courses/:id/accommodations', courseAccessValidators, async (req, res, next) => {
   try {
