@@ -34,11 +34,12 @@ const validateStrongPassword = (value) => {
   return true;
 };
 
+/** true only for instructors in this course (not TAs). */
 export async function requireInstructor(courseId, userId) {
   const enrollment = await CourseEnrollment.findOne({
     where: { course_id: courseId, user_id: userId },
   });
-  return enrollment?.role === 'instructor' || enrollment?.role === 'ta';
+  return enrollment?.role === 'instructor';
 }
 
 /** instructor only. use for actions that must be restricted to instructors. */

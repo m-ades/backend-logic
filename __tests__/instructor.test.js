@@ -24,12 +24,12 @@ describe('instructor helpers', () => {
   });
 
   describe('requireInstructor', () => {
-    it('allows instructor and ta roles', async () => {
+    it('allows instructor only (not ta)', async () => {
       findOne.mockResolvedValueOnce({ role: 'instructor' });
       await expect(requireInstructor(1, 2)).resolves.toBe(true);
 
       findOne.mockResolvedValueOnce({ role: 'ta' });
-      await expect(requireInstructor(1, 2)).resolves.toBe(true);
+      await expect(requireInstructor(1, 2)).resolves.toBe(false);
     });
 
     it('denies non-instructor roles', async () => {
