@@ -34,6 +34,25 @@ import { requireInstructorOrAdmin } from './instructor.js';
 
 const router = express.Router();
 
+/**
+ * Parse a due date from DB/driver into a Date (UTC instant).
+ * Handles Date objects and strings including "YYYY-MM-DD HH:mm:ss.fff -0500"
+ * so that 21:29 Eastern is not misinterpreted as server-local 21:29.
+ */
+function parseDueDate(value) {
+  if (value == null) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (typeof value !== 'string') return new Date(value);
+  // Normalize to ISO 8601: "2026-01-31 21:29:00.000 -0500" -> "2026-01-31T21:29:00.000-05:00"
+  let s = value.trim().replace(/^\s*(\d{4}-\d{2}-\d{2})\s+(\d)/, '$1T$2');
+  const tzMatch = s.match(/([+-])(\d{2})(\d{2})\s*$/);
+  if (tzMatch) {
+    s = s.replace(/\s*[+-]\d{4}\s*$/, `${tzMatch[1]}${tzMatch[2]}:${tzMatch[3]}`);
+  }
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 router.get('/assignments', [courseIdOptionalParam, handleValidationResult], async (req, res, next) => {
   try {
     const { courseId } = req.query;
@@ -72,12 +91,13 @@ router.get(
     let upcoming = 0;
     let pending = 0;
     let overdue = 0;
+    let pastDueDateCount = 0;
 
     const upcomingWindowEnd = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
     const upcomingList = assignments
       .map((assignment) => {
         const dueAtValue = assignment.due_at ?? assignment.due_date ?? null;
-        const dueDate = dueAtValue ? new Date(dueAtValue) : null;
+        const dueDate = parseDueDate(dueAtValue);
         const isComplete = Boolean(assignment.grade_id);
         const lateWindow = assignment.late_window_days || 0;
         const graceEnd = dueDate ? new Date(dueDate.getTime() + lateWindow * 24 * 60 * 60 * 1000) : null;
@@ -90,6 +110,8 @@ router.get(
         } else if (dueDate && now > dueDate) {
           status = 'pending';
         }
+
+        if (dueDate && now > dueDate) pastDueDateCount += 1;
 
         if (!isComplete) {
           if (status === 'upcoming') upcoming += 1;
@@ -112,8 +134,8 @@ router.get(
         if (item.status !== 'upcoming') return false;
         if (item.is_locked) return false;
         if (!item.due_at && !item.due_date) return false;
-        const dueDate = new Date(item.due_at ?? item.due_date);
-        return dueDate <= upcomingWindowEnd;
+        const dueDate = parseDueDate(item.due_at ?? item.due_date);
+        return dueDate != null && dueDate <= upcomingWindowEnd;
       })
       .slice(0, 4);
 
@@ -122,6 +144,8 @@ router.get(
         upcoming,
         pending,
         overdue,
+        pastDueDateCount,
+        total: assignments.length,
         upcomingList,
       },
       performance: performance || {
@@ -241,9 +265,13 @@ router.get(
 
 router.get('/gradebook-summary', [courseIdParam, handleValidationResult], async (req, res, next) => {
   try {
-    const { courseId } = req.query;
+    const courseId = Number(req.query.courseId);
+    const userId = Number(req.user?.id);
+    if (!Number.isInteger(courseId) || courseId < 1 || !Number.isInteger(userId)) {
+      return res.status(400).json({ message: 'Invalid courseId or user' });
+    }
     const enrollment = await CourseEnrollment.findOne({
-      where: { course_id: courseId, user_id: req.user.id },
+      where: { course_id: courseId, user_id: userId },
     });
     if (!enrollment && !isSystemAdmin(req.user)) {
       return res.status(403).json({ message: 'Enrollment required' });
@@ -256,7 +284,7 @@ router.get('/gradebook-summary', [courseIdParam, handleValidationResult], async 
 });
 
 /**
- * Returns grades from DB plus synthetic 0 grades for (user, assignment) where
+ * returns grades from DB plus synthetic 0 grades for (user, assignment) where
  * the student has no grade and the assignment is past cutoff. No DB writes.
  */
 async function effectiveGradesForGradebook(assignments, enrollments, grades, courseId) {
