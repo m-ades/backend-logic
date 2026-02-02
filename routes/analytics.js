@@ -135,6 +135,7 @@ router.get(
         if (!dueDate) return false;
         return dueDate >= now && dueDate <= upcomingWindowEnd;
       })
+      .filter((item) => !item.is_locked)
       .sort((a, b) => {
         const aDate = parseDueDate(a.due_at ?? a.due_date);
         const bDate = parseDueDate(b.due_at ?? b.due_date);
