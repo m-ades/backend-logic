@@ -102,7 +102,9 @@ router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (r
     const payload = assignments.map((assignment) => {
       const data = assignment.toJSON ? assignment.toJSON() : assignment;
       const stats = statsMap.get(assignment.id) || { question_count: 0, answered_count: 0 };
-      const completed = stats.question_count > 0 && stats.answered_count >= stats.question_count;
+      // completed only when there is a submission for every question in the assignment
+      const completed =
+        stats.question_count > 0 && stats.answered_count === stats.question_count;
       if (data.due_date != null) data.due_date = formatDueDateEastern(data.due_date);
       return { ...data, ...stats, completed };
     });
