@@ -270,6 +270,65 @@ router.get(
   }
 });
 
+// same policy as your grade: unlocked only, drop two lowest when three or more (not when two)
+async function computeClassAvgWithDrop(courseId, rows) {
+  const unlocked = (rows || []).filter((r) => r.is_locked === false);
+  const unlockedIds = unlocked.map((r) => r.id);
+  if (unlockedIds.length === 0) return null;
+
+  // with 1 or 2 unlocked there is no drop: use assignment-level avg_percent (same as before)
+  if (unlocked.length < 3) {
+    const vals = unlocked
+      .map((r) => r.avg_percent)
+      .filter((v) => v != null && v !== undefined);
+    if (vals.length === 0) return null;
+    return (vals.reduce((s, v) => s + v, 0) / vals.length) * 100;
+  }
+
+  const enrollments = await CourseEnrollment.findAll({
+    where: { course_id: courseId, role: 'student' },
+    attributes: ['user_id'],
+  });
+  const studentIds = enrollments.map((e) => e.user_id);
+  if (studentIds.length === 0) return null;
+
+  const grades = await AssignmentGrade.findAll({
+    where: {
+      assignment_id: unlockedIds,
+      user_id: studentIds,
+    },
+    attributes: ['user_id', 'assignment_id', 'final_score', 'max_score'],
+  });
+
+  const gradeByKey = new Map(
+    grades.map((g) => [
+      `${g.user_id}-${g.assignment_id}`,
+      g.max_score > 0 ? (g.final_score / g.max_score) * 100 : 0,
+    ])
+  );
+
+  let sum = 0;
+  let count = 0;
+  for (const e of enrollments) {
+    const uid = e.user_id;
+    const percents = unlockedIds.map(
+      (aid) => gradeByKey.get(`${uid}-${aid}`) ?? 0
+    );
+    const hasAnyGrade = percents.some((p) => p > 0);
+    if (!hasAnyGrade) continue;
+    // percents only from unlocked assignments, dropped ones are always unlocked
+    const sorted = percents.slice().sort((a, b) => a - b);
+    const afterDrop = sorted.slice(2);
+    const studentAvg =
+      afterDrop.length > 0
+        ? afterDrop.reduce((s, p) => s + p, 0) / afterDrop.length
+        : 0;
+    sum += studentAvg;
+    count += 1;
+  }
+  return count > 0 ? sum / count : null;
+}
+
 router.get('/gradebook-summary', [courseIdParam, handleValidationResult], async (req, res, next) => {
   try {
     const courseId = Number(req.query.courseId);
@@ -284,7 +343,11 @@ router.get('/gradebook-summary', [courseIdParam, handleValidationResult], async 
       return res.status(403).json({ message: 'Enrollment required' });
     }
     const rows = await fetchAssignmentGradeSummary(sequelize, courseId);
-    res.json(rows);
+    const class_avg_with_drop = await computeClassAvgWithDrop(courseId, rows);
+    res.json({
+      assignments: rows,
+      class_avg_with_drop: class_avg_with_drop != null ? class_avg_with_drop : null,
+    });
   } catch (error) {
     next(error);
   }
