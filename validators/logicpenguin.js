@@ -171,16 +171,15 @@ function normalizeComboTranslationTruthTable(submission) {
   const argumentLine = (typeof submission.argumentLine === 'string')
     ? submission.argumentLine
     : (typeof submission.argument === 'string' ? submission.argument : '');
-  let tableAns;
-  if ('tableAns' in submission) {
+  let tableAns = null;
+  if (submission.tableAns != null && submission.tableAns !== '') {
     tableAns = normalizeTruthTablePayload(submission.tableAns);
-    if (!tableAns) return { valid: false };
-  } else if ('tableState' in submission) {
+  }
+  if (!tableAns && submission.tableState != null && typeof submission.tableState === 'object') {
     tableAns = normalizeTableState(submission.tableState);
-    if (!tableAns) return { valid: false };
-  } else if (Array.isArray(submission.tables)) {
+  }
+  if (!tableAns && Array.isArray(submission.tables) && submission.tables.length > 0) {
     tableAns = normalizeTableState(submission);
-    if (!tableAns) return { valid: false };
   }
   const givenans = { argumentLine };
   if (tableAns) {
@@ -467,7 +466,11 @@ export async function validateLogicPenguin({
     ...options,
     ...(question?.options || {}),
     ...(question?.truthTable?.options || {}),
+    ...(question?.truth_table?.options || {}),
   };
+  const partialcredit = Boolean(
+    mergedOptions.partialcredit ?? mergedOptions.partialCredit ?? mergedOptions.partial_credit
+  );
   const type = normalizeType(question);
   const checkerKey = type === 'truth-table'
     ? `${question.truthTable?.kind || 'formula'}-truth-table`
@@ -504,7 +507,7 @@ export async function validateLogicPenguin({
     normalizedQuestion,
     answer,
     givenans,
-    Boolean(mergedOptions.partialcredit),
+    partialcredit,
     points,
     false,
     mergedOptions

@@ -120,10 +120,24 @@ router.post(
 
     // validator options from the question snapshot + request overrides
     const questionSnapshot = assignmentQuestion.question_snapshot || {};
+    const snapshotPartial =
+      questionSnapshot.partialCredit ??
+      questionSnapshot.partialcredit ??
+      questionSnapshot.partial_credit ??
+      questionSnapshot.options?.partialCredit ??
+      questionSnapshot.options?.partialcredit ??
+      questionSnapshot.options?.partial_credit ??
+      questionSnapshot.truthTable?.options?.partialCredit ??
+      questionSnapshot.truthTable?.options?.partialcredit ??
+      questionSnapshot.truthTable?.options?.partial_credit ??
+      questionSnapshot.truth_table?.options?.partialCredit ??
+      questionSnapshot.truth_table?.options?.partialcredit ??
+      questionSnapshot.truth_table?.options?.partial_credit ??
+      false;
     const options = {
       notation: notation || questionSnapshot.notation || 'hurley',
       ruleset: ruleset || questionSnapshot.ruleset || 'hurley_default',
-      partialcredit: questionSnapshot.partialCredit || false,
+      partialcredit: Boolean(snapshotPartial),
     };
 
     // run the autograder to score the submission
@@ -148,10 +162,12 @@ router.post(
 
     await recomputeAssignmentGrade({ assignmentId: assignment.id, userId: user_id });
 
-    // return the saved submission and the grading output
+    // return the saved submission and the grading output (score at top level for reliable partial-credit display)
+    const submissionPojo = submission.get ? submission.get({ plain: true }) : submission;
     res.json({
       ok: true,
-      submission,
+      score: validation.score,
+      submission: submissionPojo,
       validation: validation.result,
       attempt_limit: effectiveAttemptLimit,
     });

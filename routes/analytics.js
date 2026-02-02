@@ -291,8 +291,9 @@ router.get('/gradebook-summary', [courseIdParam, handleValidationResult], async 
 });
 
 /**
- * returns grades from DB plus synthetic 0 grades for (user, assignment) where
- * the student has no grade and the assignment is past cutoff. No DB writes.
+ * Returns grades from DB plus synthetic 0 grades for (user, assignment) where
+ * the student has no grade and either the assignment is unlocked or past cutoff.
+ * No DB writes.
  */
 async function effectiveGradesForGradebook(assignments, enrollments, grades, courseId) {
   const assignmentIds = assignments.map((a) => a.id);
@@ -332,17 +333,22 @@ async function effectiveGradesForGradebook(assignments, enrollments, grades, cou
     const accommodation = accommodationByUser.get(userId) ?? null;
 
     for (const assignment of assignments) {
-      if (!assignment.due_date) continue;
       if (hasGrade.has(`${userId}-${assignment.id}`)) continue;
 
-      const extension = extensionByKey.get(`${assignment.id}-${userId}`) ?? null;
-      const policy = computeDeadlinePolicy({
-        assignment: { due_date: assignment.due_date, late_window_days: assignment.late_window_days },
-        extension,
-        accommodation,
-      });
+      const isUnlocked = assignment.is_locked === false;
+      let includeAsZero = isUnlocked;
 
-      if (!policy.cutoff_at || now <= policy.cutoff_at) continue;
+      if (!includeAsZero && assignment.due_date) {
+        const extension = extensionByKey.get(`${assignment.id}-${userId}`) ?? null;
+        const policy = computeDeadlinePolicy({
+          assignment: { due_date: assignment.due_date, late_window_days: assignment.late_window_days },
+          extension,
+          accommodation,
+        });
+        includeAsZero = policy.cutoff_at != null && now > policy.cutoff_at;
+      }
+
+      if (!includeAsZero) continue;
 
       synthetic.push({
         user_id: userId,
@@ -360,11 +366,12 @@ async function buildGradebookStudents(assignments, enrollments, dropLowestN, cou
   const assignmentIds = assignments.map((assignment) => assignment.id);
   const userIds = enrollments.map((enrollment) => enrollment.user_id);
 
-  const gradesFromDb = assignmentIds.length && userIds.length
-    ? await AssignmentGrade.findAll({
-      where: { assignment_id: assignmentIds, user_id: userIds },
-    })
-    : [];
+  const gradesFromDb =
+    assignmentIds.length && userIds.length
+      ? await AssignmentGrade.findAll({
+          where: { assignment_id: assignmentIds, user_id: userIds },
+        })
+      : [];
 
   const grades = await effectiveGradesForGradebook(
     assignments,

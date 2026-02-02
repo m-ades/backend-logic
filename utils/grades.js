@@ -166,3 +166,67 @@ export async function ensureZeroGradesForPastDue({ userId }) {
     }
   );
 }
+
+/**
+ * Insert 0 grades for unlocked (published) assignments where the student has
+ * no grade and no submissions. Ensures unattempted unlocked work appears as 0
+ * in the gradebook and in dashboard grade calculations.
+ */
+export async function ensureZeroGradesForUnlocked({ userId }) {
+  if (!userId) return;
+  await sequelize.query(
+    `
+      WITH enrolled_courses AS (
+        SELECT course_id
+        FROM course_enrollments
+        WHERE user_id = :userId
+      ),
+      question_counts AS (
+        SELECT assignment_id, COUNT(*) AS question_count
+        FROM assignment_questions
+        GROUP BY assignment_id
+      ),
+      submitted_assignments AS (
+        SELECT DISTINCT aq.assignment_id
+        FROM assignment_questions aq
+        JOIN submissions s ON s.assignment_question_id = aq.id
+        WHERE s.user_id = :userId
+      )
+      INSERT INTO assignment_grades (
+        assignment_id,
+        user_id,
+        raw_score,
+        max_score,
+        penalty_percent,
+        final_score,
+        graded_at,
+        graded_by
+      )
+      SELECT
+        a.id,
+        :userId,
+        0,
+        qc.question_count * 100,
+        0,
+        0,
+        NOW(),
+        NULL
+      FROM assignments a
+      JOIN enrolled_courses ec ON ec.course_id = a.course_id
+      JOIN question_counts qc ON qc.assignment_id = a.id
+      LEFT JOIN assignment_grades ag
+        ON ag.assignment_id = a.id AND ag.user_id = :userId
+      LEFT JOIN submitted_assignments sa
+        ON sa.assignment_id = a.id
+      WHERE a.kind = 'assignment'
+        AND a.is_locked = false
+        AND ag.assignment_id IS NULL
+        AND sa.assignment_id IS NULL
+      ON CONFLICT (assignment_id, user_id) DO NOTHING
+    `,
+    {
+      type: QueryTypes.INSERT,
+      replacements: { userId },
+    }
+  );
+}
