@@ -1,6 +1,6 @@
 import { createCrudRouter } from './crud.js';
-import { Op, QueryTypes } from 'sequelize';
-import { Course, Assignment, CourseEnrollment, User, sequelize } from '../models/index.js';
+import { QueryTypes } from 'sequelize';
+import { Course, CourseEnrollment, User, sequelize } from '../models/index.js';
 import { formatDueDateEastern } from '../utils/easternDate.js';
 import { handleValidationResult } from '../middleware/validation.js';
 import { courseIdParam } from '../validators/common.js';
@@ -45,31 +45,29 @@ router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (r
     if (!(await requireEnrollmentOrAdmin(req.params.id, req.user))) {
       return res.status(403).json({ message: 'Enrollment required' });
     }
-    const assignments = await Assignment.findAll({
-      attributes: [
-        'id',
-        'course_id',
-        'title',
-        'description',
-        'kind',
-        'chapter',
-        'subchapter',
-        'due_date',
-        'late_window_days',
-        'late_penalty_percent',
-        'total_points',
-        'is_locked',
-        'created_at',
-      ],
-      where: { course_id: req.params.id },
-      order: [['created_at', 'DESC']],
-    });
-    const assignmentIds = assignments.map((assignment) => assignment.id);
-    const userId = req.user?.id;
-    let statsMap = new Map();
-    if (assignmentIds.length && userId) {
-      const stats = await sequelize.query(
-        `
+    const courseId = req.params.id;
+    const userId = req.user?.id ?? null;
+    // one query. assignments and counts.
+    const rows = await sequelize.query(
+      `
+      SELECT
+        a.id,
+        a.course_id,
+        a.title,
+        a.description,
+        a.kind,
+        a.chapter,
+        a.subchapter,
+        a.due_date,
+        a.late_window_days,
+        a.late_penalty_percent,
+        a.total_points,
+        a.is_locked,
+        a.created_at,
+        COALESCE(stats.question_count, 0) AS question_count,
+        COALESCE(stats.answered_count, 0) AS answered_count
+      FROM assignments a
+      LEFT JOIN (
         SELECT
           aq.assignment_id,
           COUNT(DISTINCT aq.id) AS question_count,
@@ -78,35 +76,41 @@ router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (r
         LEFT JOIN submissions s
           ON s.assignment_question_id = aq.id
           AND s.user_id = :userId
-        WHERE aq.assignment_id IN (:assignmentIds)
         GROUP BY aq.assignment_id
-        `,
-        {
-          replacements: {
-            assignmentIds,
-            userId,
-          },
-          type: QueryTypes.SELECT,
-        }
-      );
-      statsMap = new Map(
-        stats.map((row) => [
-          Number(row.assignment_id),
-          {
-            question_count: Number(row.question_count) || 0,
-            answered_count: Number(row.answered_count) || 0,
-          },
-        ])
-      );
-    }
-    const payload = assignments.map((assignment) => {
-      const data = assignment.toJSON ? assignment.toJSON() : assignment;
-      const stats = statsMap.get(assignment.id) || { question_count: 0, answered_count: 0 };
-      // completed only when there is a submission for every question in the assignment
+      ) stats ON stats.assignment_id = a.id
+      WHERE a.course_id = :courseId
+      ORDER BY a.created_at DESC
+      `,
+      {
+        replacements: { courseId, userId },
+        type: QueryTypes.SELECT,
+      }
+    );
+    const payload = rows.map((row) => {
+      const question_count = Number(row.question_count) || 0;
+      const answered_count = Number(row.answered_count) || 0;
       const completed =
-        stats.question_count > 0 && stats.answered_count === stats.question_count;
-      if (data.due_date != null) data.due_date = formatDueDateEastern(data.due_date);
-      return { ...data, ...stats, completed };
+        question_count > 0 && answered_count === question_count;
+      const data = {
+        id: row.id,
+        course_id: row.course_id,
+        title: row.title,
+        description: row.description,
+        kind: row.kind,
+        chapter: row.chapter,
+        subchapter: row.subchapter,
+        due_date:
+          row.due_date != null ? formatDueDateEastern(row.due_date) : row.due_date,
+        late_window_days: row.late_window_days,
+        late_penalty_percent: row.late_penalty_percent,
+        total_points: row.total_points,
+        is_locked: row.is_locked,
+        created_at: row.created_at,
+        question_count,
+        answered_count,
+        completed,
+      };
+      return data;
     });
     res.json(payload);
   } catch (error) {

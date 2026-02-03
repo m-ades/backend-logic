@@ -11,7 +11,7 @@ import {
 } from '../models/index.js';
 import { validateLogicPenguin } from '../validators/logicpenguin.js';
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
-import { recomputeAssignmentGrade } from '../utils/grades.js';
+import { recomputeAssignmentGrade, ensureZeroGradesForPastDue, ensureZeroGradesForUnlocked } from '../utils/grades.js';
 import { handleValidationResult } from '../middleware/validation.js';
 import { ensureSelfOrAdmin } from '../utils/authorization.js';
 
@@ -161,6 +161,14 @@ router.post(
     });
 
     await recomputeAssignmentGrade({ assignmentId: assignment.id, userId: user_id });
+
+    // backfill zeros for past-due and unlocked. not on GET.
+    Promise.all([
+      ensureZeroGradesForPastDue({ userId: user_id }),
+      ensureZeroGradesForUnlocked({ userId: user_id }),
+    ]).catch((err) => {
+      console.warn('Post-submission ensureZeroGrades failed:', err?.message || err);
+    });
 
     // return the saved submission and the grading output (score at top level for reliable partial-credit display)
     const submissionPojo = submission.get ? submission.get({ plain: true }) : submission;

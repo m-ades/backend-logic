@@ -1,10 +1,10 @@
 import { createCrudRouter } from './crud.js';
-import { User, AssignmentGrade, Assignment, CourseEnrollment, Course } from '../models/index.js';
+import { User, CourseEnrollment, Course } from '../models/index.js';
 import { hashPassword, isStrongPassword, PASSWORD_POLICY_MESSAGE, verifyPassword } from '../utils/passwords.js';
 import { isSelfOrAdmin, isSystemAdmin } from '../utils/authorization.js';
 import { handleValidationResult } from '../middleware/validation.js';
 import { userIdParam } from '../validators/common.js';
-import { ensureZeroGradesForPastDue, ensureZeroGradesForUnlocked } from '../utils/grades.js';
+import { fetchEffectiveGrades } from '../utils/grades.js';
 
 const sanitizeUser = (user) => {
   const data = user.toJSON ? user.toJSON() : user;
@@ -104,13 +104,7 @@ router.get('/:id/grades', [userIdParam, handleValidationResult], async (req, res
     if (!isSelfOrAdmin(req.user, req.params.id)) {
       return res.status(403).json({ message: 'Forbidden' });
     }
-    await ensureZeroGradesForPastDue({ userId: req.params.id });
-    await ensureZeroGradesForUnlocked({ userId: req.params.id });
-    const grades = await AssignmentGrade.findAll({
-      where: { user_id: req.params.id },
-      include: [{ model: Assignment }],
-      order: [['graded_at', 'DESC']],
-    });
+    const grades = await fetchEffectiveGrades(req.params.id);
     res.json(grades);
   } catch (error) {
     next(error);

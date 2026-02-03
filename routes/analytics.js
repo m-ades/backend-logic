@@ -81,11 +81,13 @@ router.get(
       return;
     }
 
-    const assignments = await fetchStudentAssignments(sequelize, userId, courseId);
-    const performance = await fetchStudentPerformance(sequelize, userId, courseId);
-    const submissionCount = await fetchStudentSubmissionCount(sequelize, userId, courseId);
-    const submittedAssignments = await fetchStudentSubmittedAssignments(sequelize, userId, courseId);
-    const time = await fetchStudentTime(sequelize, userId);
+    const [assignments, performance, submissionCount, submittedAssignments, time] = await Promise.all([
+      fetchStudentAssignments(sequelize, userId, courseId),
+      fetchStudentPerformance(sequelize, userId, courseId),
+      fetchStudentSubmissionCount(sequelize, userId, courseId),
+      fetchStudentSubmittedAssignments(sequelize, userId, courseId),
+      fetchStudentTime(sequelize, userId),
+    ]);
 
     const now = new Date();
     let upcoming = 0;
@@ -146,6 +148,21 @@ router.get(
       })
       .slice(0, 4);
 
+    const assignmentGrades = assignments.map((a) => ({
+      assignment_id: a.id,
+      final_score: a.final_score ?? 0,
+      max_score: a.max_score ?? a.total_points ?? 0,
+      raw_score: a.final_score ?? 0,
+      graded_at: a.graded_at,
+      Assignment: {
+        id: a.id,
+        title: a.title,
+        is_locked: a.is_locked,
+        due_at: a.due_at ?? a.due_date,
+        due_date: a.due_date,
+      },
+    }));
+
     res.json({
       assignments: {
         upcoming,
@@ -155,6 +172,7 @@ router.get(
         total: assignments.length,
         upcomingList,
       },
+      assignmentGrades,
       performance: performance || {
         avg_score: null,
         avg_attempt: null,

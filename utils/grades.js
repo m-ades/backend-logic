@@ -99,6 +99,65 @@ export async function recomputeAssignmentGrade({ assignmentId, userId }) {
   return grade;
 }
 
+/**
+ * Return effective grades for a user: one row per enrolled assignment, with
+ * real grade if present else final_score=0 and max_score from assignment.
+ * Read-only (no INSERTs). Use this for GET /users/:id/grades.
+ */
+export async function fetchEffectiveGrades(userId) {
+  if (!userId) return [];
+  const rows = await sequelize.query(
+    `
+    SELECT
+      a.id AS assignment_id,
+      :userId AS user_id,
+      COALESCE(ag.raw_score, 0) AS raw_score,
+      COALESCE(ag.max_score, COALESCE(a.total_points, (SELECT COUNT(*)::int * 100 FROM assignment_questions WHERE assignment_id = a.id))) AS max_score,
+      COALESCE(ag.penalty_percent, 0) AS penalty_percent,
+      COALESCE(ag.final_score, 0) AS final_score,
+      ag.graded_at,
+      ag.graded_by,
+      a.id AS "a_id",
+      a.title AS "a_title",
+      a.course_id AS "a_course_id",
+      a.description AS "a_description",
+      a.kind AS "a_kind",
+      a.due_date AS "a_due_date",
+      a.is_locked AS "a_is_locked",
+      a.total_points AS "a_total_points"
+    FROM assignments a
+    JOIN course_enrollments ce ON ce.course_id = a.course_id AND ce.user_id = :userId
+    LEFT JOIN assignment_grades ag ON ag.assignment_id = a.id AND ag.user_id = :userId
+    WHERE a.kind = 'assignment'
+    ORDER BY ag.graded_at DESC NULLS LAST, a.id
+    `,
+    {
+      type: QueryTypes.SELECT,
+      replacements: { userId },
+    }
+  );
+  return (rows || []).map((r) => ({
+    assignment_id: r.assignment_id,
+    user_id: r.user_id,
+    raw_score: Number(r.raw_score) || 0,
+    max_score: Number(r.max_score) || 0,
+    penalty_percent: Number(r.penalty_percent) || 0,
+    final_score: Number(r.final_score) || 0,
+    graded_at: r.graded_at,
+    graded_by: r.graded_by ?? null,
+    Assignment: {
+      id: r.a_id,
+      title: r.a_title,
+      course_id: r.a_course_id,
+      description: r.a_description,
+      kind: r.a_kind,
+      due_date: r.a_due_date,
+      is_locked: r.a_is_locked,
+      total_points: r.a_total_points,
+    },
+  }));
+}
+
 export async function ensureZeroGradesForPastDue({ userId }) {
   if (!userId) return;
   await sequelize.query(
