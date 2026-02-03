@@ -38,6 +38,19 @@ async function requireAssignmentExists(assignmentId) {
   return Assignment.findByPk(assignmentId, { attributes: ['id'] });
 }
 
+// deep merge. source overwrites. arrays replace.
+function deepMerge(target, source) {
+  if (source == null) return target;
+  if (Array.isArray(source)) return source;
+  if (typeof source !== 'object') return source;
+  const existing = target != null && typeof target === 'object' && !Array.isArray(target) ? target : {};
+  const out = { ...existing };
+  for (const key of Object.keys(source)) {
+    out[key] = deepMerge(out[key], source[key]);
+  }
+  return out;
+}
+
 router.post(
   '/bulk',
   [
@@ -169,7 +182,18 @@ router.use(
   createCrudRouter(AssignmentQuestion, {
     beforeUpdate: (req, body, record) => {
       const payload = {}
-      if (body.question_snapshot !== undefined) payload.question_snapshot = body.question_snapshot
+      if (body.question_snapshot !== undefined) {
+        const existing = record?.question_snapshot ?? {}
+        let merged = deepMerge(
+          typeof existing === 'object' && existing !== null ? existing : {},
+          body.question_snapshot
+        )
+        const t = merged?.type ?? merged?.logic_problem_type
+        if (t === 'single-row-truth-table' && merged && typeof merged === 'object') {
+          delete merged.singleRowTruthTable
+        }
+        payload.question_snapshot = merged
+      }
       if (body.attempt_limit !== undefined) {
         const n = Number(body.attempt_limit)
         if (Number.isInteger(n) && n >= 0) payload.attempt_limit = n
