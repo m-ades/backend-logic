@@ -32,7 +32,6 @@ export default async function requireAuth(req, res, next) {
 
   let payload;
   try {
-    // verify jwt 
     payload = verifyUserToken(token);
   } catch (error) {
     return res.status(401).json({ message: 'invalid token' });
@@ -44,10 +43,17 @@ export default async function requireAuth(req, res, next) {
   }
 
   if ((user.token_version || 0) !== (payload.token_version || 0)) {
-    // token revoked via logout-all?
     return res.status(401).json({ message: 'token revoked' });
   }
 
   req.user = { id: user.id, username: user.username, is_system_admin: user.is_system_admin };
+  return next();
+}
+
+// after requireAuth. 401 if no user.
+export function requireUser(req, res, next) {
+  if (!req.user?.id) {
+    return res.status(401).json({ message: 'unauthorized' });
+  }
   return next();
 }
