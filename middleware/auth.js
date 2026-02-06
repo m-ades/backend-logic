@@ -12,7 +12,12 @@ const parseCookies = (cookieHeader) => {
     if (eqIndex === -1) return acc;
     const name = trimmed.slice(0, eqIndex);
     const value = trimmed.slice(eqIndex + 1);
-    acc[name] = decodeURIComponent(value);
+    try {
+      acc[name] = decodeURIComponent(value);
+    } catch (error) {
+      // Ignore malformed cookie values.
+      return acc;
+    }
     return acc;
   }, {});
 };
