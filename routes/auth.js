@@ -15,6 +15,7 @@ const getCookieOptions = () => {
     httpOnly: true,
     sameSite: isProduction ? 'none' : 'lax',
     secure: isProduction,
+    ...(isProduction ? { domain: '.hunterlogic.org' } : {}),
     maxAge: COOKIE_MAX_AGE_MS,
     path: '/',
   };
@@ -26,8 +27,23 @@ const getClearCookieOptions = () => {
     httpOnly: true,
     sameSite: isProduction ? 'none' : 'lax',
     secure: isProduction,
+    ...(isProduction ? { domain: '.hunterlogic.org' } : {}),
     path: '/',
   };
+};
+
+const clearAuthCookieVariants = (res) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const base = {
+    path: '/',
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
+  };
+
+  res.clearCookie(COOKIE_NAME);
+  res.clearCookie(COOKIE_NAME, { ...base });
+  res.clearCookie(COOKIE_NAME, { ...base, domain: 'hunterlogic.org' });
+  res.clearCookie(COOKIE_NAME, { ...base, domain: '.hunterlogic.org' });
 };
 
 const sanitizeUser = (user) => {
@@ -62,8 +78,9 @@ router.post(
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    // issue jwt 
+    // issue jwt
     const token = signUserToken(user);
+    clearAuthCookieVariants(res);
     res.cookie(COOKIE_NAME, token, getCookieOptions());
     res.json({ user: sanitizeUser(user) });
   } catch (error) {
@@ -73,7 +90,7 @@ router.post(
 
 router.post('/logout', (_req, res) => {
   // jwt logout drop the token
-  res.clearCookie(COOKIE_NAME, getClearCookieOptions());
+  clearAuthCookieVariants(res);
   res.json({ ok: true });
 });
 
@@ -91,7 +108,7 @@ router.post('/logout-all', async (req, res, next) => {
     }
 
     await user.update({ token_version: user.token_version + 1 });
-    res.clearCookie(COOKIE_NAME, getClearCookieOptions());
+    clearAuthCookieVariants(res);
     res.json({ ok: true });
   } catch (error) {
     next(error);

@@ -3,6 +3,17 @@ import { verifyUserToken } from '../utils/jwt.js';
 
 const COOKIE_NAME = 'auth_token';
 
+const getClearCookieOptions = () => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  return {
+    httpOnly: true,
+    sameSite: isProduction ? 'none' : 'lax',
+    secure: isProduction,
+    ...(isProduction ? { domain: '.hunterlogic.org' } : {}),
+    path: '/',
+  };
+};
+
 const parseCookies = (cookieHeader) => {
   if (!cookieHeader) return {};
   return cookieHeader.split(';').reduce((acc, part) => {
@@ -39,6 +50,7 @@ export default async function requireAuth(req, res, next) {
   try {
     payload = verifyUserToken(token);
   } catch (error) {
+    res.clearCookie(COOKIE_NAME, getClearCookieOptions());
     return res.status(401).json({ message: 'invalid token' });
   }
 
@@ -48,6 +60,7 @@ export default async function requireAuth(req, res, next) {
   }
 
   if ((user.token_version || 0) !== (payload.token_version || 0)) {
+    res.clearCookie(COOKIE_NAME, getClearCookieOptions());
     return res.status(401).json({ message: 'token revoked' });
   }
 
