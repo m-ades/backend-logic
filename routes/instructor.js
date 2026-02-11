@@ -634,4 +634,53 @@ router.get('/courses/:id/deadlines', courseAccessValidators, async (req, res, ne
   }
 });
 
+router.get(
+  '/courses/:id/deadlines/:studentId',
+  [
+    courseIdParam,
+    param('studentId')
+      .isInt({ gt: 0 })
+      .toInt()
+      .withMessage('studentId must be a positive integer'),
+    handleValidationResult,
+  ],
+  async (req, res, next) => {
+    try {
+      const courseId = req.params.id;
+      const userId = req.user.id;
+      const studentId = req.params.studentId;
+
+      if (!(await requireInstructor(courseId, userId))) {
+        return res.status(403).json({ message: 'Instructor access required' });
+      }
+
+      const assignments = await Assignment.findAll({
+        where: { course_id: courseId },
+        order: [['due_date', 'ASC']],
+      });
+
+      const accommodation = await Accommodation.findOne({
+        where: { course_id: courseId, user_id: studentId },
+      });
+
+      const policies = await Promise.all(
+        assignments.map(async (assignment) => {
+          const extension = await AssignmentExtension.findOne({
+            where: { assignment_id: assignment.id, user_id: studentId },
+          });
+          return {
+            assignment_id: assignment.id,
+            title: assignment.title,
+            ...computeDeadlinePolicy({ assignment, extension, accommodation }),
+          };
+        })
+      );
+
+      res.json(policies);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 export default router;
