@@ -12,8 +12,9 @@ import {
   Submission,
   User,
 } from '../models/index.js';
-import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
+import { addDays, computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { recomputeAssignmentGrade } from '../utils/grades.js';
+import { formatDueDateEastern } from '../utils/easternDate.js';
 import {
   hashPassword,
   isStrongPassword,
@@ -33,6 +34,15 @@ const validateStrongPassword = (value) => {
     throw new Error(PASSWORD_POLICY_MESSAGE);
   }
   return true;
+};
+
+const formatPolicyDates = (policy) => {
+  if (!policy) return null;
+  return {
+    ...policy,
+    due_at: policy.due_at ? formatDueDateEastern(policy.due_at) : policy.due_at,
+    cutoff_at: policy.cutoff_at ? formatDueDateEastern(policy.cutoff_at) : policy.cutoff_at,
+  };
 };
 
 /** true only for instructors in this course (not TAs). */
@@ -629,10 +639,20 @@ router.get('/courses/:id/deadlines', courseAccessValidators, async (req, res, ne
         const accommodation = await Accommodation.findOne({
           where: { course_id: courseId, user_id },
         });
+        const accommodationDueAt = accommodation?.extra_late_days && assignment?.due_date
+          ? addDays(new Date(assignment.due_date), accommodation.extra_late_days)
+          : null;
         return {
           assignment_id: assignment.id,
           title: assignment.title,
-          ...computeDeadlinePolicy({ assignment, extension, accommodation }),
+          ...formatPolicyDates(computeDeadlinePolicy({ assignment, extension, accommodation })),
+          has_extension: Boolean(extension),
+          extension_due_at: extension?.extended_due_date
+            ? formatDueDateEastern(extension.extended_due_date)
+            : null,
+          accommodation_due_at: accommodationDueAt
+            ? formatDueDateEastern(accommodationDueAt)
+            : null,
         };
       })
     );
@@ -677,10 +697,20 @@ router.get(
           const extension = await AssignmentExtension.findOne({
             where: { assignment_id: assignment.id, user_id: studentId },
           });
+          const accommodationDueAt = accommodation?.extra_late_days && assignment?.due_date
+            ? addDays(new Date(assignment.due_date), accommodation.extra_late_days)
+            : null;
           return {
             assignment_id: assignment.id,
             title: assignment.title,
-            ...computeDeadlinePolicy({ assignment, extension, accommodation }),
+            ...formatPolicyDates(computeDeadlinePolicy({ assignment, extension, accommodation })),
+            has_extension: Boolean(extension),
+            extension_due_at: extension?.extended_due_date
+              ? formatDueDateEastern(extension.extended_due_date)
+              : null,
+            accommodation_due_at: accommodationDueAt
+              ? formatDueDateEastern(accommodationDueAt)
+              : null,
           };
         })
       );
