@@ -12,7 +12,7 @@ import {
   User,
   sequelize,
 } from '../models/index.js';
-import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
+import { addDays, computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { autoSubmitIfPastDeadline } from '../utils/autoSubmit.js';
 import { ensureSelfOrAdmin, isSystemAdmin } from '../utils/authorization.js';
 import { requireInstructorOrAdmin } from './instructor.js';
@@ -28,6 +28,15 @@ function normalizeDueDate(body) {
   const b = { ...body };
   if (b.due_date != null) b.due_date = parseDueDateForStorage(b.due_date);
   return b;
+}
+
+function formatPolicyDates(policy) {
+  if (!policy) return null;
+  return {
+    ...policy,
+    due_at: policy.due_at ? formatDueDateEastern(policy.due_at) : policy.due_at,
+    cutoff_at: policy.cutoff_at ? formatDueDateEastern(policy.cutoff_at) : policy.cutoff_at,
+  };
 }
 
 const router = createCrudRouter(Assignment, {
@@ -71,11 +80,24 @@ router.get('/:id', [assignmentIdParam, userIdOptionalQuery, handleValidationResu
         const extension = await AssignmentExtension.findOne({
           where: { assignment_id: assignment.id, user_id: requestedUserId },
         });
-        policy = computeDeadlinePolicy({
+        const computed = computeDeadlinePolicy({
           assignment,
           extension,
           accommodation,
         });
+        const accommodationDueAt = accommodation?.extra_late_days && assignment?.due_date
+          ? addDays(new Date(assignment.due_date), accommodation.extra_late_days)
+          : null;
+        policy = {
+          ...formatPolicyDates(computed),
+          has_extension: Boolean(extension),
+          extension_due_at: extension?.extended_due_date
+            ? formatDueDateEastern(extension.extended_due_date)
+            : null,
+          accommodation_due_at: accommodationDueAt
+            ? formatDueDateEastern(accommodationDueAt)
+            : null,
+        };
         await autoSubmitIfPastDeadline(assignment, requestedUserId);
       }
     }

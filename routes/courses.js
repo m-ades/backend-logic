@@ -1,11 +1,28 @@
 import { createCrudRouter } from './crud.js';
 import { QueryTypes } from 'sequelize';
-import { Course, CourseEnrollment, User, sequelize } from '../models/index.js';
+import {
+  Accommodation,
+  AssignmentExtension,
+  Course,
+  CourseEnrollment,
+  User,
+  sequelize,
+} from '../models/index.js';
 import { formatDueDateEastern } from '../utils/easternDate.js';
+import { addDays, computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { handleValidationResult } from '../middleware/validation.js';
 import { courseIdParam } from '../validators/common.js';
 import { isSystemAdmin } from '../utils/authorization.js';
 import { requireInstructorOrAdmin } from './instructor.js';
+
+function formatPolicyDates(policy) {
+  if (!policy) return null;
+  return {
+    ...policy,
+    due_at: policy.due_at ? formatDueDateEastern(policy.due_at) : policy.due_at,
+    cutoff_at: policy.cutoff_at ? formatDueDateEastern(policy.cutoff_at) : policy.cutoff_at,
+  };
+}
 
 async function requireInstructorInAnyCourseOrAdmin(user) {
   if (isSystemAdmin(user)) {
@@ -86,11 +103,50 @@ router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (r
         type: QueryTypes.SELECT,
       }
     );
+    const accommodation = userId
+      ? await Accommodation.findOne({
+        where: { course_id: courseId, user_id: userId },
+      })
+      : null;
+    const assignmentIds = rows.map((row) => row.id);
+    const extensions = userId && assignmentIds.length
+      ? await AssignmentExtension.findAll({
+        where: { user_id: userId, assignment_id: assignmentIds },
+      })
+      : [];
+    const extensionByAssignment = new Map(
+      extensions.map((extension) => [extension.assignment_id, extension])
+    );
+
     const payload = rows.map((row) => {
       const question_count = Number(row.question_count) || 0;
       const answered_count = Number(row.answered_count) || 0;
       const completed =
         question_count > 0 && answered_count === question_count;
+      const extension = extensionByAssignment.get(row.id) ?? null;
+      const accommodationDueAt = accommodation?.extra_late_days && row.due_date
+        ? addDays(new Date(row.due_date), accommodation.extra_late_days)
+        : null;
+      const policy = userId && row.kind !== 'practice' && row.due_date
+        ? {
+          ...formatPolicyDates(computeDeadlinePolicy({
+            assignment: {
+              due_date: row.due_date,
+              late_window_days: row.late_window_days,
+              late_penalty_percent: row.late_penalty_percent,
+            },
+            extension,
+            accommodation,
+          })),
+          has_extension: Boolean(extension),
+          extension_due_at: extension?.extended_due_date
+            ? formatDueDateEastern(extension.extended_due_date)
+            : null,
+          accommodation_due_at: accommodationDueAt
+            ? formatDueDateEastern(accommodationDueAt)
+            : null,
+        }
+        : null;
       const data = {
         id: row.id,
         course_id: row.course_id,
@@ -109,6 +165,7 @@ router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (r
         question_count,
         answered_count,
         completed,
+        policy,
       };
       return data;
     });

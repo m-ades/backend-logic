@@ -26,9 +26,12 @@ export function computeDeadlinePolicy({
     : new Date(assignment.due_date);
   const lateWindowDays = assignment?.late_window_days ?? 0;
   const extraLateDays = accommodation?.extra_late_days ?? 0;
+  const hasExtension = Boolean(extension?.extended_due_date);
   // treat accommodation extra_late_days as extra full-credit days (shift due date),
-  // not as additional late-window days.
-  const effectiveDue = extraLateDays ? addDays(baseDue, extraLateDays) : baseDue;
+  // not as additional late-window days. do not stack with extensions.
+  const effectiveDue = !hasExtension && extraLateDays
+    ? addDays(baseDue, extraLateDays)
+    : baseDue;
   const cutoff = addDays(effectiveDue, lateWindowDays);
   const penalty = accommodation?.late_penalty_waived
     ? 0
