@@ -323,6 +323,13 @@ router.post('/courses/:id/accommodations', courseAccessValidators, async (req, r
     });
 
     const record = existing ? await existing.update(payload) : await Accommodation.create(payload);
+    const assignments = await Assignment.findAll({
+      where: { course_id: courseId, kind: 'assignment' },
+      attributes: ['id'],
+    });
+    for (const assignment of assignments) {
+      await recomputeAssignmentGrade({ assignmentId: assignment.id, userId: targetUserId });
+    }
     res.status(existing ? 200 : 201).json(record);
   } catch (error) {
     next(error);
