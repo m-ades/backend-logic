@@ -631,31 +631,37 @@ router.get('/courses/:id/deadlines', courseAccessValidators, async (req, res, ne
       order: [['due_date', 'ASC']],
     });
 
-    const policies = await Promise.all(
-      assignments.map(async (assignment) => {
-        const extension = await AssignmentExtension.findOne({
-          where: { assignment_id: assignment.id, user_id: userId },
-        });
-        const accommodation = await Accommodation.findOne({
-          where: { course_id: courseId, user_id },
-        });
-        const accommodationDueAt = accommodation?.extra_late_days && assignment?.due_date
-          ? addDays(new Date(assignment.due_date), accommodation.extra_late_days)
-          : null;
-        return {
-          assignment_id: assignment.id,
-          title: assignment.title,
-          ...formatPolicyDates(computeDeadlinePolicy({ assignment, extension, accommodation })),
-          has_extension: Boolean(extension),
-          extension_due_at: extension?.extended_due_date
-            ? formatDueDateEastern(extension.extended_due_date)
-            : null,
-          accommodation_due_at: accommodationDueAt
-            ? formatDueDateEastern(accommodationDueAt)
-            : null,
-        };
-      })
+    const assignmentIds = assignments.map((assignment) => assignment.id);
+    const [extensions, accommodation] = await Promise.all([
+      AssignmentExtension.findAll({
+        where: { assignment_id: assignmentIds, user_id: userId },
+      }),
+      Accommodation.findOne({
+        where: { course_id: courseId, user_id },
+      }),
+    ]);
+    const extensionByAssignment = new Map(
+      (extensions || []).map((extension) => [extension.assignment_id, extension])
     );
+
+    const policies = assignments.map((assignment) => {
+      const extension = extensionByAssignment.get(assignment.id) ?? null;
+      const accommodationDueAt = accommodation?.extra_late_days && assignment?.due_date
+        ? addDays(new Date(assignment.due_date), accommodation.extra_late_days)
+        : null;
+      return {
+        assignment_id: assignment.id,
+        title: assignment.title,
+        ...formatPolicyDates(computeDeadlinePolicy({ assignment, extension, accommodation })),
+        has_extension: Boolean(extension),
+        extension_due_at: extension?.extended_due_date
+          ? formatDueDateEastern(extension.extended_due_date)
+          : null,
+        accommodation_due_at: accommodationDueAt
+          ? formatDueDateEastern(accommodationDueAt)
+          : null,
+      };
+    });
 
     res.json(policies);
   } catch (error) {
@@ -688,32 +694,38 @@ router.get(
         order: [['due_date', 'ASC']],
       });
 
-      const accommodation = await Accommodation.findOne({
-        where: { course_id: courseId, user_id: studentId },
-      });
+      const assignmentIds = assignments.map((assignment) => assignment.id);
 
-      const policies = await Promise.all(
-        assignments.map(async (assignment) => {
-          const extension = await AssignmentExtension.findOne({
-            where: { assignment_id: assignment.id, user_id: studentId },
-          });
-          const accommodationDueAt = accommodation?.extra_late_days && assignment?.due_date
-            ? addDays(new Date(assignment.due_date), accommodation.extra_late_days)
-            : null;
-          return {
-            assignment_id: assignment.id,
-            title: assignment.title,
-            ...formatPolicyDates(computeDeadlinePolicy({ assignment, extension, accommodation })),
-            has_extension: Boolean(extension),
-            extension_due_at: extension?.extended_due_date
-              ? formatDueDateEastern(extension.extended_due_date)
-              : null,
-            accommodation_due_at: accommodationDueAt
-              ? formatDueDateEastern(accommodationDueAt)
-              : null,
-          };
-        })
+      const [extensions, accommodation] = await Promise.all([
+        AssignmentExtension.findAll({
+          where: { assignment_id: assignmentIds, user_id: studentId },
+        }),
+        Accommodation.findOne({
+          where: { course_id: courseId, user_id: studentId },
+        }),
+      ]);
+      const extensionByAssignment = new Map(
+        (extensions || []).map((extension) => [extension.assignment_id, extension])
       );
+
+      const policies = assignments.map((assignment) => {
+        const extension = extensionByAssignment.get(assignment.id) ?? null;
+        const accommodationDueAt = accommodation?.extra_late_days && assignment?.due_date
+          ? addDays(new Date(assignment.due_date), accommodation.extra_late_days)
+          : null;
+        return {
+          assignment_id: assignment.id,
+          title: assignment.title,
+          ...formatPolicyDates(computeDeadlinePolicy({ assignment, extension, accommodation })),
+          has_extension: Boolean(extension),
+          extension_due_at: extension?.extended_due_date
+            ? formatDueDateEastern(extension.extended_due_date)
+            : null,
+          accommodation_due_at: accommodationDueAt
+            ? formatDueDateEastern(accommodationDueAt)
+            : null,
+        };
+      });
 
       res.json(policies);
     } catch (error) {
