@@ -13,6 +13,7 @@ import {
   User,
 } from '../models/index.js';
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
+import { recomputeAssignmentGrade } from '../utils/grades.js';
 import {
   hashPassword,
   isStrongPassword,
@@ -387,6 +388,7 @@ router.post('/assignments/:id/extensions', assignmentAccessValidators, async (re
     });
 
     const record = existing ? await existing.update(payload) : await AssignmentExtension.create(payload);
+    await recomputeAssignmentGrade({ assignmentId: assignment.id, userId: targetUserId });
     res.status(existing ? 200 : 201).json(record);
   } catch (error) {
     next(error);
