@@ -12,6 +12,7 @@ import evaluateTruth from '../lib/logicpenguin/checkers/evaluate-truth.js';
 import singleRowTruthTable from '../lib/logicpenguin/checkers/single-row-truth-table.js';
 import indirectTruthTable from '../lib/logicpenguin/checkers/indirect-truth-table.js';
 import partialTruthTable from '../lib/logicpenguin/checkers/partial-truth-table.js';
+import nonclassicalTruthTable from '../lib/logicpenguin/checkers/nonclassical-truth-table.js';
 import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
 import { formulaTable, equivTables, argumentTables, libtf } from '../lib/logicpenguin/symbolic/libsemantics.js';
 
@@ -26,6 +27,7 @@ const CHECKERS = {
   'symbolic-translation': symbolicTranslation,
   'multiple-choice': multipleChoice,
   'indirect-truth-table': indirectTruthTable,
+  'nonclassical-truth-table': nonclassicalTruthTable,
   'partial-truth-table': partialTruthTable,
   'true-false': trueFalse,
   'evaluate-truth': evaluateTruth,
@@ -288,6 +290,9 @@ function normalizeSubmissionByType({ checkerKey, submission, question }) {
     return normalizeMultipleChoiceSubmission(submission, question);
   }
   if (checkerKey === 'indirect-truth-table') {
+    return normalizeIndirectTruthTableSubmission(submission);
+  }
+  if (checkerKey === 'nonclassical-truth-table') {
     return normalizeIndirectTruthTableSubmission(submission);
   }
   if (checkerKey === 'single-row-truth-table' || checkerKey === 'partial-truth-table') {
