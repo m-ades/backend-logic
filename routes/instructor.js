@@ -577,7 +577,10 @@ router.get('/assignments/:id/grades', assignmentAccessValidators, async (req, re
     const extensionByUser = new Map(extensions.map((e) => [e.user_id, e]));
     const accommodationByUser = new Map(accommodations.map((a) => [a.user_id, a]));
     const now = new Date();
-    const maxScore = assignment.total_points ?? 0;
+    const questionCount = await AssignmentQuestion.count({
+      where: { assignment_id: assignmentId },
+    });
+    const maxScore = questionCount * 100;
 
     const synthetic = [];
     for (const enrollment of enrollments) {

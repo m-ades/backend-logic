@@ -112,7 +112,7 @@ export async function fetchEffectiveGrades(userId) {
       a.id AS assignment_id,
       :userId AS user_id,
       COALESCE(ag.raw_score, 0) AS raw_score,
-      COALESCE(ag.max_score, COALESCE(a.total_points, (SELECT COUNT(*)::int * 100 FROM assignment_questions WHERE assignment_id = a.id))) AS max_score,
+      COALESCE(ag.max_score, (SELECT COUNT(*)::int * 100 FROM assignment_questions WHERE assignment_id = a.id)) AS max_score,
       COALESCE(ag.penalty_percent, 0) AS penalty_percent,
       COALESCE(ag.final_score, 0) AS final_score,
       ag.graded_at,
@@ -124,7 +124,7 @@ export async function fetchEffectiveGrades(userId) {
       a.kind AS "a_kind",
       a.due_date AS "a_due_date",
       a.is_locked AS "a_is_locked",
-      a.total_points AS "a_total_points"
+      (SELECT COUNT(*)::int * 100 FROM assignment_questions WHERE assignment_id = a.id) AS "a_total_points"
     FROM assignments a
     JOIN course_enrollments ce ON ce.course_id = a.course_id AND ce.user_id = :userId
     LEFT JOIN assignment_grades ag ON ag.assignment_id = a.id AND ag.user_id = :userId

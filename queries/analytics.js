@@ -47,6 +47,11 @@ export async function fetchAssignmentAnalytics(sequelize, courseId) {
 export async function fetchStudentAssignments(sequelize, userId, courseId) {
   try {
     const assignmentsQuery = `
+      WITH question_counts AS (
+        SELECT assignment_id, COUNT(*)::int AS question_count
+        FROM assignment_questions
+        GROUP BY assignment_id
+      )
       SELECT
         a.id,
         a.title,
@@ -55,13 +60,14 @@ export async function fetchStudentAssignments(sequelize, userId, courseId) {
         a.due_date,
         a.due_date AS due_at,
         a.late_window_days,
-        a.total_points,
+        COALESCE(qc.question_count, 0) * 100 AS total_points,
         a.is_locked,
         ag.id AS grade_id,
         ag.final_score,
         ag.max_score,
         ag.graded_at
       FROM assignments a
+      LEFT JOIN question_counts qc ON qc.assignment_id = a.id
       LEFT JOIN assignment_grades ag
         ON ag.assignment_id = a.id AND ag.user_id = :userId
       WHERE (:courseId::int IS NULL OR a.course_id = :courseId::int)
@@ -289,19 +295,25 @@ export async function fetchInstructorAssignmentStats(sequelize, courseId) {
 export async function fetchAssignmentGradeSummary(sequelize, courseId) {
   try {
     const summaryQuery = `
+      WITH question_counts AS (
+        SELECT assignment_id, COUNT(*)::int AS question_count
+        FROM assignment_questions
+        GROUP BY assignment_id
+      )
       SELECT
         a.id,
         a.title,
         a.due_date,
         a.due_date AS due_at,
         a.is_locked,
-        a.total_points,
+        COALESCE(qc.question_count, 0) * 100 AS total_points,
         AVG(ag.final_score::float / NULLIF(ag.max_score, 0))
           FILTER (WHERE ag.max_score > 0) AS avg_percent,
         percentile_cont(0.5) WITHIN GROUP (
           ORDER BY ag.final_score::float / NULLIF(ag.max_score, 0)
         ) FILTER (WHERE ag.max_score > 0) AS median_percent
       FROM assignments a
+      LEFT JOIN question_counts qc ON qc.assignment_id = a.id
       LEFT JOIN assignment_grades ag ON ag.assignment_id = a.id
       LEFT JOIN course_enrollments ce
         ON ce.user_id = ag.user_id
@@ -310,7 +322,7 @@ export async function fetchAssignmentGradeSummary(sequelize, courseId) {
       WHERE a.course_id = :courseId
         AND a.kind = 'assignment'
         AND (ce.id IS NOT NULL OR ag.id IS NULL)
-      GROUP BY a.id
+      GROUP BY a.id, qc.question_count
       ORDER BY a.due_date NULLS LAST, a.id;
     `;
 

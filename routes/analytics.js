@@ -5,6 +5,7 @@ import {
   Assignment,
   AssignmentExtension,
   AssignmentGrade,
+  AssignmentQuestion,
   CourseEnrollment,
   User,
   sequelize,
@@ -464,11 +465,34 @@ async function buildGradebookStudents(assignments, enrollments, dropLowestN, cou
   return computeGradebookStudents(assignments, enrollments, grades, dropLowestN);
 }
 
-function fetchGradebookAssignments(courseId) {
-  return Assignment.findAll({
+async function attachDerivedPoints(assignments) {
+  const assignmentIds = assignments.map((assignment) => assignment.id);
+  if (!assignmentIds.length) return assignments;
+  const rows = await AssignmentQuestion.findAll({
+    where: { assignment_id: assignmentIds },
+    attributes: [
+      'assignment_id',
+      [sequelize.fn('COUNT', sequelize.col('id')), 'question_count'],
+    ],
+    group: ['assignment_id'],
+    raw: true,
+  });
+  const countMap = new Map(
+    rows.map((row) => [Number(row.assignment_id), Number(row.question_count) || 0])
+  );
+  assignments.forEach((assignment) => {
+    const count = countMap.get(assignment.id) ?? 0;
+    assignment.setDataValue('total_points', count * 100);
+  });
+  return assignments;
+}
+
+async function fetchGradebookAssignments(courseId) {
+  const assignments = await Assignment.findAll({
     where: { course_id: courseId, kind: 'assignment' },
     order: [['due_date', 'ASC'], ['id', 'ASC']],
   });
+  return attachDerivedPoints(assignments);
 }
 
 function fetchGradebookEnrollments(courseId) {

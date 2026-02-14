@@ -159,7 +159,7 @@ router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (r
           row.due_date != null ? formatDueDateEastern(row.due_date) : row.due_date,
         late_window_days: row.late_window_days,
         late_penalty_percent: row.late_penalty_percent,
-        total_points: row.total_points,
+        total_points: question_count * 100,
         is_locked: row.is_locked,
         created_at: row.created_at,
         question_count,

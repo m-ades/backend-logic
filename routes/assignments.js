@@ -42,7 +42,13 @@ function formatPolicyDates(policy) {
 const router = createCrudRouter(Assignment, {
   disableGetById: true,
   sanitize: sanitizeAssignment,
-  beforeCreate: async (req, body) => normalizeDueDate(body),
+  beforeCreate: async (req, body) => {
+    const payload = normalizeDueDate(body);
+    if (!Number.isFinite(Number(payload.total_points))) {
+      payload.total_points = 0;
+    }
+    return payload;
+  },
   beforeUpdate: async (req, body) => normalizeDueDate(body),
   authorizeCreate: async (req) => {
     const courseId = Number(req.body?.course_id);
@@ -164,6 +170,7 @@ router.get('/:id', [assignmentIdParam, userIdOptionalQuery, handleValidationResu
     }
 
     const assignmentData = sanitizeAssignment(assignment);
+    assignmentData.total_points = questionsWithLimits.length * 100;
     res.json({ assignment: assignmentData, questions: questionsWithLimits, policy });
   } catch (error) {
     next(error);
