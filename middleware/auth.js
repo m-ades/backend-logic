@@ -54,18 +54,22 @@ export default async function requireAuth(req, res, next) {
     return res.status(401).json({ message: 'invalid token' });
   }
 
-  const user = await User.findByPk(payload.user_id);
-  if (!user) {
-    return res.status(401).json({ message: 'unauthorized' });
-  }
+  try {
+    const user = await User.findByPk(payload.user_id);
+    if (!user) {
+      return res.status(401).json({ message: 'unauthorized' });
+    }
 
-  if ((user.token_version || 0) !== (payload.token_version || 0)) {
-    res.clearCookie(COOKIE_NAME, getClearCookieOptions());
-    return res.status(401).json({ message: 'token revoked' });
-  }
+    if ((user.token_version || 0) !== (payload.token_version || 0)) {
+      res.clearCookie(COOKIE_NAME, getClearCookieOptions());
+      return res.status(401).json({ message: 'token revoked' });
+    }
 
-  req.user = { id: user.id, username: user.username, is_system_admin: user.is_system_admin };
-  return next();
+    req.user = { id: user.id, username: user.username, is_system_admin: user.is_system_admin };
+    return next();
+  } catch (error) {
+    return next(error);
+  }
 }
 
 // after requireAuth. 401 if no user.
