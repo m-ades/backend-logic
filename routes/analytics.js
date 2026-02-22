@@ -543,6 +543,7 @@ export function computeGradebookStudents(assignments, enrollments, grades, dropL
         max_score: maxScore,
         percent,
         has_grade: Boolean(grade),
+        has_submission: Boolean(grade?.id),
       };
     });
 
