@@ -87,7 +87,7 @@ router.get(
       fetchStudentPerformance(sequelize, userId, courseId),
       fetchStudentSubmissionCount(sequelize, userId, courseId),
       fetchStudentSubmittedAssignments(sequelize, userId, courseId),
-      fetchStudentTime(sequelize, userId),
+      fetchStudentTime(sequelize, userId, courseId),
     ]);
 
     const now = new Date();
@@ -164,6 +164,14 @@ router.get(
       },
     }));
 
+    const safeTime = {
+      avg_minutes_per_question: null,
+      median_minutes_per_question: null,
+      p75_minutes_per_question: null,
+      cohort_median_minutes_per_question: null,
+      ...(time || {}),
+    };
+
     res.json({
       assignments: {
         upcoming,
@@ -180,7 +188,7 @@ router.get(
         correct_rate: null,
         first_try_correct_rate: null,
       },
-      time: time || { avg_minutes_per_question: null },
+      time: safeTime,
       submissionCount: submissionCount?.submission_count || 0,
       submittedAssignmentIds: submittedAssignments || [],
     });

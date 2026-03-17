@@ -26,7 +26,7 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || '0.0.0.0'; // 0.0.0.0 = accept connections from network (e.g. phone on same Wi‑Fi)
+const HOST = process.env.HOST || 'localhost';
 const API_KEY = process.env.API_KEY;
 const rawOrigins = process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || 'https://hunterlogic.vercel.app';
 const allowedOrigins = rawOrigins.split(',').map((origin) => origin.trim()).filter(Boolean);
