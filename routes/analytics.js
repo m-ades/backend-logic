@@ -71,8 +71,14 @@ router.get('/assignments', [courseIdOptionalParam, handleValidationResult], asyn
   }
 });
 
+/**
+ * Student dashboard analytics for a course (or all enrolled courses if courseId omitted):
+ * assignment status counts, per-assignment grade rows, submission performance, time-on-task
+ * (avg / median / p75 / cohort median), and submission counts.
+ * Query: userId (required), courseId (optional).
+ */
 router.get(
-  '/student',
+  '/student-dashboard',
   [userIdParam, courseIdOptionalParam, handleValidationResult],
   async (req, res, next) => {
   try {
@@ -197,7 +203,13 @@ router.get(
   }
 });
 
-router.get('/instructor', [courseIdParam, handleValidationResult], async (req, res, next) => {
+/**
+ * Instructor dashboard analytics for one course: class grade summary, per-assignment
+ * submission stats (scores, attempts, correctness, time per question, difficulty hints),
+ * and average time-on-task by problem category.
+ * Query: courseId (required).
+ */
+router.get('/instructor-dashboard', [courseIdParam, handleValidationResult], async (req, res, next) => {
   try {
     const { courseId } = req.query;
     if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
