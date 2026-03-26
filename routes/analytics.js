@@ -71,8 +71,14 @@ router.get('/assignments', [courseIdOptionalParam, handleValidationResult], asyn
   }
 });
 
+/**
+ * Student dashboard analytics for a course (or all enrolled courses if courseId omitted):
+ * assignment status counts, per-assignment grade rows, submission performance, time-on-task
+ * (avg / median / p75 / cohort median), and submission counts.
+ * Query: userId (required), courseId (optional).
+ */
 router.get(
-  '/student',
+  '/student-dashboard',
   [userIdParam, courseIdOptionalParam, handleValidationResult],
   async (req, res, next) => {
   try {
@@ -87,7 +93,7 @@ router.get(
       fetchStudentPerformance(sequelize, userId, courseId),
       fetchStudentSubmissionCount(sequelize, userId, courseId),
       fetchStudentSubmittedAssignments(sequelize, userId, courseId),
-      fetchStudentTime(sequelize, userId),
+      fetchStudentTime(sequelize, userId, courseId),
     ]);
 
     const now = new Date();
@@ -164,6 +170,14 @@ router.get(
       },
     }));
 
+    const safeTime = {
+      avg_minutes_per_question: null,
+      median_minutes_per_question: null,
+      p75_minutes_per_question: null,
+      cohort_median_minutes_per_question: null,
+      ...(time || {}),
+    };
+
     res.json({
       assignments: {
         upcoming,
@@ -180,7 +194,7 @@ router.get(
         correct_rate: null,
         first_try_correct_rate: null,
       },
-      time: time || { avg_minutes_per_question: null },
+      time: safeTime,
       submissionCount: submissionCount?.submission_count || 0,
       submittedAssignmentIds: submittedAssignments || [],
     });
@@ -189,7 +203,13 @@ router.get(
   }
 });
 
-router.get('/instructor', [courseIdParam, handleValidationResult], async (req, res, next) => {
+/**
+ * Instructor dashboard analytics for one course: class grade summary, per-assignment
+ * submission stats (scores, attempts, correctness, time per question, difficulty hints),
+ * and average time-on-task by problem category.
+ * Query: courseId (required).
+ */
+router.get('/instructor-dashboard', [courseIdParam, handleValidationResult], async (req, res, next) => {
   try {
     const { courseId } = req.query;
     if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
