@@ -26,16 +26,8 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || 'localhost';
 const API_KEY = process.env.API_KEY;
-const defaultAllowedOrigins = [
-  'https://hunterlogic.org',
-  'https://www.hunterlogic.org',
-  'https://hunterlogic.vercel.app',
-  'http://localhost:5173',
-  'http://localhost:3000',
-];
-const rawOrigins = process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || defaultAllowedOrigins.join(',');
+const rawOrigins = process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || 'https://hunterlogic.vercel.app';
 const allowedOrigins = rawOrigins.split(',').map((origin) => origin.trim()).filter(Boolean);
 
 app.use(cors({
@@ -93,8 +85,8 @@ app.use('/api/instructor', instructorRouter);
 
 app.use(errorHandler);
 
-app.listen(PORT, HOST, () => {
-  console.log(`Server is running on http://${HOST}:${PORT}`);
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });
 
 const autoSubmitInterval = scheduleAutoSubmitSweep();
