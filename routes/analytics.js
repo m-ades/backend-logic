@@ -78,7 +78,7 @@ router.get('/assignments', [courseIdOptionalParam, handleValidationResult], asyn
  * Query: userId (required), courseId (optional).
  */
 router.get(
-  '/student-dashboard',
+  ['/student', '/student-dashboard'],
   [userIdParam, courseIdOptionalParam, handleValidationResult],
   async (req, res, next) => {
   try {
@@ -209,7 +209,7 @@ router.get(
  * and average time-on-task by problem category.
  * Query: courseId (required).
  */
-router.get('/instructor-dashboard', [courseIdParam, handleValidationResult], async (req, res, next) => {
+router.get(['/instructor', '/instructor-dashboard'], [courseIdParam, handleValidationResult], async (req, res, next) => {
   try {
     const { courseId } = req.query;
     if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {

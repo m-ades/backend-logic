@@ -15,9 +15,6 @@ const getIntervalMs = () => {
 };
 
 export async function runAutoSubmitSweep() {
-  // track timing, created count for simple operational logging.
-  const startedAt = new Date();
-  let createdCount = 0;
   // only consider drafts with no matching submission, then re-check cutoff per user.
   const candidates = await sequelize.query(
     `
@@ -51,22 +48,12 @@ export async function runAutoSubmitSweep() {
     }
 
     const result = await autoSubmitIfPastDeadline(assignment, candidate.user_id);
-    createdCount += result.created?.length || 0;
   }
-
-  const endedAt = new Date();
-  console.log('[auto-submit] sweep complete', {
-    startedAt: startedAt.toISOString(),
-    endedAt: endedAt.toISOString(),
-    createdCount,
-    candidateCount: candidates.length,
-  });
 }
 
 export function scheduleAutoSubmitSweep() {
   const run = async () => {
     try {
-      console.log('[auto-submit] sweep start', { startedAt: new Date().toISOString() });
       await runAutoSubmitSweep();
     } catch (error) {
       console.error('Auto-submit sweep failed', error);
