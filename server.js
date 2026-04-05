@@ -19,6 +19,7 @@ import analyticsRouter from './routes/analytics.js';
 import validateRouter from './routes/validate.js';
 import instructorRouter from './routes/instructor.js';
 import requireAuth from './middleware/auth.js';
+import { createCsrfProtection, parseAllowedOrigins } from './middleware/csrf.js';
 import errorHandler from './middleware/error-handler.js';
 import { scheduleAutoSubmitSweep } from './jobs/autoSubmit.js';
 
@@ -27,7 +28,8 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const rawOrigins = process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || 'https://hunterlogic.vercel.app';
-const allowedOrigins = rawOrigins.split(',').map((origin) => origin.trim()).filter(Boolean);
+const allowedOrigins = parseAllowedOrigins(rawOrigins);
+const csrfProtection = createCsrfProtection(allowedOrigins);
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -47,6 +49,8 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' });
 });
 
+// check origin before auth on unsafe api requests
+app.use('/api', csrfProtection);
 app.use('/api/auth', authRouter);
 app.use('/api', (req, res, next) => {
   // let login through without a jwt

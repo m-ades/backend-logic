@@ -6,21 +6,26 @@ const courseCreate = jest.fn();
 const courseEnrollmentFindOne = jest.fn();
 const assignmentFindByPk = jest.fn();
 const assignmentCreate = jest.fn();
+const assignmentQuestionFindAll = jest.fn();
 const assignmentDraftFindOne = jest.fn();
+const submissionFindAll = jest.fn();
 const requireInstructorOrAdmin = jest.fn();
+const sequelizeFn = jest.fn((name, value) => ({ name, value }));
+const sequelizeCol = jest.fn((value) => value);
 
 jest.unstable_mockModule('../models/index.js', () => ({
   Course: { findByPk: courseFindByPk, create: courseCreate },
   Assignment: { findByPk: assignmentFindByPk, create: assignmentCreate },
   AssignmentDraft: { findOne: assignmentDraftFindOne },
-  AssignmentExtension: {},
+  AssignmentExtension: { findOne: jest.fn() },
   AssignmentGrade: {},
-  AssignmentQuestion: {},
-  AssignmentQuestionOverride: {},
-  Accommodation: {},
+  AssignmentQuestion: { findAll: assignmentQuestionFindAll },
+  AssignmentQuestionOverride: { findAll: jest.fn() },
+  Accommodation: { findOne: jest.fn() },
   CourseEnrollment: { findOne: courseEnrollmentFindOne },
-  Submission: {},
+  Submission: { findAll: submissionFindAll },
   User: {},
+  sequelize: { fn: sequelizeFn, col: sequelizeCol },
 }));
 
 jest.unstable_mockModule('../routes/instructor.js', () => ({
@@ -91,8 +96,12 @@ describe('course and assignment auth', () => {
     courseEnrollmentFindOne.mockReset();
     assignmentFindByPk.mockReset();
     assignmentCreate.mockReset();
+    assignmentQuestionFindAll.mockReset();
     assignmentDraftFindOne.mockReset();
+    submissionFindAll.mockReset();
     requireInstructorOrAdmin.mockReset();
+    sequelizeFn.mockClear();
+    sequelizeCol.mockClear();
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -173,6 +182,63 @@ describe('course and assignment auth', () => {
 
       expect(res.statusCode).toBe(403);
       expect(update).not.toHaveBeenCalled();
+    });
+
+    it('rejects assignment list reads for non-admins', async () => {
+      const handlers = getRouteHandlers(assignmentsRouter, '/', 'get');
+      const req = { user: { id: 7, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(403);
+    });
+
+    it('rejects assignment reads for users outside the course', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3, kind: 'assignment' });
+      requireInstructorOrAdmin.mockResolvedValueOnce(false);
+      courseEnrollmentFindOne.mockResolvedValueOnce(null);
+
+      const handlers = getRouteHandlers(assignmentsRouter, '/:id', 'get');
+      const req = { params: { id: '9' }, query: {}, user: { id: 7, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(403);
+      expect(res.body).toEqual({ message: 'Enrollment required' });
+    });
+
+    it('strips answers from question payloads for enrolled students', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3, kind: 'assignment' });
+      requireInstructorOrAdmin.mockResolvedValueOnce(false);
+      courseEnrollmentFindOne.mockResolvedValueOnce({ id: 14, role: 'student' });
+      assignmentQuestionFindAll.mockResolvedValueOnce([
+        {
+          toJSON: () => ({
+            id: 21,
+            assignment_id: 9,
+            attempt_limit: 3,
+            question_snapshot: {
+              prompt: 'Translate this.',
+              answer: 'P',
+              answerIndex: 1,
+            },
+          }),
+        },
+      ]);
+
+      const handlers = getRouteHandlers(assignmentsRouter, '/:id/questions', 'get');
+      const req = { params: { id: '9' }, query: {}, user: { id: 7, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toEqual([
+        {
+          id: 21,
+          assignment_id: 9,
+          attempt_limit: 3,
+          question_snapshot: {
+            prompt: 'Translate this.',
+          },
+        },
+      ]);
     });
   });
 });

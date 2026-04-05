@@ -8,6 +8,7 @@ import {
   AssignmentQuestionOverride,
   Accommodation,
   AssignmentGrade,
+  CourseEnrollment,
   Submission,
   User,
   sequelize,
@@ -39,6 +40,56 @@ function formatPolicyDates(policy) {
   };
 }
 
+function stripQuestionAnswers(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    return snapshot;
+  }
+  if (
+    !Object.prototype.hasOwnProperty.call(snapshot, 'answer')
+    && !Object.prototype.hasOwnProperty.call(snapshot, 'answerIndex')
+  ) {
+    return snapshot;
+  }
+  const sanitized = { ...snapshot };
+  delete sanitized.answer;
+  delete sanitized.answerIndex;
+  return sanitized;
+}
+
+function sanitizeQuestionForUser(question, { canSeeAnswers, attemptCount = 0, alwaysHideAnswers = false }) {
+  const data = question.toJSON ? question.toJSON() : { ...question };
+  if (canSeeAnswers) {
+    return data;
+  }
+  if (alwaysHideAnswers || attemptCount < data.attempt_limit) {
+    data.question_snapshot = stripQuestionAnswers(data.question_snapshot);
+  }
+  return data;
+}
+
+async function getAssignmentReadAccess(assignment, user) {
+  if (!assignment || !user?.id) {
+    return { allowed: false, canSeeAnswers: false };
+  }
+  const canSeeAnswers = await requireInstructorOrAdmin(assignment.course_id, user.id);
+  if (canSeeAnswers) {
+    return { allowed: true, canSeeAnswers: true };
+  }
+  const enrollment = await CourseEnrollment.findOne({
+    where: { course_id: assignment.course_id, user_id: user.id },
+  });
+  return { allowed: Boolean(enrollment), canSeeAnswers: false };
+}
+
+async function requireAssignmentReadAccess(req, res, assignment) {
+  const access = await getAssignmentReadAccess(assignment, req.user);
+  if (!access.allowed) {
+    res.status(403).json({ message: 'Enrollment required' });
+    return null;
+  }
+  return access;
+}
+
 const router = createCrudRouter(Assignment, {
   disableGetById: true,
   sanitize: sanitizeAssignment,
@@ -57,9 +108,11 @@ const router = createCrudRouter(Assignment, {
     }
     return requireInstructorOrAdmin(courseId, req.user.id);
   },
-  authorizeRecord: (req, record, action) => {
+  authorizeList: (req) => isSystemAdmin(req.user),
+  authorizeRecord: async (req, record, action) => {
     if (action === 'read') {
-      return true;
+      const access = await getAssignmentReadAccess(record, req.user);
+      return access.allowed;
     }
     return requireInstructorOrAdmin(record.course_id, req.user.id);
   },
@@ -70,6 +123,10 @@ router.get('/:id', [assignmentIdParam, userIdOptionalQuery, handleValidationResu
     const assignment = await Assignment.findByPk(req.params.id);
     if (!assignment) {
       return res.status(404).json({ message: 'Not found' });
+    }
+    const access = await requireAssignmentReadAccess(req, res, assignment);
+    if (!access) {
+      return;
     }
 
     const requestedUserId = req.query.userId;
@@ -133,7 +190,7 @@ router.get('/:id', [assignmentIdParam, userIdOptionalQuery, handleValidationResu
     }
 
     const userIdForFiltering = requestedUserId || req.user?.id;
-    const canSeeAnswers = await requireInstructorOrAdmin(assignment.course_id, req.user.id);
+    const { canSeeAnswers } = access;
     if (!canSeeAnswers && userIdForFiltering && questionsWithLimits.length) {
       const questionIds = questionsWithLimits.map((question) => question.id);
       const attemptCounts = await Submission.findAll({
@@ -149,23 +206,8 @@ router.get('/:id', [assignmentIdParam, userIdOptionalQuery, handleValidationResu
         attemptCounts.map((row) => [row.assignment_question_id, Number(row.attempt_count)])
       );
       questionsWithLimits = questionsWithLimits.map((question) => {
-        const data = question.toJSON ? question.toJSON() : { ...question };
-        const attemptCount = attemptCountMap.get(data.id) ?? 0;
-        if (attemptCount < data.attempt_limit) {
-          const snapshot = data.question_snapshot;
-          if (snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)) {
-            if (
-              Object.prototype.hasOwnProperty.call(snapshot, 'answer')
-              || Object.prototype.hasOwnProperty.call(snapshot, 'answerIndex')
-            ) {
-              const sanitized = { ...snapshot };
-              delete sanitized.answer;
-              delete sanitized.answerIndex;
-              data.question_snapshot = sanitized;
-            }
-          }
-        }
-        return data;
+        const attemptCount = attemptCountMap.get(question.id) ?? 0;
+        return sanitizeQuestionForUser(question, { canSeeAnswers, attemptCount });
       });
     }
 
@@ -179,11 +221,25 @@ router.get('/:id', [assignmentIdParam, userIdOptionalQuery, handleValidationResu
 
 router.get('/:id/questions', [assignmentIdParam, handleValidationResult], async (req, res, next) => {
   try {
+    const assignment = await Assignment.findByPk(req.params.id);
+    if (!assignment) {
+      return res.status(404).json({ message: 'Not found' });
+    }
+    const access = await requireAssignmentReadAccess(req, res, assignment);
+    if (!access) {
+      return;
+    }
     const questions = await AssignmentQuestion.findAll({
       where: { assignment_id: req.params.id },
       order: [['order_index', 'ASC']],
     });
-    res.json(questions);
+    const payload = access.canSeeAnswers
+      ? questions
+      : questions.map((question) => sanitizeQuestionForUser(question, {
+        canSeeAnswers: false,
+        alwaysHideAnswers: true,
+      }));
+    res.json(payload);
   } catch (error) {
     next(error);
   }
@@ -207,6 +263,14 @@ router.get('/:id/grades', [assignmentIdParam, handleValidationResult], async (re
 
 router.get('/:id/submissions', [assignmentIdParam, userIdOptionalQuery, handleValidationResult], async (req, res, next) => {
   try {
+    const assignment = await Assignment.findByPk(req.params.id);
+    if (!assignment) {
+      return res.status(404).json({ message: 'Not found' });
+    }
+    const access = await requireAssignmentReadAccess(req, res, assignment);
+    if (!access) {
+      return;
+    }
     const requestedUserId = req.query.userId;
     if (requestedUserId && !ensureSelfOrAdmin(req, res, requestedUserId)) {
       return;
