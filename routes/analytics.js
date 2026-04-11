@@ -326,15 +326,25 @@ router.get(
   }
 });
 
-// same policy as your grade: unlocked only, drop two lowest when three or more (not when two)
+/**
+ * computes the mean student percentage for published past due assignments
+ * missing grades count as zero and two lowest scores drop when three or more exist
+ * returns null when no eligible assignment or student exists
+ */
 async function computeClassAvgWithDrop(courseId, rows) {
+  const now = new Date();
   const unlocked = (rows || []).filter((row) => !isAssignmentLocked(row));
-  const unlockedIds = unlocked.map((r) => r.id);
-  if (unlockedIds.length === 0) return null;
+  const unlockedPastDue = unlocked.filter((r) => {
+    const d = parseDueDate(r.due_at ?? r.due_date);
+    return d && now >= d;
+  });
+  const pool = unlockedPastDue;
+  const poolIds = pool.map((r) => r.id);
+  if (poolIds.length === 0) return null;
 
-  // with 1 or 2 unlocked there is no drop: use assignment-level avg_percent (same as before)
-  if (unlocked.length < 3) {
-    const vals = unlocked
+  // with 1 or 2 past-due unlocked there is no drop: use assignment-level avg_percent
+  if (pool.length < 3) {
+    const vals = pool
       .map((r) => r.avg_percent)
       .filter((v) => v != null && v !== undefined);
     if (vals.length === 0) return null;
@@ -350,7 +360,7 @@ async function computeClassAvgWithDrop(courseId, rows) {
 
   const grades = await AssignmentGrade.findAll({
     where: {
-      assignment_id: unlockedIds,
+      assignment_id: poolIds,
       user_id: studentIds,
     },
     attributes: ['user_id', 'assignment_id', 'final_score', 'max_score'],
@@ -367,12 +377,12 @@ async function computeClassAvgWithDrop(courseId, rows) {
   let count = 0;
   for (const e of enrollments) {
     const uid = e.user_id;
-    const percents = unlockedIds.map(
+    const percents = poolIds.map(
       (aid) => gradeByKey.get(`${uid}-${aid}`) ?? 0
     );
     const hasAnyGrade = percents.some((p) => p > 0);
     if (!hasAnyGrade) continue;
-    // percents only from unlocked assignments, dropped ones are always unlocked
+    // percents only from past-due unlocked pool (same ids as poolIds)
     const sorted = percents.slice().sort((a, b) => a - b);
     const afterDrop = sorted.slice(2);
     const studentAvg =
@@ -420,9 +430,8 @@ router.get('/gradebook-summary', [courseIdParam, handleValidationResult], async 
 });
 
 /**
- * Returns grades from DB plus synthetic 0 grades for (user, assignment) where
- * the student has no grade and either the assignment is unlocked or past cutoff.
- * No DB writes.
+ * returns stored grades plus temporary zero grades after each effective due date
+ * respects extensions and accommodations without database writes
  */
 async function effectiveGradesForGradebook(assignments, enrollments, grades, courseId) {
   const assignmentIds = assignments.map((a) => a.id);
@@ -464,17 +473,15 @@ async function effectiveGradesForGradebook(assignments, enrollments, grades, cou
     for (const assignment of assignments) {
       if (hasGrade.has(`${userId}-${assignment.id}`)) continue;
 
-      const isUnlocked = !isAssignmentLocked(assignment);
-      let includeAsZero = isUnlocked;
-
-      if (!includeAsZero && assignment.due_date) {
+      let includeAsZero = false;
+      if (assignment.due_date) {
         const extension = extensionByKey.get(`${assignment.id}-${userId}`) ?? null;
         const policy = computeDeadlinePolicy({
           assignment: { due_date: assignment.due_date, late_window_days: assignment.late_window_days },
           extension,
           accommodation,
         });
-        includeAsZero = policy.cutoff_at != null && now > policy.cutoff_at;
+        includeAsZero = policy.due_at != null && now >= policy.due_at;
       }
 
       if (!includeAsZero) continue;
@@ -606,6 +613,9 @@ function buildAssignmentMeta(assignments) {
   }));
 }
 
+/**
+ * builds gradebook rows while limiting averages to published past due assignments
+ */
 export function computeGradebookStudents(
   assignments,
   enrollments,
@@ -648,12 +658,23 @@ export function computeGradebookStudents(
         has_late_submission: Number(grade?.penalty_percent ?? 0) > 0,
       };
     });
+    const now = new Date();
+    const averageItems = perAssignment.filter((item, index) => {
+      if (item.is_locked) return false;
+      const assignment = assignments[index];
+      const rawDueDate =
+        assignment.due_date ??
+        assignment.get?.('due_date') ??
+        assignment.due_at ??
+        assignment.get?.('due_at');
+      const dueDate = parseDueDate(rawDueDate);
+      return dueDate != null && now >= dueDate;
+    });
 
-    const totalScore = perAssignment.reduce((sum, item) => sum + item.final_score, 0);
-    const totalPoints = perAssignment.reduce((sum, item) => sum + item.max_score, 0);
+    const totalScore = averageItems.reduce((sum, item) => sum + item.final_score, 0);
+    const totalPoints = averageItems.reduce((sum, item) => sum + item.max_score, 0);
     const averagePercent = totalPoints > 0 ? totalScore / totalPoints : null;
 
-    const averageItems = perAssignment.filter((item) => !item.is_locked);
     const dropCount =
       averageItems.length >= 3 ? Math.min(dropLowestN, averageItems.length - 1) : 0;
     const remaining = averageItems
