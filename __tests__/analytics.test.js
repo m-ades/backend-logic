@@ -2,10 +2,11 @@ import { computeGradebookStudents } from '../routes/analytics.js';
 
 describe('computeGradebookStudents', () => {
   it('drops the lowest assignment by percent', () => {
+    const past = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const assignments = [
-      { id: 1, title: 'A1', total_points: 100 },
-      { id: 2, title: 'A2', total_points: 100 },
-      { id: 3, title: 'A3', total_points: 100 },
+      { id: 1, title: 'A1', total_points: 100, due_date: past },
+      { id: 2, title: 'A2', total_points: 100, due_date: past },
+      { id: 3, title: 'A3', total_points: 100, due_date: past },
     ];
     const enrollments = [
       { user_id: 1, User: { id: 1, username: 'student1' } },

@@ -309,15 +309,21 @@ router.get(
   }
 });
 
-// same policy as your grade: unlocked only, drop two lowest when three or more (not when two)
+// Past-due + unlocked only; drop two lowest when three or more (not when two)
 async function computeClassAvgWithDrop(courseId, rows) {
+  const now = new Date();
   const unlocked = (rows || []).filter((r) => r.is_locked === false);
-  const unlockedIds = unlocked.map((r) => r.id);
-  if (unlockedIds.length === 0) return null;
+  const unlockedPastDue = unlocked.filter((r) => {
+    const d = parseDueDate(r.due_at ?? r.due_date);
+    return d && now >= d;
+  });
+  const pool = unlockedPastDue;
+  const poolIds = pool.map((r) => r.id);
+  if (poolIds.length === 0) return null;
 
-  // with 1 or 2 unlocked there is no drop: use assignment-level avg_percent (same as before)
-  if (unlocked.length < 3) {
-    const vals = unlocked
+  // with 1 or 2 past-due unlocked there is no drop: use assignment-level avg_percent
+  if (pool.length < 3) {
+    const vals = pool
       .map((r) => r.avg_percent)
       .filter((v) => v != null && v !== undefined);
     if (vals.length === 0) return null;
@@ -333,7 +339,7 @@ async function computeClassAvgWithDrop(courseId, rows) {
 
   const grades = await AssignmentGrade.findAll({
     where: {
-      assignment_id: unlockedIds,
+      assignment_id: poolIds,
       user_id: studentIds,
     },
     attributes: ['user_id', 'assignment_id', 'final_score', 'max_score'],
@@ -350,12 +356,12 @@ async function computeClassAvgWithDrop(courseId, rows) {
   let count = 0;
   for (const e of enrollments) {
     const uid = e.user_id;
-    const percents = unlockedIds.map(
+    const percents = poolIds.map(
       (aid) => gradeByKey.get(`${uid}-${aid}`) ?? 0
     );
     const hasAnyGrade = percents.some((p) => p > 0);
     if (!hasAnyGrade) continue;
-    // percents only from unlocked assignments, dropped ones are always unlocked
+    // percents only from past-due unlocked pool (same ids as poolIds)
     const sorted = percents.slice().sort((a, b) => a - b);
     const afterDrop = sorted.slice(2);
     const studentAvg =
@@ -393,8 +399,8 @@ router.get('/gradebook-summary', [courseIdParam, handleValidationResult], async 
 });
 
 /**
- * Returns grades from DB plus synthetic 0 grades for (user, assignment) where
- * the student has no grade and either the assignment is unlocked or past cutoff.
+ * Returns grades from DB plus synthetic 0 rows for (user, assignment) with no grade
+ * once the student's effective due date has passed (extensions / accommodations included).
  * No DB writes.
  */
 async function effectiveGradesForGradebook(assignments, enrollments, grades, courseId) {
@@ -437,17 +443,17 @@ async function effectiveGradesForGradebook(assignments, enrollments, grades, cou
     for (const assignment of assignments) {
       if (hasGrade.has(`${userId}-${assignment.id}`)) continue;
 
-      const isUnlocked = assignment.is_locked === false;
-      let includeAsZero = isUnlocked;
-
-      if (!includeAsZero && assignment.due_date) {
+      let includeAsZero = false;
+      if (assignment.due_date) {
         const extension = extensionByKey.get(`${assignment.id}-${userId}`) ?? null;
         const policy = computeDeadlinePolicy({
           assignment: { due_date: assignment.due_date, late_window_days: assignment.late_window_days },
           extension,
           accommodation,
         });
-        includeAsZero = policy.cutoff_at != null && now > policy.cutoff_at;
+        // Synthetic 0 only after the student's effective due (extensions / accommodations),
+        // not merely because the assignment is unlocked and still upcoming.
+        includeAsZero = policy.due_at != null && now >= policy.due_at;
       }
 
       if (!includeAsZero) continue;
@@ -537,7 +543,34 @@ function buildAssignmentMeta(assignments) {
   }));
 }
 
+function gradeRowForUser(gradeMap, userId, assignment) {
+  const grade = gradeMap.get(userId)?.get(assignment.id) || null;
+  const maxScore = Number(grade?.max_score ?? assignment.total_points ?? 0);
+  const finalScore = Number(grade?.final_score ?? 0);
+  const percent = maxScore > 0 ? finalScore / maxScore : 0;
+  return {
+    assignment_id: assignment.id,
+    title: assignment.title,
+    final_score: finalScore,
+    max_score: maxScore,
+    percent,
+    has_grade: Boolean(grade),
+    has_submission: Boolean(grade?.id),
+  };
+}
+
 export function computeGradebookStudents(assignments, enrollments, grades, dropLowestN) {
+  const now = new Date();
+  const pastDueAssignments = (assignments || []).filter((assignment) => {
+    const raw =
+      assignment.due_date ??
+      assignment.get?.('due_date') ??
+      assignment.due_at ??
+      assignment.get?.('due_at');
+    const d = parseDueDate(raw);
+    return d && now >= d;
+  });
+
   const gradeMap = new Map();
   grades.forEach((grade) => {
     if (!gradeMap.has(grade.user_id)) {
@@ -548,31 +581,20 @@ export function computeGradebookStudents(assignments, enrollments, grades, dropL
 
   return enrollments.map((enrollment) => {
     const user = enrollment.User;
-    const perAssignment = assignments.map((assignment) => {
-      const grade = gradeMap.get(user.id)?.get(assignment.id) || null;
-      const maxScore = Number(
-        grade?.max_score ?? assignment.total_points ?? 0
-      );
-      const finalScore = Number(grade?.final_score ?? 0);
-      const percent = maxScore > 0 ? finalScore / maxScore : 0;
+    const perAssignment = assignments.map((assignment) =>
+      gradeRowForUser(gradeMap, user.id, assignment)
+    );
 
-      return {
-        assignment_id: assignment.id,
-        title: assignment.title,
-        final_score: finalScore,
-        max_score: maxScore,
-        percent,
-        has_grade: Boolean(grade),
-        has_submission: Boolean(grade?.id),
-      };
-    });
+    const perAssignmentPastDue = pastDueAssignments.map((assignment) =>
+      gradeRowForUser(gradeMap, user.id, assignment)
+    );
 
-    const totalScore = perAssignment.reduce((sum, item) => sum + item.final_score, 0);
-    const totalPoints = perAssignment.reduce((sum, item) => sum + item.max_score, 0);
+    const totalScore = perAssignmentPastDue.reduce((sum, item) => sum + item.final_score, 0);
+    const totalPoints = perAssignmentPastDue.reduce((sum, item) => sum + item.max_score, 0);
     const averagePercent = totalPoints > 0 ? totalScore / totalPoints : null;
 
-    const dropCount = Math.min(dropLowestN, perAssignment.length);
-    const remaining = perAssignment
+    const dropCount = Math.min(dropLowestN, perAssignmentPastDue.length);
+    const remaining = perAssignmentPastDue
       .slice()
       .sort((a, b) => a.percent - b.percent || a.assignment_id - b.assignment_id)
       .slice(dropCount);
