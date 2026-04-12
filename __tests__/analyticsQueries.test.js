@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 import {
   fetchAssignmentAnalytics,
+  fetchAssignmentGradeSummary,
   fetchStudentPerformance,
 } from '../queries/analytics.js';
 
@@ -29,5 +30,20 @@ describe('analytics queries', () => {
     await expect(fetchStudentPerformance(sequelize, 5, 2))
       .rejects
       .toThrow('failed to fetch student performance for user 5: db down');
+  });
+
+  it('fetchAssignmentGradeSummary accounts for missing grades as zero in averages', async () => {
+    // regression guard per assignment averages include missing past due work as zero
+    let capturedSql = '';
+    const sequelize = {
+      query: jest.fn().mockImplementation(async (sql) => {
+        capturedSql = sql;
+        return [[]];
+      }),
+    };
+
+    await fetchAssignmentGradeSummary(sequelize, 1);
+
+    expect(capturedSql).toMatch(/AVG\\(COALESCE\\(ag\\.final_score/i);
   });
 });
