@@ -24,7 +24,7 @@ jest.unstable_mockModule('../models/index.js', () => ({
   sequelize,
 }));
 
-const { computeClassAvgWithDrop, effectiveGradesForGradebook } = await import(
+const { computeClassAvgWithDrop, effectiveGradesForGradebook, computeGradebookStudents } = await import(
   '../routes/analytics.js'
 );
 
@@ -61,7 +61,7 @@ describe('analytics helpers', () => {
   });
 
   it('does not synthesize a zero before the effective due date', async () => {
-    // extension should delay synthetic zero creation
+    // extension delays synthetic zero creation until effective due date
     const past = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const assignments = [
@@ -91,7 +91,7 @@ describe('analytics helpers', () => {
   });
 
   it('synthesizes a zero after the effective due date', async () => {
-    // synthetic zero should appear after due date
+    // synthetic zero appears only after due date
     const past = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const assignments = [
@@ -124,5 +124,32 @@ describe('analytics helpers', () => {
       final_score: 0,
       max_score: 100,
     });
+  });
+
+  it('does not count past-due assignments before a student’s effective due date', async () => {
+    const past = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const assignments = [
+      {
+        id: 1,
+        due_date: past,
+        total_points: 100,
+        late_window_days: 0,
+      },
+    ];
+    const enrollments = [
+      { user_id: 1, User: { id: 1, username: 'student1' }, role: 'student' },
+    ];
+
+    const effectiveGrades = [];
+    const [student] = computeGradebookStudents(
+      assignments,
+      enrollments,
+      effectiveGrades,
+      0
+    );
+
+    // no past due work yet? totals should be empty
+    expect(student.totals.total_points).toBe(0);
+    expect(student.totals.average_percent).toBeNull();
   });
 });
