@@ -4,12 +4,24 @@ const CourseEnrollment = { findAll: jest.fn() };
 const AssignmentGrade = { findAll: jest.fn() };
 const AssignmentExtension = { findAll: jest.fn() };
 const Accommodation = { findAll: jest.fn() };
+const Assignment = {};
+const AssignmentQuestion = {};
+const AssignmentQuestionOverride = {};
+const Submission = {};
+const User = {};
+const sequelize = {};
 
 jest.unstable_mockModule('../models/index.js', () => ({
   CourseEnrollment,
   AssignmentGrade,
   AssignmentExtension,
   Accommodation,
+  Assignment,
+  AssignmentQuestion,
+  AssignmentQuestionOverride,
+  Submission,
+  User,
+  sequelize,
 }));
 
 const { computeClassAvgWithDrop, effectiveGradesForGradebook } = await import(
