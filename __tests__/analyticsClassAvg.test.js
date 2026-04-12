@@ -126,12 +126,14 @@ describe('analytics helpers', () => {
     });
   });
 
-  it('does not count past-due assignments before a student’s effective due date', async () => {
-    const past = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  it('rollup totals omit assignments not yet past the assignment due date', async () => {
+    // `computeGradebookStudents` past-due rollups use each assignment’s published due only
+    // (per-student extensions are applied in `effectiveGradesForGradebook`, not here).
+    const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const assignments = [
       {
         id: 1,
-        due_date: past,
+        due_date: future,
         total_points: 100,
         late_window_days: 0,
       },
@@ -148,7 +150,6 @@ describe('analytics helpers', () => {
       0
     );
 
-    // no past due work yet? totals should be empty
     expect(student.totals.total_points).toBe(0);
     expect(student.totals.average_percent).toBeNull();
   });
