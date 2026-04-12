@@ -38,6 +38,7 @@ jest.unstable_mockModule('../utils/passwords.js', () => ({
   verifyPassword: jest.fn(),
   PASSWORD_POLICY_MESSAGE:
     'Password must be at least 12 characters and include at least one uppercase letter, one lowercase letter, one number, and one symbol.',
+  isStrongPassword: jest.fn(() => true),
 }));
 
 jest.unstable_mockModule('../utils/grades.js', () => ({
