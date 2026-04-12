@@ -331,7 +331,7 @@ router.get(
  * missing grades count as zero and two lowest scores drop when three or more exist
  * returns null when no eligible assignment or student exists
  */
-async function computeClassAvgWithDrop(courseId, rows) {
+export async function computeClassAvgWithDrop(courseId, rows) {
   const now = new Date();
   const unlocked = (rows || []).filter((row) => !isAssignmentLocked(row));
   const unlockedPastDue = unlocked.filter((r) => {
@@ -341,15 +341,6 @@ async function computeClassAvgWithDrop(courseId, rows) {
   const pool = unlockedPastDue;
   const poolIds = pool.map((r) => r.id);
   if (poolIds.length === 0) return null;
-
-  // with 1 or 2 past-due unlocked there is no drop: use assignment-level avg_percent
-  if (pool.length < 3) {
-    const vals = pool
-      .map((r) => r.avg_percent)
-      .filter((v) => v != null && v !== undefined);
-    if (vals.length === 0) return null;
-    return (vals.reduce((s, v) => s + v, 0) / vals.length) * 100;
-  }
 
   const enrollments = await CourseEnrollment.findAll({
     where: { course_id: courseId, role: 'student' },
@@ -380,11 +371,9 @@ async function computeClassAvgWithDrop(courseId, rows) {
     const percents = poolIds.map(
       (aid) => gradeByKey.get(`${uid}-${aid}`) ?? 0
     );
-    const hasAnyGrade = percents.some((p) => p > 0);
-    if (!hasAnyGrade) continue;
     // percents only from past-due unlocked pool (same ids as poolIds)
     const sorted = percents.slice().sort((a, b) => a - b);
-    const afterDrop = sorted.slice(2);
+    const afterDrop = poolIds.length >= 3 ? sorted.slice(2) : sorted;
     const studentAvg =
       afterDrop.length > 0
         ? afterDrop.reduce((s, p) => s + p, 0) / afterDrop.length
@@ -433,7 +422,7 @@ router.get('/gradebook-summary', [courseIdParam, handleValidationResult], async 
  * returns stored grades plus temporary zero grades after each effective due date
  * respects extensions and accommodations without database writes
  */
-async function effectiveGradesForGradebook(assignments, enrollments, grades, courseId) {
+export async function effectiveGradesForGradebook(assignments, enrollments, grades, courseId) {
   const assignmentIds = assignments.map((a) => a.id);
   const userIds = enrollments.map((e) => e.user_id);
   if (!assignmentIds.length || !userIds.length) return grades;
