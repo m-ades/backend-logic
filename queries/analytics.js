@@ -71,6 +71,7 @@ export async function fetchStudentAssignments(sequelize, userId, courseId) {
       LEFT JOIN assignment_grades ag
         ON ag.assignment_id = a.id AND ag.user_id = :userId
       WHERE (:courseId::int IS NULL OR a.course_id = :courseId::int)
+        AND a.kind <> 'practice'
       ORDER BY a.due_date NULLS LAST, a.id;
     `;
 
