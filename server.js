@@ -27,7 +27,12 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const rawOrigins = process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || 'https://hunterlogic.vercel.app';
+const defaultAllowedOrigins = [
+  'https://hunterlogic.org',
+  'https://www.hunterlogic.org',
+  'https://hunterlogic.vercel.app',
+].join(',');
+const rawOrigins = process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || defaultAllowedOrigins;
 const allowedOrigins = parseAllowedOrigins(rawOrigins);
 const csrfProtection = createCsrfProtection(allowedOrigins);
 
@@ -57,7 +62,8 @@ app.use('/api', (req, res, next) => {
   if (req.path === '/auth/login') {
     return next();
   }
-  return requireAuth(req, res, next); // everything else under /api needs a valid jwt
+  // everything else under api needs a valid jwt
+  return requireAuth(req, res, next);
 });
 app.use('/api/users', usersRouter);
 app.use('/api/courses', coursesRouter);

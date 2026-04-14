@@ -29,6 +29,17 @@ describe('csrf protection', () => {
     ]);
   });
 
+  it('adds hunterlogic bare/www variants automatically', () => {
+    expect(parseAllowedOrigins('https://www.hunterlogic.org')).toEqual([
+      'https://www.hunterlogic.org',
+      'https://hunterlogic.org',
+    ]);
+    expect(parseAllowedOrigins('https://hunterlogic.org')).toEqual([
+      'https://hunterlogic.org',
+      'https://www.hunterlogic.org',
+    ]);
+  });
+
   it('allows safe methods without origin headers', () => {
     const middleware = createCsrfProtection(['https://app.example.com']);
     const req = createReq({ method: 'GET' });

@@ -1,14 +1,38 @@
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+function addHunterLogicDomainVariants(origin) {
+  if (!origin) return [];
+
+  try {
+    const url = new URL(origin);
+    const hostname = url.hostname.toLowerCase();
+    if (hostname !== 'hunterlogic.org' && hostname !== 'www.hunterlogic.org') {
+      return [];
+    }
+
+    const counterpartHostname = hostname === 'hunterlogic.org'
+      ? 'www.hunterlogic.org'
+      : 'hunterlogic.org';
+    const counterpartUrl = new URL(origin);
+    counterpartUrl.hostname = counterpartHostname;
+    return [counterpartUrl.origin];
+  } catch {
+    return [];
+  }
+}
+
 function normalizeOrigin(origin) {
   return typeof origin === 'string' ? origin.trim().replace(/\/$/, '') : '';
 }
 
 function parseAllowedOrigins(rawOrigins) {
-  return String(rawOrigins || '')
+  const origins = String(rawOrigins || '')
     .split(',')
     .map((origin) => normalizeOrigin(origin))
     .filter(Boolean);
+
+  const expandedOrigins = origins.flatMap((origin) => [origin, ...addHunterLogicDomainVariants(origin)]);
+  return [...new Set(expandedOrigins)];
 }
 
 function getRequestOrigin(req) {
