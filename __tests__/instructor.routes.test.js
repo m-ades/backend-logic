@@ -23,6 +23,8 @@ jest.unstable_mockModule('../models/index.js', () => ({
 
 jest.unstable_mockModule('../utils/passwords.js', () => ({
   hashPassword,
+  isStrongPassword: () => true,
+  PASSWORD_POLICY_MESSAGE: 'password policy',
   verifyPassword: jest.fn(),
 }));
 

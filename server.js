@@ -21,7 +21,6 @@ import instructorRouter from './routes/instructor.js';
 import requireAuth from './middleware/auth.js';
 import { createCsrfProtection, parseAllowedOrigins } from './middleware/csrf.js';
 import errorHandler from './middleware/error-handler.js';
-import { scheduleAutoSubmitSweep } from './jobs/autoSubmit.js';
 
 dotenv.config();
 
@@ -85,10 +84,7 @@ app.use(errorHandler);
 
 app.listen(PORT);
 
-const autoSubmitInterval = scheduleAutoSubmitSweep();
-
 process.on('SIGTERM', async () => {
-  clearInterval(autoSubmitInterval);
   await sequelize.close();
   process.exit(0);
 });
