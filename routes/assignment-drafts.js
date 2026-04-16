@@ -36,23 +36,43 @@ router.put(
     if (!ensureSelfOrAdmin(req, res, user_id)) {
       return;
     }
+    const effectiveUserId = isSystemAdmin(req.user) ? user_id : req.user.id;
+    const updated_at = new Date();
+    const where = { assignment_question_id, user_id: effectiveUserId };
 
-    const existing = await AssignmentDraft.findOne({
-      where: { assignment_question_id, user_id },
-    });
+    // update first so repeat autosaves do not race on create
+    const [updatedCount] = await AssignmentDraft.update(
+      { draft_data, updated_at },
+      { where }
+    );
 
-    if (existing) {
-      await existing.update({ draft_data, updated_at: new Date() });
+    if (updatedCount > 0) {
+      const existing = await AssignmentDraft.findOne({ where });
       return res.json(existing);
     }
 
-    const created = await AssignmentDraft.create({
-      assignment_question_id,
-      user_id: isSystemAdmin(req.user) ? user_id : req.user.id,
-      draft_data,
-      updated_at: new Date(),
-    });
-    res.status(201).json(created);
+    try {
+      const created = await AssignmentDraft.create({
+        assignment_question_id,
+        user_id: effectiveUserId,
+        draft_data,
+        updated_at,
+      });
+      return res.status(201).json(created);
+    } catch (error) {
+      if (error?.name !== 'SequelizeUniqueConstraintError') {
+        throw error;
+      }
+
+      // another request won the insert so update that row instead
+      const existing = await AssignmentDraft.findOne({ where });
+      if (!existing) {
+        throw error;
+      }
+
+      await existing.update({ draft_data, updated_at });
+      return res.json(existing);
+    }
   } catch (error) {
     next(error);
   }
