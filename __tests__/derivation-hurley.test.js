@@ -157,3 +157,18 @@ describe('derivation-hurley ACP/AIP completion', () => {
     expect(result.successstatus).toBe('correct');
   });
 });
+
+describe('derivation-hurley quantifier negation rule names', () => {
+  it('accepts QN for quantifier negation replacements', async () => {
+    const result = await runDerivation({
+      premises: ['(x)Fx'],
+      conclusion: '~(∃x)~Fx',
+      lines: [
+        { formula: '(x)Fx', justification: 'Pr' },
+        { formula: '~(∃x)~Fx', justification: '1 QN' },
+      ],
+    });
+
+    expect(result.successstatus).toBe('correct');
+  });
+});
