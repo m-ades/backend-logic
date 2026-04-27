@@ -156,6 +156,30 @@ describe('derivation-hurley ACP/AIP completion', () => {
 
     expect(result.successstatus).toBe('correct');
   });
+
+  it('accepts IP over a quantified AIP assumption', async () => {
+    const result = await runDerivation({
+      premises: ['(∀x)(Ax ⊃ Bx)', 'Am ∨ An'],
+      conclusion: '(∃x)Bx',
+      lines: [
+        { formula: '(∀x)(Ax ⊃ Bx)', justification: 'Pr' },
+        { formula: 'Am ∨ An', justification: 'Pr' },
+        { formula: 'Am ⊃ Bm', justification: '1 UI' },
+        { formula: 'An ⊃ Bn', justification: '1 UI' },
+        { formula: '(Am ⊃ Bm) • (An ⊃ Bn)', justification: '3, 4 Conj' },
+        { formula: 'Bm ∨ Bn', justification: '5, 2 CD' },
+        { formula: '(∀x)~Bx', justification: 'AIP' },
+        { formula: '~Bm', justification: '7 UI' },
+        { formula: '~Bn', justification: '7 UI' },
+        { formula: 'Bn', justification: '6, 8 DS' },
+        { formula: 'Bn • ~Bn', justification: '9, 10 Conj' },
+        { formula: '~(∀x)~Bx', justification: '7-11 IP' },
+        { formula: '(∃x)Bx', justification: '12 QN' },
+      ],
+    });
+
+    expect(result.successstatus).toBe('correct');
+  });
 });
 
 describe('derivation-hurley quantifier negation rule names', () => {
