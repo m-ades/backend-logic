@@ -7,6 +7,7 @@ import {
   AssignmentGrade,
   AssignmentQuestion,
   CourseEnrollment,
+  Submission,
   User,
   sequelize,
 } from '../models/index.js';
@@ -239,7 +240,7 @@ router.get(
     if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
       return res.status(403).json({ message: 'Instructor or admin access required' });
     }
-    const dropLowestN = req.query.dropLowestN ?? 0;
+    const dropLowestN = req.query.dropLowestN ?? 2;
     // assignment list + per-student stats together
 
     const assignments = await fetchGradebookAssignments(courseId);
@@ -291,7 +292,7 @@ router.get(
     if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
       return res.status(403).json({ message: 'Instructor or admin access required' });
     }
-    const dropLowestN = req.query.dropLowestN ?? 0;
+    const dropLowestN = req.query.dropLowestN ?? 2;
 
     // student rows + per-assignment scores
     const assignments = await fetchGradebookAssignments(courseId);
@@ -481,8 +482,48 @@ async function buildGradebookStudents(assignments, enrollments, dropLowestN, cou
     gradesFromDb,
     courseId
   );
+  const submissionCounts = await fetchGradebookSubmissionCounts(assignmentIds, userIds);
 
-  return computeGradebookStudents(assignments, enrollments, grades, dropLowestN);
+  return computeGradebookStudents(
+    assignments,
+    enrollments,
+    grades,
+    dropLowestN,
+    submissionCounts
+  );
+}
+
+async function fetchGradebookSubmissionCounts(assignmentIds, userIds) {
+  if (!assignmentIds.length || !userIds.length) return new Map();
+  const rows = await Submission.findAll({
+    include: [
+      {
+        model: AssignmentQuestion,
+        attributes: ['assignment_id'],
+        where: { assignment_id: assignmentIds },
+      },
+    ],
+    where: { user_id: userIds },
+    attributes: [
+      'user_id',
+      [sequelize.col('AssignmentQuestion.assignment_id'), 'assignment_id'],
+      [
+        sequelize.fn(
+          'COUNT',
+          sequelize.fn('DISTINCT', sequelize.col('assignment_question_id'))
+        ),
+        'submitted_count',
+      ],
+    ],
+    group: ['Submission.user_id', 'AssignmentQuestion.assignment_id'],
+    raw: true,
+  });
+  return new Map(
+    rows.map((row) => [
+      `${row.user_id}:${row.assignment_id}`,
+      Number(row.submitted_count) || 0,
+    ])
+  );
 }
 
 async function attachDerivedPoints(assignments) {
@@ -503,6 +544,7 @@ async function attachDerivedPoints(assignments) {
   assignments.forEach((assignment) => {
     const count = countMap.get(assignment.id) ?? 0;
     assignment.setDataValue('total_points', count * 100);
+    assignment.setDataValue('question_count', count);
   });
   return assignments;
 }
@@ -532,12 +574,19 @@ function buildAssignmentMeta(assignments) {
     id: assignment.id,
     title: assignment.title,
     total_points: assignment.total_points,
+    question_count: assignment.question_count,
     due_date: assignment.due_date,
     due_at: assignment.due_at ?? assignment.due_date ?? null,
   }));
 }
 
-export function computeGradebookStudents(assignments, enrollments, grades, dropLowestN) {
+export function computeGradebookStudents(
+  assignments,
+  enrollments,
+  grades,
+  dropLowestN,
+  submissionCounts = new Map()
+) {
   const gradeMap = new Map();
   grades.forEach((grade) => {
     if (!gradeMap.has(grade.user_id)) {
@@ -555,15 +604,22 @@ export function computeGradebookStudents(assignments, enrollments, grades, dropL
       );
       const finalScore = Number(grade?.final_score ?? 0);
       const percent = maxScore > 0 ? finalScore / maxScore : 0;
+      const questionCount = Number(assignment.question_count ?? 0);
+      const submittedCount =
+        submissionCounts.get(`${user.id}:${assignment.id}`) ?? 0;
 
       return {
         assignment_id: assignment.id,
         title: assignment.title,
+        is_locked: Boolean(assignment.is_locked),
         final_score: finalScore,
         max_score: maxScore,
         percent,
+        question_count: questionCount,
+        submitted_count: submittedCount,
         has_grade: Boolean(grade),
-        has_submission: Boolean(grade?.id),
+        has_submission: submittedCount > 0,
+        has_late_submission: Number(grade?.penalty_percent ?? 0) > 0,
       };
     });
 
@@ -571,15 +627,17 @@ export function computeGradebookStudents(assignments, enrollments, grades, dropL
     const totalPoints = perAssignment.reduce((sum, item) => sum + item.max_score, 0);
     const averagePercent = totalPoints > 0 ? totalScore / totalPoints : null;
 
-    const dropCount = Math.min(dropLowestN, perAssignment.length);
-    const remaining = perAssignment
+    const averageItems = perAssignment.filter((item) => !item.is_locked);
+    const dropCount =
+      averageItems.length >= 3 ? Math.min(dropLowestN, averageItems.length - 1) : 0;
+    const remaining = averageItems
       .slice()
       .sort((a, b) => a.percent - b.percent || a.assignment_id - b.assignment_id)
       .slice(dropCount);
     const droppedTotalScore = remaining.reduce((sum, item) => sum + item.final_score, 0);
     const droppedTotalPoints = remaining.reduce((sum, item) => sum + item.max_score, 0);
-    const droppedAveragePercent = droppedTotalPoints > 0
-      ? droppedTotalScore / droppedTotalPoints
+    const droppedAveragePercent = remaining.length > 0
+      ? remaining.reduce((sum, item) => sum + item.percent, 0) / remaining.length
       : null;
 
     const rawRole = enrollment.dataValues?.role ?? enrollment.get?.('role') ?? enrollment.role;
