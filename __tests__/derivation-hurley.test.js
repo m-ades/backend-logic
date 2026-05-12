@@ -1,4 +1,5 @@
 import checkDerivation from '../lib/logicpenguin/checkers/derivation-hurley.js';
+import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
 
 function buildProof({ conclusion, lines, premises = [] }) {
   return {
@@ -42,6 +43,13 @@ function collectMessages(errors = {}) {
 }
 
 describe('derivation-hurley ACP/AIP completion', () => {
+  it('round trips normalized quantified conditionals inside negations', () => {
+    const Formula = getFormulaClass();
+    const formula = Formula.from('~~(∃xAx ⊃ ~Cbc)');
+
+    expect(formula.normal).toBe('~~(∃xAx ⊃ ~Cbc)');
+  });
+
   // this one catches the old bug where an open acp could still look complete
   it('rejects a conclusion that appears only inside an unresolved ACP', async () => {
     const result = await runDerivation({
@@ -175,6 +183,21 @@ describe('derivation-hurley ACP/AIP completion', () => {
         { formula: 'Bn • ~Bn', justification: '9, 10 Conj' },
         { formula: '~(∀x)~Bx', justification: '7-11 IP' },
         { formula: '(∃x)Bx', justification: '12 QN' },
+      ],
+    });
+
+    expect(result.successstatus).toBe('correct');
+  });
+
+  it('accepts IP over a negated quantified conditional AIP assumption', async () => {
+    const result = await runDerivation({
+      premises: ['A•~A'],
+      conclusion: '~~[(∃x)Ax ⊃ ~Cbc]',
+      lines: [
+        { formula: 'A•~A', justification: 'Pr' },
+        { formula: '~[(∃x)Ax ⊃ ~Cbc]', justification: 'AIP' },
+        { formula: 'A•~A', justification: '' },
+        { formula: '~~[(∃x)Ax ⊃ ~Cbc]', justification: '2-3 IP' },
       ],
     });
 
