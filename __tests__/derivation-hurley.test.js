@@ -219,3 +219,36 @@ describe('derivation-hurley quantifier negation rule names', () => {
     expect(result.successstatus).toBe('correct');
   });
 });
+
+describe('derivation-hurley quantifier constant restrictions', () => {
+  it('allows UI to introduce a constant from the argument conclusion', async () => {
+    const result = await runDerivation({
+      premises: ['∀xFx'],
+      conclusion: 'Fa',
+      lines: [
+        { formula: '∀xFx', justification: 'Pr' },
+        { formula: 'Fa', justification: '1 UI' },
+      ],
+    });
+
+    expect(result.successstatus).toBe('correct');
+  });
+
+  it('rejects EI when the introduced constant occurs in the argument conclusion', async () => {
+    const result = await runDerivation({
+      premises: ['∃xFx'],
+      conclusion: 'Fa',
+      lines: [
+        { formula: '∃xFx', justification: 'Pr' },
+        { formula: 'Fa', justification: '1 EI' },
+      ],
+    });
+
+    expect(result.successstatus).toBe('incorrect');
+    expect(collectMessages(result.errors)).toEqual(
+      expect.arrayContaining([
+        'does not use a new name as is required by EI',
+      ])
+    );
+  });
+});
