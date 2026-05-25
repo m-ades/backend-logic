@@ -1,4 +1,5 @@
 import { DataTypes, Model } from 'sequelize';
+import { DEFAULT_LOGIC_SYSTEM, LOGIC_SYSTEMS } from '../lib/logicSystems.js';
 
 export default function initCourse(sequelize) {
   class Course extends Model {}
@@ -21,6 +22,14 @@ export default function initCourse(sequelize) {
       title: {
         type: DataTypes.STRING,
         allowNull: false,
+      },
+      logic_system: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        defaultValue: DEFAULT_LOGIC_SYSTEM,
+        validate: {
+          isIn: [Object.keys(LOGIC_SYSTEMS)],
+        },
       },
       is_active: {
         type: DataTypes.BOOLEAN,
