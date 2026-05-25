@@ -16,6 +16,7 @@ import partialTruthTable from '../lib/logicpenguin/checkers/partial-truth-table.
 import nonclassicalTruthTable from '../lib/logicpenguin/checkers/nonclassical-truth-table.js';
 import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
 import { formulaTable, equivTables, argumentTables, libtf } from '../lib/logicpenguin/symbolic/libsemantics.js';
+import { getDerivationProblemType, getLogicSystem } from '../lib/logicSystems.js';
 
 const CHECKERS = {
   derivation: derivationHurley,
@@ -330,6 +331,22 @@ function normalizeType(question) {
   return question?.type || question?.problemType || question?.logic_problem_type || 'derivation';
 }
 
+function isDerivationType(type) {
+  return type === 'derivation'
+    || type === 'derivation-hurley'
+    || type === 'derivation-calgary';
+}
+
+function resolveCheckerKey(type, question, options) {
+  if (type === 'truth-table') {
+    return `${question.truthTable?.kind || 'formula'}-truth-table`;
+  }
+  if (options?.logicSystem && isDerivationType(type)) {
+    return getDerivationProblemType(options.logicSystem, 'hurley');
+  }
+  return type;
+}
+
 function buildDerivationFromLines(proof) {
   const parts = (proof?.lines || []).map((line) => {
     const refs = Array.isArray(line.refs) ? line.refs : [];
@@ -475,13 +492,16 @@ export async function validateLogicPenguin({
     ...(question?.truthTable?.options || {}),
     ...(question?.truth_table?.options || {}),
   };
+  if (options.logicSystem) {
+    mergedOptions.logicSystem = options.logicSystem;
+    mergedOptions.notation = getLogicSystem(options.logicSystem, 'hurley').derivationSystem;
+    delete mergedOptions.ruleset;
+  }
   const partialcredit = Boolean(
     mergedOptions.partialcredit ?? mergedOptions.partialCredit ?? mergedOptions.partial_credit
   );
   const type = normalizeType(question);
-  const checkerKey = type === 'truth-table'
-    ? `${question.truthTable?.kind || 'formula'}-truth-table`
-    : type;
+  const checkerKey = resolveCheckerKey(type, question, mergedOptions);
   const checker = CHECKERS[checkerKey];
   const normalizedQuestion = {
     ...question,

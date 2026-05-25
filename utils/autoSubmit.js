@@ -3,10 +3,12 @@ import {
   AssignmentExtension,
   AssignmentQuestion,
   Accommodation,
+  Course,
   CourseEnrollment,
   Submission,
 } from '../models/index.js';
 import { validateLogicPenguin } from '../validators/logicpenguin.js';
+import { LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '../lib/logicSystems.js';
 import { computeDeadlinePolicy } from './assignmentPolicy.js';
 import { recomputeAssignmentGrade } from './grades.js';
 
@@ -42,6 +44,10 @@ export async function autoSubmitIfPastDeadline(assignment, userId) {
   const questions = await AssignmentQuestion.findAll({
     where: { assignment_id: assignment.id },
   });
+  const course = assignment.Course || await Course.findByPk(assignment.course_id, {
+    attributes: ['id', 'logic_system'],
+  });
+  const logicSystem = normalizeLogicSystem(course?.logic_system, LEGACY_LOGIC_SYSTEM);
 
   const created = [];
 
@@ -63,8 +69,7 @@ export async function autoSubmitIfPastDeadline(assignment, userId) {
 
     const questionSnapshot = question.question_snapshot || {};
     const options = {
-      notation: questionSnapshot.notation || 'hurley',
-      ruleset: questionSnapshot.ruleset || 'hurley_default',
+      logicSystem,
       partialcredit: questionSnapshot.partialCredit || false,
     };
 

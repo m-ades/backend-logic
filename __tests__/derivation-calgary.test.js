@@ -67,4 +67,31 @@ describe('derivation-calgary checker', () => {
     expect(result.isCorrect).toBe(true);
     expect(result.score).toBe(100);
   });
+
+  it('uses the course logic system for generic derivation validation', async () => {
+    const proof = buildProof({
+      premises: ['P', 'P → Q'],
+      conclusion: 'Q',
+      lines: [
+        { formula: 'P', justification: 'Pr' },
+        { formula: 'P → Q', justification: 'Pr' },
+        { formula: 'Q', justification: '→E 1,2' },
+      ],
+    });
+
+    const result = await validateLogicPenguin({
+      question: {
+        type: 'derivation',
+        prems: ['P', 'P → Q'],
+        conc: 'Q',
+        options: { notation: 'hurley' },
+      },
+      submission: proof,
+      points: 100,
+      options: { logicSystem: 'fitch' },
+    });
+
+    expect(result.isCorrect).toBe(true);
+    expect(result.score).toBe(100);
+  });
 });
