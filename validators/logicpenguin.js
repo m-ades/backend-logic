@@ -1,4 +1,5 @@
 import derivationHurley from '../lib/logicpenguin/checkers/derivation-hurley.js';
+import derivationCalgary from '../lib/logicpenguin/checkers/derivation-calgary.js';
 import formulaTruthTable from '../lib/logicpenguin/checkers/formula-truth-table.js';
 import equivalenceTruthTable from '../lib/logicpenguin/checkers/equivalence-truth-table.js';
 import argumentTruthTable from '../lib/logicpenguin/checkers/argument-truth-table.js';
@@ -19,6 +20,7 @@ import { formulaTable, equivTables, argumentTables, libtf } from '../lib/logicpe
 const CHECKERS = {
   derivation: derivationHurley,
   'derivation-hurley': derivationHurley,
+  'derivation-calgary': derivationCalgary,
   'formula-truth-table': formulaTruthTable,
   'equivalence-truth-table': equivalenceTruthTable,
   'argument-truth-table': argumentTruthTable,
@@ -280,7 +282,7 @@ function normalizeSubmissionByType({ checkerKey, submission, question }) {
   if (checkerKey === 'symbolic-translation') {
     return normalizeSymbolicSubmission(submission);
   }
-  if (checkerKey === 'derivation' || checkerKey === 'derivation-hurley') {
+  if (checkerKey === 'derivation' || checkerKey === 'derivation-hurley' || checkerKey === 'derivation-calgary') {
     return normalizeDerivationSubmission(submission);
   }
   if (checkerKey === 'true-false' || checkerKey === 'evaluate-truth') {
