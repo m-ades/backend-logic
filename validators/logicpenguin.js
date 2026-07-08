@@ -376,7 +376,7 @@ function computeTruthAnswer(question, options) {
   if (kind === 'equivalence') {
     const left = Formula.from(truthTable.left);
     const right = Formula.from(truthTable.right);
-    return equivTables(left, right);
+    return equivTables(left, right, notation);
   }
 
   if (kind === 'argument') {
@@ -394,7 +394,7 @@ function computeEvaluateTruthAnswer(question, options) {
   const statement = question.evaluateTruth || question.statement;
   const interpretation = question.interpretation || {};
   const f = Formula.from(statement);
-  const result = libtf.evaluate(f, interpretation);
+  const result = libtf.evaluate(f, interpretation, notation);
   return Boolean(result.tv);
 }
 
@@ -404,7 +404,7 @@ function computeSingleRowTruthTableAnswer(question, options) {
   const statement = question.statement || question.evaluateTruth;
   const interpretation = question.interpretation || {};
   const f = Formula.from(statement);
-  const result = libtf.evaluate(f, interpretation);
+  const result = libtf.evaluate(f, interpretation, notation);
   return {
     row: result.row,
     opspot: result.opspot,
