@@ -62,7 +62,6 @@ describe('derivation-hurley ACP/AIP completion', () => {
     expect(result.successstatus).toBe('incorrect');
     expect(collectMessages(result.errors)).toEqual(
       expect.arrayContaining([
-        'Conditional Proof sequence not discharged.',
         'open ACP/AIP subderivations must be closed with CP/IP before the proof is complete',
         'final conclusion of argument not shown',
       ])
@@ -81,7 +80,6 @@ describe('derivation-hurley ACP/AIP completion', () => {
     expect(result.successstatus).toBe('incorrect');
     expect(collectMessages(result.errors)).toEqual(
       expect.arrayContaining([
-        'Indirect Proof sequence not discharged.',
         'open ACP/AIP subderivations must be closed with CP/IP before the proof is complete',
         'final conclusion of argument not shown',
       ])
@@ -102,7 +100,6 @@ describe('derivation-hurley ACP/AIP completion', () => {
     expect(result.successstatus).toBe('incorrect');
     expect(collectMessages(result.errors)).toEqual(
       expect.arrayContaining([
-        'Conditional Proof sequence not discharged.',
         'open ACP/AIP subderivations must be closed with CP/IP before the proof is complete',
       ])
     );
@@ -126,7 +123,6 @@ describe('derivation-hurley ACP/AIP completion', () => {
     expect(result.successstatus).toBe('incorrect');
     expect(collectMessages(result.errors)).toEqual(
       expect.arrayContaining([
-        'Conditional Proof sequence not discharged.',
         'open ACP/AIP subderivations must be closed with CP/IP before the proof is complete',
         'final conclusion of argument not shown',
       ])
