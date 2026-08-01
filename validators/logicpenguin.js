@@ -331,17 +331,11 @@ function normalizeType(question) {
   return question?.type || question?.problemType || question?.logic_problem_type || 'derivation';
 }
 
-function isDerivationType(type) {
-  return type === 'derivation'
-    || type === 'derivation-hurley'
-    || type === 'derivation-calgary';
-}
-
 function resolveCheckerKey(type, question, options) {
   if (type === 'truth-table') {
     return `${question.truthTable?.kind || 'formula'}-truth-table`;
   }
-  if (options?.logicSystem && isDerivationType(type)) {
+  if (options?.logicSystem && type === 'derivation') {
     return getDerivationProblemType(options.logicSystem, 'hurley');
   }
   return type;
@@ -486,6 +480,7 @@ export async function validateLogicPenguin({
   points,
   options = {},
 }) {
+  const type = normalizeType(question);
   const mergedOptions = {
     ...options,
     ...(question?.options || {}),
@@ -494,13 +489,18 @@ export async function validateLogicPenguin({
   };
   if (options.logicSystem) {
     mergedOptions.logicSystem = options.logicSystem;
-    mergedOptions.notation = getLogicSystem(options.logicSystem, 'hurley').derivationSystem;
+    if (type === 'derivation-hurley') {
+      mergedOptions.notation = 'hurley';
+    } else if (type === 'derivation-calgary') {
+      mergedOptions.notation = 'calgary';
+    } else {
+      mergedOptions.notation = getLogicSystem(options.logicSystem, 'hurley').derivationSystem;
+    }
     delete mergedOptions.ruleset;
   }
   const partialcredit = Boolean(
     mergedOptions.partialcredit ?? mergedOptions.partialCredit ?? mergedOptions.partial_credit
   );
-  const type = normalizeType(question);
   const checkerKey = resolveCheckerKey(type, question, mergedOptions);
   const checker = CHECKERS[checkerKey];
   const normalizedQuestion = {

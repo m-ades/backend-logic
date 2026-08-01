@@ -247,6 +247,38 @@ describe('derivation-calgary checker', () => {
     expect(result.score).toBe(100);
   });
 
+  it('preserves explicit derivation-calgary snapshots when the course logic system is hurley', async () => {
+    const proof = buildNestedProof({
+      premises: ['J → ¬J'],
+      conclusion: '¬J',
+      parts: [
+        { n: '1', s: 'J → ¬J', j: 'Pr' },
+        {
+          parts: [
+            { n: '2', s: 'J', j: 'AS' },
+            { n: '3', s: '¬J', j: '→E 1,2' },
+            { n: '4', s: '⊥', j: '¬E 2,3' },
+          ],
+        },
+        { n: '5', s: '¬J', j: '¬I 2-4' },
+      ],
+    });
+
+    const result = await validateLogicPenguin({
+      question: {
+        type: 'derivation-calgary',
+        prems: ['J → ¬J'],
+        conc: '¬J',
+      },
+      submission: proof,
+      points: 100,
+      options: { logicSystem: 'hurley' },
+    });
+
+    expect(result.isCorrect).toBe(true);
+    expect(result.score).toBe(100);
+  });
+
   it('uses the course logic system for generic derivation validation', async () => {
     const proof = buildProof({
       premises: ['P', 'P → Q'],
