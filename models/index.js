@@ -13,6 +13,8 @@ import initAssignmentQuestionOverride from './AssignmentQuestionOverride.js';
 import initAccommodation from './Accommodation.js';
 import initAssignmentGrade from './AssignmentGrade.js';
 import initCourseContact from './CourseContact.js';
+import initCourseTextbookStructure from './CourseTextbookStructure.js';
+import initCourseTextbookPracticeLinks from './CourseTextbookPracticeLinks.js';
 
 const User = initUser(sequelize);
 const Course = initCourse(sequelize);
@@ -28,6 +30,8 @@ const AssignmentQuestionOverride = initAssignmentQuestionOverride(sequelize);
 const Accommodation = initAccommodation(sequelize);
 const AssignmentGrade = initAssignmentGrade(sequelize);
 const CourseContact = initCourseContact(sequelize);
+const CourseTextbookStructure = initCourseTextbookStructure(sequelize);
+const CourseTextbookPracticeLinks = initCourseTextbookPracticeLinks(sequelize);
 
 // Associations
 User.hasMany(CourseEnrollment, { foreignKey: 'user_id' });
@@ -101,6 +105,14 @@ AssignmentGrade.belongsTo(User, { foreignKey: 'graded_by', as: 'gradedBy' });
 Course.hasMany(CourseContact, { foreignKey: 'course_id' });
 CourseContact.belongsTo(Course, { foreignKey: 'course_id' });
 
+Course.hasOne(CourseTextbookStructure, { foreignKey: 'course_id' });
+CourseTextbookStructure.belongsTo(Course, { foreignKey: 'course_id' });
+CourseTextbookStructure.belongsTo(User, { foreignKey: 'updated_by', as: 'updatedBy' });
+
+Course.hasOne(CourseTextbookPracticeLinks, { foreignKey: 'course_id' });
+CourseTextbookPracticeLinks.belongsTo(Course, { foreignKey: 'course_id' });
+CourseTextbookPracticeLinks.belongsTo(User, { foreignKey: 'updated_by', as: 'updatedBy' });
+
 export {
   sequelize,
   User,
@@ -117,4 +129,6 @@ export {
   Accommodation,
   AssignmentGrade,
   CourseContact,
+  CourseTextbookStructure,
+  CourseTextbookPracticeLinks,
 };

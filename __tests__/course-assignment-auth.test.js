@@ -27,6 +27,16 @@ jest.unstable_mockModule('../models/index.js', () => ({
   AssignmentQuestionOverride: { findAll: jest.fn() },
   Accommodation: { findOne: accommodationFindOne },
   CourseEnrollment: { findOne: courseEnrollmentFindOne },
+  CourseTextbookStructure: {
+    findByPk: jest.fn(),
+    upsert: jest.fn(),
+    destroy: jest.fn(),
+  },
+  CourseTextbookPracticeLinks: {
+    findByPk: jest.fn(),
+    upsert: jest.fn(),
+    destroy: jest.fn(),
+  },
   Submission: { findAll: submissionFindAll },
   User: {},
   sequelize: { fn: sequelizeFn, col: sequelizeCol, query: sequelizeQuery },
