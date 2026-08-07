@@ -47,6 +47,11 @@ export const textbookStructureBody = [
     .isBoolean()
     .toBoolean()
     .withMessage('hidden must be a boolean'),
+  body('nodes.*.navigable')
+    .optional()
+    .isBoolean()
+    .toBoolean()
+    .withMessage('navigable must be a boolean'),
 ];
 
 export const textbookPracticeLinksBody = [
