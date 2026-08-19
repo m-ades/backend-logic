@@ -31,6 +31,36 @@ import {
 const router = express.Router();
 const courseAccessValidators = [courseIdParam, handleValidationResult];
 const assignmentAccessValidators = [assignmentIdParam, handleValidationResult];
+const classwideExtensionValidators = [
+  assignmentIdParam,
+  body('extended_due_date').isISO8601().withMessage('extended_due_date must be a valid date'),
+  body('reason').optional({ nullable: true, checkFalsy: true }).isString().isLength({ max: 500 }),
+  handleValidationResult,
+];
+const EXTENSION_USER_ATTRIBUTES = ['id', 'username'];
+const MAX_EXTENSION_REASON_LENGTH = 500;
+
+const normalizeExtensionReason = (reason) => {
+  if (reason == null) return null;
+  const text = String(reason).trim();
+  if (!text) return null;
+  return text.slice(0, MAX_EXTENSION_REASON_LENGTH);
+};
+
+const serializeUserRef = (user) => (
+  user ? { id: user.id, username: user.username } : null
+);
+
+const serializeExtension = (row) => ({
+  id: row.id,
+  assignment_id: row.assignment_id,
+  user_id: row.user_id,
+  extended_due_date: row.extended_due_date,
+  reason: row.reason,
+  created_at: row.created_at,
+  User: serializeUserRef(row.User),
+  grantedBy: serializeUserRef(row.grantedBy),
+});
 const validateStrongPassword = (value) => {
   if (!isStrongPassword(value)) {
     throw new Error(PASSWORD_POLICY_MESSAGE);
@@ -365,11 +395,19 @@ router.get('/assignments/:id/extensions', assignmentAccessValidators, async (req
 
     const extensions = await AssignmentExtension.findAll({
       where: { assignment_id: assignmentId },
-      include: [{ model: User, attributes: ['id', 'username'] }],
+      include: [
+        { model: User, attributes: EXTENSION_USER_ATTRIBUTES },
+        { model: User, as: 'grantedBy', attributes: EXTENSION_USER_ATTRIBUTES, required: false },
+      ],
       order: [['id', 'ASC']],
     });
 
-    res.json(extensions);
+    const payload = extensions
+      .map(serializeExtension)
+      .sort((a, b) =>
+        (a.User?.username || '').localeCompare(b.User?.username || '', undefined, { sensitivity: 'base' })
+      );
+    res.json(payload);
   } catch (error) {
     next(error);
   }
@@ -404,7 +442,7 @@ router.post('/assignments/:id/extensions', assignmentAccessValidators, async (re
       assignment_id: assignmentId,
       user_id: targetUserId,
       extended_due_date: extendedDueDate,
-      reason: req.body.reason ?? null,
+      reason: normalizeExtensionReason(req.body.reason),
       granted_by: userId,
     };
 
@@ -468,7 +506,7 @@ router.post('/assignment-questions/:id/overrides', [
   }
 });
 
-router.post('/assignments/:id/extensions/classwide', assignmentAccessValidators, async (req, res, next) => {
+async function classwideExtensionHandler(req, res, next) {
   try {
     const assignmentId = req.params.id;
     const userId = req.user.id;
@@ -486,6 +524,9 @@ router.post('/assignments/:id/extensions/classwide', assignmentAccessValidators,
     if (!extendedDueDate) {
       return res.status(400).json({ message: 'extended_due_date is required' });
     }
+    if (Number.isNaN(Date.parse(extendedDueDate))) {
+      return res.status(400).json({ message: 'extended_due_date must be a valid date' });
+    }
 
     const enrollments = await CourseEnrollment.findAll({
       where: { course_id: assignment.course_id, role: 'student' },
@@ -496,11 +537,12 @@ router.post('/assignments/:id/extensions/classwide', assignmentAccessValidators,
       return res.status(200).json({ updated: 0 });
     }
 
+    const reason = normalizeExtensionReason(req.body.reason);
     const payload = enrollments.map((enrollment) => ({
       assignment_id: assignmentId,
       user_id: enrollment.user_id,
       extended_due_date: extendedDueDate,
-      reason: req.body.reason ?? null,
+      reason,
       granted_by: userId,
     }));
 
@@ -508,11 +550,20 @@ router.post('/assignments/:id/extensions/classwide', assignmentAccessValidators,
       updateOnDuplicate: ['extended_due_date', 'reason', 'granted_by'],
     });
 
+    await Promise.all(
+      enrollments.map((enrollment) =>
+        recomputeAssignmentGrade({ assignmentId: assignment.id, userId: enrollment.user_id })
+      )
+    );
+
     res.status(200).json({ updated: payload.length });
   } catch (error) {
     next(error);
   }
-});
+}
+
+router.post('/assignments/:id/extensions/classwide', classwideExtensionValidators, classwideExtensionHandler);
+router.put('/assignments/:id/extensions/classwide', classwideExtensionValidators, classwideExtensionHandler);
 
 // returns saved attempts to instructors/admins, optionally filtered to one student
 router.get('/assignments/:id/submissions', [assignmentIdParam, userIdOptionalQuery, handleValidationResult], async (req, res, next) => {
