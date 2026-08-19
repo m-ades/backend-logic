@@ -5,6 +5,7 @@ import equivalenceTruthTable from '../lib/logicpenguin/checkers/equivalence-trut
 import argumentTruthTable from '../lib/logicpenguin/checkers/argument-truth-table.js';
 import comboTranslationTruthTable from '../lib/logicpenguin/checkers/combo-translation-truth-table.js';
 import comboTranslationDerivation from '../lib/logicpenguin/checkers/combo-translation-derivation.js';
+import proofArgumentExtraction from '../lib/logicpenguin/checkers/proof-argument-extraction.js';
 import symbolicTranslation from '../lib/logicpenguin/checkers/symbolic-translation.js';
 import multipleChoice from '../lib/logicpenguin/checkers/multiple-choice.js';
 import trueFalse from '../lib/logicpenguin/checkers/true-false.js';
@@ -27,6 +28,7 @@ const CHECKERS = {
   'argument-truth-table': argumentTruthTable,
   'combo-translation-truth-table': comboTranslationTruthTable,
   'combo-translation-derivation': comboTranslationDerivation,
+  'proof-argument-extraction': proofArgumentExtraction,
   'symbolic-translation': symbolicTranslation,
   'multiple-choice': multipleChoice,
   'indirect-truth-table': indirectTruthTable,
@@ -214,6 +216,19 @@ function normalizeComboTranslationDerivation(submission) {
   return { valid: true, givenans };
 }
 
+function normalizeProofArgumentExtraction(submission) {
+  const raw = (isPlainObject(submission) && 'ans' in submission) ? submission.ans : submission;
+  if (!isPlainObject(raw)) return { valid: false };
+  const argumentLine = (typeof raw.argumentLine === 'string')
+    ? raw.argumentLine
+    : (typeof raw.argument === 'string' ? raw.argument : '');
+  const proofInput = pickDefined(raw.proof, raw.derivationState?.ans, raw.derivationState);
+  const givenans = { argumentLine };
+  if (isPlainObject(proofInput)) givenans.proof = proofInput;
+  if (Array.isArray(raw.justifications)) givenans.justifications = raw.justifications;
+  return { valid: true, givenans };
+}
+
 function normalizeMultipleChoiceSubmission(submission, question) {
   const hasSubquestions = Array.isArray(question?.subquestions);
   if (hasSubquestions) {
@@ -311,6 +326,9 @@ function normalizeSubmissionByType({ checkerKey, submission, question }) {
   }
   if (checkerKey === 'combo-translation-derivation') {
     return normalizeComboTranslationDerivation(submission);
+  }
+  if (checkerKey === 'proof-argument-extraction') {
+    return normalizeProofArgumentExtraction(submission);
   }
   return { valid: true, givenans: submission };
 }
