@@ -59,6 +59,41 @@ describe('proof argument extraction', () => {
     expect(result.score).toBe(0);
   });
 
+  it('uses provided justifications and does not let the submission replace them', async () => {
+    const result = await validateLogicPenguin({
+      question: {
+        ...question,
+        justifications: ['∧E 1', '', '', '∨I 5'],
+      },
+      submission: {
+        argumentLine: 'P ∧ S / S → R // R ∨ E',
+        justifications: ['∧E 2', '∧E 1', '→E 2,4', '∨I 2'],
+      },
+      points: 100,
+      options: { logicSystem: 'fitch' },
+    });
+
+    expect(result.isCorrect).toBe(true);
+    expect(result.score).toBe(100);
+  });
+
+  it('accepts an argument-only submission when every justification is provided', async () => {
+    const result = await validateLogicPenguin({
+      question: {
+        ...question,
+        justifications: correctJustifications,
+      },
+      submission: {
+        argumentLine: 'P ∧ S / S → R // R ∨ E',
+      },
+      points: 100,
+      options: { logicSystem: 'fitch' },
+    });
+
+    expect(result.isCorrect).toBe(true);
+    expect(result.score).toBe(100);
+  });
+
   it('uses the formulas from the question instead of the submitted proof', async () => {
     const result = await validateLogicPenguin({
       question,
