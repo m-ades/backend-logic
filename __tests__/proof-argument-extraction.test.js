@@ -94,6 +94,91 @@ describe('proof argument extraction', () => {
     expect(result.score).toBe(100);
   });
 
+  it('checks an assumption scope that begins after a top-level proof line', async () => {
+    const result = await validateLogicPenguin({
+      question: {
+        type: 'proof-argument-extraction',
+        prems: ['J → ¬J'],
+        lines: ['J → ¬J', 'J', '¬J', '⊥', '¬J'],
+        assumptionScopes: [{ start: 1, end: 3 }],
+      },
+      submission: {
+        argumentLine: 'J → ¬J // ¬J',
+        justifications: ['R 1', 'AS', '→E 1,3', '¬E 3,4', '¬I 3-5'],
+      },
+      points: 100,
+      options: { logicSystem: 'fitch' },
+    });
+
+    expect(result.isCorrect).toBe(true);
+    expect(result.score).toBe(100);
+  });
+
+  it('requires AS on the first line of each assumption scope', async () => {
+    const result = await validateLogicPenguin({
+      question: {
+        type: 'proof-argument-extraction',
+        prems: ['P ∧ D'],
+        lines: ['P'],
+        assumptionScopes: [{ start: 0, end: 0 }],
+      },
+      submission: {
+        argumentLine: 'P ∧ D // P',
+        justifications: ['∧E 1'],
+      },
+      points: 100,
+      options: { logicSystem: 'fitch' },
+    });
+
+    expect(result.isCorrect).toBe(false);
+    expect(result.score).toBe(0);
+    expect(result.result.message).toContain('must begin with AS');
+  });
+
+  it('supports nested assumption scopes', async () => {
+    const result = await validateLogicPenguin({
+      question: {
+        type: 'proof-argument-extraction',
+        prems: ['R'],
+        lines: ['P', 'Q', 'P', 'Q → P', 'P → (Q → P)'],
+        assumptionScopes: [
+          { start: 0, end: 3 },
+          { start: 1, end: 2 },
+        ],
+      },
+      submission: {
+        argumentLine: 'R // P → (Q → P)',
+        justifications: ['AS', 'AS', 'R 2', '→I 3-4', '→I 2-5'],
+      },
+      points: 100,
+      options: { logicSystem: 'fitch' },
+    });
+
+    expect(result.isCorrect).toBe(true);
+    expect(result.score).toBe(100);
+  });
+
+  it('rejects crossing assumption scopes as invalid question data', async () => {
+    const result = await validateLogicPenguin({
+      question: {
+        ...question,
+        assumptionScopes: [
+          { start: 0, end: 2 },
+          { start: 1, end: 3 },
+        ],
+      },
+      submission: {
+        argumentLine: 'P ∧ S / S → R // R ∨ E',
+        justifications: correctJustifications,
+      },
+      points: 100,
+      options: { logicSystem: 'fitch' },
+    });
+
+    expect(result.isCorrect).toBe(false);
+    expect(result.result.message).toContain('cannot cross');
+  });
+
   it('uses the formulas from the question instead of the submitted proof', async () => {
     const result = await validateLogicPenguin({
       question,
