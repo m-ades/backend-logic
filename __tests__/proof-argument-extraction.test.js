@@ -119,12 +119,12 @@ describe('proof argument extraction', () => {
       question: {
         type: 'proof-argument-extraction',
         prems: ['P ∧ D'],
-        lines: ['P'],
+        lines: ['P', 'P'],
         assumptionScopes: [{ start: 0, end: 0 }],
       },
       submission: {
         argumentLine: 'P ∧ D // P',
-        justifications: ['∧E 1'],
+        justifications: ['∧E 1', '∧E 1'],
       },
       points: 100,
       options: { logicSystem: 'fitch' },
@@ -133,6 +133,26 @@ describe('proof argument extraction', () => {
     expect(result.isCorrect).toBe(false);
     expect(result.score).toBe(0);
     expect(result.result.message).toContain('must begin with AS');
+  });
+
+  it('rejects an assumption scope containing the conclusion', async () => {
+    const result = await validateLogicPenguin({
+      question: {
+        type: 'proof-argument-extraction',
+        prems: ['P ∧ D'],
+        lines: ['P'],
+        assumptionScopes: [{ start: 0, end: 0 }],
+      },
+      submission: {
+        argumentLine: 'P ∧ D // P',
+        justifications: ['AS'],
+      },
+      points: 100,
+      options: { logicSystem: 'fitch' },
+    });
+
+    expect(result.isCorrect).toBe(false);
+    expect(result.result.message).toContain('must end before the conclusion');
   });
 
   it('supports nested assumption scopes', async () => {
@@ -162,6 +182,7 @@ describe('proof argument extraction', () => {
     const result = await validateLogicPenguin({
       question: {
         ...question,
+        lines: [...question.lines, 'R ∨ E'],
         assumptionScopes: [
           { start: 0, end: 2 },
           { start: 1, end: 3 },
@@ -218,5 +239,88 @@ describe('proof argument extraction', () => {
 
     expect(result.isCorrect).toBe(true);
     expect(result.score).toBe(100);
+  });
+
+  it('checks a declared Hurley ACP/CP scope by default', async () => {
+    const result = await validateLogicPenguin({
+      question: {
+        type: 'proof-argument-extraction',
+        prems: ['A • C'],
+        lines: ['B', 'A', 'B ⊃ A'],
+        assumptionScopes: [{ start: 0, end: 1 }],
+      },
+      submission: {
+        argumentLine: 'A • C // B ⊃ A',
+        justifications: ['ACP', '1 Simp', '2-3 CP'],
+      },
+      points: 100,
+    });
+
+    expect(result.isCorrect).toBe(true);
+    expect(result.score).toBe(100);
+  });
+
+  it('checks a declared Hurley AIP/IP scope', async () => {
+    const result = await validateLogicPenguin({
+      question: {
+        type: 'proof-argument-extraction',
+        prems: ['A • ~A'],
+        lines: ['B', '~A • A', 'A', '~A', '~B'],
+        assumptionScopes: [{ start: 0, end: 3 }],
+      },
+      submission: {
+        argumentLine: 'A • ~A // ~B',
+        justifications: ['AIP', '1 Com', '1 Simp', '3 Simp', '2-5 IP'],
+      },
+      points: 100,
+      options: { logicSystem: 'hurley' },
+    });
+
+    expect(result.isCorrect).toBe(true);
+    expect(result.score).toBe(100);
+  });
+
+  it('requires Hurley CP/IP on the line immediately after the declared scope', async () => {
+    const result = await validateLogicPenguin({
+      question: {
+        type: 'proof-argument-extraction',
+        prems: ['A • C'],
+        lines: ['B', 'A', 'B ⊃ A'],
+        assumptionScopes: [{ start: 0, end: 0 }],
+      },
+      submission: {
+        argumentLine: 'A • C // B ⊃ A',
+        justifications: ['ACP', '1 Simp', '2-3 CP'],
+      },
+      points: 100,
+      options: { logicSystem: 'hurley' },
+    });
+
+    expect(result.isCorrect).toBe(false);
+    expect(result.score).toBe(0);
+    expect(result.result.message).toContain('followed by CP or IP');
+  });
+
+  it.each([
+    ['adjacent scopes', [{ start: 0, end: 1 }, { start: 2, end: 3 }]],
+    ['scopes sharing an end', [{ start: 0, end: 3 }, { start: 1, end: 3 }]],
+  ])('rejects Hurley %s that require two structural rules on one line', async (_name, assumptionScopes) => {
+    const result = await validateLogicPenguin({
+      question: {
+        type: 'proof-argument-extraction',
+        prems: ['A'],
+        lines: ['B', 'A', 'C', 'A', 'A'],
+        assumptionScopes,
+      },
+      submission: {
+        argumentLine: 'A // A',
+        justifications: [],
+      },
+      points: 100,
+      options: { logicSystem: 'hurley' },
+    });
+
+    expect(result.isCorrect).toBe(false);
+    expect(result.result.message).toContain('own opening and closing lines');
   });
 });
