@@ -136,7 +136,7 @@ describe('proof argument extraction', () => {
   });
 
   it('rejects an assumption scope containing the conclusion', async () => {
-    const result = await validateLogicPenguin({
+    await expect(validateLogicPenguin({
       question: {
         type: 'proof-argument-extraction',
         prems: ['P ∧ D'],
@@ -149,10 +149,11 @@ describe('proof argument extraction', () => {
       },
       points: 100,
       options: { logicSystem: 'fitch' },
+    })).rejects.toMatchObject({
+      code: 'INVALID_QUESTION',
+      status: 422,
+      message: expect.stringContaining('must end before the conclusion'),
     });
-
-    expect(result.isCorrect).toBe(false);
-    expect(result.result.message).toContain('must end before the conclusion');
   });
 
   it('supports nested assumption scopes', async () => {
@@ -179,7 +180,7 @@ describe('proof argument extraction', () => {
   });
 
   it('rejects crossing assumption scopes as invalid question data', async () => {
-    const result = await validateLogicPenguin({
+    await expect(validateLogicPenguin({
       question: {
         ...question,
         lines: [...question.lines, 'R ∨ E'],
@@ -194,10 +195,11 @@ describe('proof argument extraction', () => {
       },
       points: 100,
       options: { logicSystem: 'fitch' },
+    })).rejects.toMatchObject({
+      code: 'INVALID_QUESTION',
+      status: 422,
+      message: expect.stringContaining('cannot cross'),
     });
-
-    expect(result.isCorrect).toBe(false);
-    expect(result.result.message).toContain('cannot cross');
   });
 
   it('uses the formulas from the question instead of the submitted proof', async () => {
@@ -305,7 +307,7 @@ describe('proof argument extraction', () => {
     ['adjacent scopes', [{ start: 0, end: 1 }, { start: 2, end: 3 }]],
     ['scopes sharing an end', [{ start: 0, end: 3 }, { start: 1, end: 3 }]],
   ])('rejects Hurley %s that require two structural rules on one line', async (_name, assumptionScopes) => {
-    const result = await validateLogicPenguin({
+    await expect(validateLogicPenguin({
       question: {
         type: 'proof-argument-extraction',
         prems: ['A'],
@@ -318,9 +320,29 @@ describe('proof argument extraction', () => {
       },
       points: 100,
       options: { logicSystem: 'hurley' },
+    })).rejects.toMatchObject({
+      code: 'INVALID_QUESTION',
+      status: 422,
+      message: expect.stringContaining('own opening and closing lines'),
     });
+  });
 
-    expect(result.isCorrect).toBe(false);
-    expect(result.result.message).toContain('own opening and closing lines');
+  it('rejects an invalid instructor-provided citation as question data', async () => {
+    await expect(validateLogicPenguin({
+      question: {
+        ...question,
+        justifications: ['∧E 2', '', '', '∨I 5'],
+      },
+      submission: {
+        argumentLine: 'P ∧ S / S → R // R ∨ E',
+        justifications: correctJustifications,
+      },
+      points: 100,
+      options: { logicSystem: 'fitch' },
+    })).rejects.toMatchObject({
+      code: 'INVALID_QUESTION',
+      status: 422,
+      message: expect.stringContaining('Provided justification for line 3 is invalid'),
+    });
   });
 });

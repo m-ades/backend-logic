@@ -18,6 +18,7 @@ import nonclassicalTruthTable from '../lib/logicpenguin/checkers/nonclassical-tr
 import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
 import { formulaTable, equivTables, argumentTables, libtf } from '../lib/logicpenguin/symbolic/libsemantics.js';
 import { getDerivationProblemType, getLogicSystem } from '../lib/logicSystems.js';
+import { assertValidQuestionSnapshot } from './question-snapshot.js';
 
 const CHECKERS = {
   derivation: derivationHurley,
@@ -516,6 +517,7 @@ export async function validateLogicPenguin({
     }
     delete mergedOptions.ruleset;
   }
+  await assertValidQuestionSnapshot(question, mergedOptions);
   const partialcredit = Boolean(
     mergedOptions.partialcredit ?? mergedOptions.partialCredit ?? mergedOptions.partial_credit
   );
