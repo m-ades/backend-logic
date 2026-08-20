@@ -8,6 +8,7 @@ import {
   Submission,
 } from '../models/index.js';
 import { validateLogicPenguin } from '../validators/logicpenguin.js';
+import { isInvalidQuestionError } from '../validators/question-snapshot.js';
 import { LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '../lib/logicSystems.js';
 import { computeDeadlinePolicy } from './assignmentPolicy.js';
 import { recomputeAssignmentGrade } from './grades.js';
@@ -73,12 +74,19 @@ export async function autoSubmitIfPastDeadline(assignment, userId) {
       partialcredit: questionSnapshot.partialCredit || false,
     };
 
-    const validation = await validateLogicPenguin({
-      question: questionSnapshot,
-      submission: draft.draft_data,
-      points: 100,
-      options,
-    });
+    let validation;
+    try {
+      validation = await validateLogicPenguin({
+        question: questionSnapshot,
+        submission: draft.draft_data,
+        points: 100,
+        options,
+      });
+    } catch (error) {
+      if (!isInvalidQuestionError(error)) throw error;
+      console.warn(`Skipping invalid question ${question.id} during automatic submission.`);
+      continue;
+    }
 
     const submission = await Submission.create({
       assignment_question_id: question.id,

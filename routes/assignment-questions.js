@@ -1,12 +1,14 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { createCrudRouter } from './crud.js';
-import { Assignment, AssignmentQuestion, CourseEnrollment, sequelize } from '../models/index.js';
+import { Assignment, AssignmentQuestion, Course, CourseEnrollment, sequelize } from '../models/index.js';
 import { handleValidationResult } from '../middleware/validation.js';
 import { requireUser } from '../middleware/auth.js';
 import {
   assignmentIdBody,
 } from '../validators/common.js';
+import { assertValidQuestionSnapshot } from '../validators/question-snapshot.js';
+import { LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '../lib/logicSystems.js';
 import { requireInstructorOrAdmin } from './instructor.js';
 
 const router = express.Router();
@@ -35,7 +37,31 @@ async function canAccessAssignment(assignmentId, userId) {
 // assignment must exist. 404 if not. run before auth.
 async function requireAssignmentExists(assignmentId) {
   if (!assignmentId) return null;
-  return Assignment.findByPk(assignmentId, { attributes: ['id'] });
+  return Assignment.findByPk(assignmentId, {
+    attributes: ['id', 'course_id'],
+    include: [{ model: Course, attributes: ['logic_system'] }],
+  });
+}
+
+async function assertValidSnapshotForAssignment(questionSnapshot, assignmentOrId) {
+  const type = questionSnapshot?.type
+    || questionSnapshot?.problemType
+    || questionSnapshot?.logic_problem_type;
+  if (type !== 'proof-argument-extraction') return;
+
+  const assignment = typeof assignmentOrId === 'object'
+    ? assignmentOrId
+    : await requireAssignmentExists(assignmentOrId);
+  if (!assignment) {
+    const error = new Error('Assignment not found');
+    error.status = 404;
+    throw error;
+  }
+  const logicSystem = normalizeLogicSystem(
+    assignment.Course?.logic_system,
+    LEGACY_LOGIC_SYSTEM
+  );
+  await assertValidQuestionSnapshot(questionSnapshot, { logicSystem });
 }
 
 // deep merge. source overwrites. arrays replace.
@@ -82,6 +108,10 @@ router.post(
       return res.status(400).json({
         message: 'Each question requires question_snapshot and order_index',
       });
+    }
+
+    for (const item of payload) {
+      await assertValidSnapshotForAssignment(item.question_snapshot, assignment);
     }
 
     const created = await sequelize.transaction(async (transaction) => {
@@ -180,7 +210,11 @@ router.delete(
 router.use(
   '/',
   createCrudRouter(AssignmentQuestion, {
-    beforeUpdate: (req, body, record) => {
+    beforeCreate: async (_req, body) => {
+      await assertValidSnapshotForAssignment(body.question_snapshot, body.assignment_id);
+      return body;
+    },
+    beforeUpdate: async (req, body, record) => {
       const payload = {}
       if (body.question_snapshot !== undefined) {
         const existing = record?.question_snapshot ?? {}
@@ -192,6 +226,7 @@ router.use(
         if (t === 'single-row-truth-table' && merged && typeof merged === 'object') {
           delete merged.singleRowTruthTable
         }
+        await assertValidSnapshotForAssignment(merged, record.assignment_id)
         payload.question_snapshot = merged
       }
       if (body.attempt_limit !== undefined) {
