@@ -109,7 +109,7 @@ export async function assertValidQuestionSnapshot(question, options = {}) {
   const suppliedRules = justifications.map(getJustificationRule);
   const badRequirement = getAssumptionRuleRequirements(parsedScopes.scopes, logicSystem)
     .find(({ line, rules }) => suppliedRules[line] && !rules.includes(suppliedRules[line]));
-  if (badRequirement) 
+  if (badRequirement) {
     const placement = badRequirement.kind === 'opening' ? 'begin with' : 'be followed by';
     throw new InvalidQuestionError(
       `Each assumption scope must ${placement} ${badRequirement.rules.join(' or ')}.`
