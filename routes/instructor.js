@@ -412,35 +412,82 @@ router.post('/assignments/:id/extensions', assignmentAccessValidators, async (re
   }
 });
 
+async function requireAssignmentQuestionInstructorAccess(assignmentQuestionId, userId) {
+  const question = await AssignmentQuestion.findByPk(assignmentQuestionId, {
+    include: [{ model: Assignment }],
+  });
+  if (!question) {
+    return { error: { status: 404, message: 'Assignment question not found' } };
+  }
+  if (!(await requireInstructor(question.Assignment?.course_id, userId))) {
+    return { error: { status: 403, message: 'Instructor access required' } };
+  }
+  return { question };
+}
+
+function normalizeOverrideReason(value) {
+  return typeof value === 'string' ? value.trim().slice(0, 500) || null : null;
+}
+
+router.get('/assignment-questions/:id/overrides', [
+  param('id').isInt({ gt: 0 }).toInt().withMessage('assignment_question_id is required'),
+  handleValidationResult,
+], async (req, res, next) => {
+  try {
+    const assignmentQuestionId = Number(req.params.id);
+    const { question, error } = await requireAssignmentQuestionInstructorAccess(
+      assignmentQuestionId,
+      req.user.id
+    );
+    if (error) {
+      return res.status(error.status).json({ message: error.message });
+    }
+
+    const overrides = await AssignmentQuestionOverride.findAll({
+      where: { assignment_question_id: question.id },
+      include: [{ model: User, attributes: ['id', 'username'] }],
+      order: [['id', 'ASC']],
+    });
+
+    res.json(overrides);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post('/assignment-questions/:id/overrides', [
   param('id').isInt({ gt: 0 }).toInt().withMessage('assignment_question_id is required'),
   body('user_id').isInt({ gt: 0 }).toInt().withMessage('user_id is required'),
   body('extra_attempts').isInt({ min: 0 }).toInt().withMessage('extra_attempts is required'),
+  body('reason').optional({ nullable: true, checkFalsy: true }).isString().isLength({ max: 500 }),
   handleValidationResult,
 ], async (req, res, next) => {
   try {
     const assignmentQuestionId = Number(req.params.id);
     const userId = req.user.id;
-
-    const question = await AssignmentQuestion.findByPk(assignmentQuestionId, {
-      include: [{ model: Assignment }],
-    });
-    if (!question) {
-      return res.status(404).json({ message: 'Assignment question not found' });
-    }
-
-    if (!(await requireInstructor(question.Assignment?.course_id, userId))) {
-      return res.status(403).json({ message: 'Instructor access required' });
+    const { question, error } = await requireAssignmentQuestionInstructorAccess(
+      assignmentQuestionId,
+      userId
+    );
+    if (error) {
+      return res.status(error.status).json({ message: error.message });
     }
 
     const targetUserId = Number(req.body.user_id);
     const extraAttempts = Number(req.body.extra_attempts);
+    const courseId = question.Assignment?.course_id;
+    const enrollment = await CourseEnrollment.findOne({
+      where: { course_id: courseId, user_id: targetUserId },
+    });
+    if (!enrollment) {
+      return res.status(400).json({ message: 'user is not enrolled in this course' });
+    }
 
     const payload = {
       assignment_question_id: assignmentQuestionId,
       user_id: targetUserId,
       extra_attempts: extraAttempts,
-      reason: req.body.reason ?? null,
+      reason: normalizeOverrideReason(req.body.reason),
       granted_by: userId,
     };
 
