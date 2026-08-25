@@ -511,7 +511,8 @@ async function classwideExtensionHandler(req, res, next) {
     if (!extendedDueDate) {
       return res.status(400).json({ message: 'extended_due_date is required' });
     }
-    if (Number.isNaN(Date.parse(extendedDueDate))) {
+    const classwideMs = Date.parse(extendedDueDate);
+    if (Number.isNaN(classwideMs)) {
       return res.status(400).json({ message: 'extended_due_date must be a valid date' });
     }
 
@@ -520,22 +521,42 @@ async function classwideExtensionHandler(req, res, next) {
       attributes: ['user_id'],
     });
 
-    if (enrollments.length === 0) {
-      return res.status(200).json({ updated: 0 });
+    const total = enrollments.length;
+    if (total === 0) {
+      return res.status(200).json({ updated: 0, preserved: 0, total: 0 });
     }
 
-    const reason = normalizeExtensionReason(req.body.reason);
-    const payload = enrollments.map((enrollment) => ({
-      assignment_id: assignmentId,
-      user_id: enrollment.user_id,
-      extended_due_date: extendedDueDate,
-      reason,
-      granted_by: userId,
-    }));
-
-    await AssignmentExtension.bulkCreate(payload, {
-      updateOnDuplicate: ['extended_due_date', 'reason', 'granted_by'],
+    const studentIds = enrollments.map((enrollment) => enrollment.user_id);
+    const existingRows = await AssignmentExtension.findAll({
+      where: { assignment_id: assignmentId, user_id: { [Op.in]: studentIds } },
     });
+    const existingByUser = new Map(existingRows.map((row) => [row.user_id, row]));
+
+    const reason = normalizeExtensionReason(req.body.reason);
+    const payload = [];
+    let preserved = 0;
+
+    for (const { user_id: targetUserId } of enrollments) {
+      const existing = existingByUser.get(targetUserId);
+      const existingMs = existing ? Date.parse(existing.extended_due_date) : NaN;
+      if (existing && !Number.isNaN(existingMs) && existingMs > classwideMs) {
+        preserved += 1;
+        continue;
+      }
+      payload.push({
+        assignment_id: assignmentId,
+        user_id: targetUserId,
+        extended_due_date: extendedDueDate,
+        reason,
+        granted_by: userId,
+      });
+    }
+
+    if (payload.length > 0) {
+      await AssignmentExtension.bulkCreate(payload, {
+        updateOnDuplicate: ['extended_due_date', 'reason', 'granted_by'],
+      });
+    }
 
     await Promise.all(
       enrollments.map((enrollment) =>
@@ -543,7 +564,7 @@ async function classwideExtensionHandler(req, res, next) {
       )
     );
 
-    res.status(200).json({ updated: payload.length });
+    res.status(200).json({ updated: payload.length, preserved, total });
   } catch (error) {
     next(error);
   }
