@@ -531,14 +531,32 @@ router.get('/assignments/:id/submissions', [assignmentIdParam, userIdOptionalQue
 
     const submissions = await Submission.findAll({
       ...(req.query.userId ? { where: { user_id: req.query.userId } } : {}),
+      attributes: [
+        'id',
+        'assignment_question_id',
+        'user_id',
+        'attempt',
+        'score',
+        'is_correct',
+        'auto_submitted',
+        'submitted_at',
+        'validated_at',
+      ],
       include: [
         {
           model: AssignmentQuestion,
           where: { assignment_id: assignmentId },
+          attributes: ['id', 'order_index', 'points_value'],
         },
-        { model: User, attributes: ['id', 'username'] },
+        {
+          model: User,
+          attributes: ['id', 'username'],
+        },
       ],
-      order: [['submitted_at', 'DESC']],
+      order: [
+        ['submitted_at', 'DESC'],
+        ['id', 'DESC'],
+      ],
     });
 
     res.json(submissions);
