@@ -516,14 +516,32 @@ router.get('/assignments/:id/submissions', assignmentAccessValidators, async (re
     }
 
     const submissions = await Submission.findAll({
+      attributes: [
+        'id',
+        'assignment_question_id',
+        'user_id',
+        'attempt',
+        'score',
+        'is_correct',
+        'auto_submitted',
+        'submitted_at',
+        'validated_at',
+      ],
       include: [
         {
           model: AssignmentQuestion,
           where: { assignment_id: assignmentId },
+          attributes: ['id', 'order_index', 'points_value'],
         },
-        { model: User },
+        {
+          model: User,
+          attributes: ['id', 'username'],
+        },
       ],
-      order: [['submitted_at', 'DESC']],
+      order: [
+        ['submitted_at', 'DESC'],
+        ['id', 'DESC'],
+      ],
     });
 
     res.json(submissions);
