@@ -16,7 +16,7 @@ import indirectTruthTable from '../lib/logicpenguin/checkers/indirect-truth-tabl
 import partialTruthTable from '../lib/logicpenguin/checkers/partial-truth-table.js';
 import nonclassicalTruthTable from '../lib/logicpenguin/checkers/nonclassical-truth-table.js';
 import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
-import { formulaTable, equivTables, argumentTables, libtf } from '../lib/logicpenguin/symbolic/libsemantics.js';
+import { formulaTable, equivTablesMany, argumentTables, libtf } from '../lib/logicpenguin/symbolic/libsemantics.js';
 import { getDerivationProblemType, getLogicSystem } from '../lib/logicSystems.js';
 import { assertValidQuestionSnapshot } from './question-snapshot.js';
 
@@ -387,9 +387,11 @@ function computeTruthAnswer(question, options) {
   }
 
   if (kind === 'equivalence') {
-    const left = Formula.from(truthTable.left);
-    const right = Formula.from(truthTable.right);
-    return equivTables(left, right, notation);
+    const statements = Array.isArray(truthTable.statements)
+      ? truthTable.statements
+      : [truthTable.left, truthTable.right];
+    const wffs = statements.map((statement) => Formula.from(statement));
+    return equivTablesMany(wffs, notation);
   }
 
   if (kind === 'argument') {
