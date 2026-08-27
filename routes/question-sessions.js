@@ -1,6 +1,19 @@
 import { createCrudRouter } from './crud.js';
-import { AssignmentQuestion, QuestionSession } from '../models/index.js';
+import { AssignmentQuestion, Assignment, QuestionSession } from '../models/index.js';
 import { isSystemAdmin } from '../utils/authorization.js';
+import { requireEnrollmentForCourse } from '../utils/enrollment.js';
+
+async function loadQuestionOrThrow(assignmentQuestionId) {
+  const assignmentQuestion = await AssignmentQuestion.findByPk(assignmentQuestionId, {
+    include: [{ model: Assignment }],
+  });
+  if (!assignmentQuestion) {
+    const error = new Error('assignment_question_id not found');
+    error.status = 404;
+    throw error;
+  }
+  return assignmentQuestion;
+}
 
 const router = createCrudRouter(QuestionSession, {
   listFilter: (req) => (isSystemAdmin(req.user) ? {} : { where: { user_id: req.user.id } }),
@@ -16,18 +29,22 @@ const router = createCrudRouter(QuestionSession, {
       throw error;
     }
 
-    const assignmentQuestion = await AssignmentQuestion.findByPk(assignmentQuestionId);
-    if (!assignmentQuestion) {
-      const error = new Error('assignment_question_id not found');
-      error.status = 404;
-      throw error;
+    const assignmentQuestion = await loadQuestionOrThrow(assignmentQuestionId);
+    const effective = isSystemAdmin(req.user) ? payload : { ...payload, user_id: req.user.id };
+    if (!isSystemAdmin(req.user)) {
+      await requireEnrollmentForCourse(effective.user_id, assignmentQuestion.Assignment?.course_id);
     }
-
-    return isSystemAdmin(req.user) ? payload : { ...payload, user_id: req.user.id };
+    return effective;
   },
-  beforeUpdate: (req, payload, record) => (
-    isSystemAdmin(req.user) ? payload : { ...payload, user_id: record.user_id }
-  ),
+  beforeUpdate: async (req, payload, record) => {
+    const effective = isSystemAdmin(req.user) ? payload : { ...payload, user_id: record.user_id };
+    if (!isSystemAdmin(req.user)) {
+      const assignmentQuestionId = effective.assignment_question_id ?? record.assignment_question_id;
+      const assignmentQuestion = await loadQuestionOrThrow(assignmentQuestionId);
+      await requireEnrollmentForCourse(effective.user_id, assignmentQuestion.Assignment?.course_id);
+    }
+    return effective;
+  },
 });
 
 export default router;

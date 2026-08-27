@@ -14,6 +14,7 @@ import {
 } from '../models/index.js';
 import { addDays, computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { recomputeAssignmentGrade } from '../utils/grades.js';
+import { requireEnrollmentForCourse } from '../utils/enrollment.js';
 import { formatDueDateEastern } from '../utils/easternDate.js';
 import {
   hashPassword,
@@ -318,6 +319,7 @@ router.post('/courses/:id/accommodations', courseAccessValidators, async (req, r
     if (!targetUserId) {
       return res.status(400).json({ message: 'target user_id is required' });
     }
+    await requireEnrollmentForCourse(targetUserId, courseId, 'target user not enrolled in this course');
 
     const payload = {
       user_id: targetUserId,
@@ -391,6 +393,11 @@ router.post('/assignments/:id/extensions', assignmentAccessValidators, async (re
     if (!targetUserId || !extendedDueDate) {
       return res.status(400).json({ message: 'user_id and extended_due_date are required' });
     }
+    await requireEnrollmentForCourse(
+      targetUserId,
+      assignment.course_id,
+      'target user not enrolled in this course'
+    );
 
     const payload = {
       assignment_id: assignmentId,
@@ -435,6 +442,11 @@ router.post('/assignment-questions/:id/overrides', [
 
     const targetUserId = Number(req.body.user_id);
     const extraAttempts = Number(req.body.extra_attempts);
+    await requireEnrollmentForCourse(
+      targetUserId,
+      question.Assignment?.course_id,
+      'target user not enrolled in this course'
+    );
 
     const payload = {
       assignment_question_id: assignmentQuestionId,

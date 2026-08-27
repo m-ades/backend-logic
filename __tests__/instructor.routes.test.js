@@ -8,14 +8,24 @@ const findByPk = jest.fn();
 const userFindOne = jest.fn();
 const userCreate = jest.fn();
 const hashPassword = jest.fn();
+const assignmentFindByPk = jest.fn();
+const assignmentFindAll = jest.fn();
+const accommodationFindOne = jest.fn();
+const accommodationCreate = jest.fn();
+const extensionFindOne = jest.fn();
+const extensionCreate = jest.fn();
+const assignmentQuestionFindByPk = jest.fn();
+const overrideFindOne = jest.fn();
+const overrideCreate = jest.fn();
+const recomputeAssignmentGrade = jest.fn();
 
 jest.unstable_mockModule('../models/index.js', () => ({
-  Assignment: {},
-  AssignmentExtension: {},
-  Accommodation: {},
+  Assignment: { findByPk: assignmentFindByPk, findAll: assignmentFindAll },
+  AssignmentExtension: { findOne: extensionFindOne, create: extensionCreate },
+  Accommodation: { findOne: accommodationFindOne, create: accommodationCreate },
   AssignmentGrade: {},
-  AssignmentQuestion: {},
-  AssignmentQuestionOverride: {},
+  AssignmentQuestion: { findByPk: assignmentQuestionFindByPk },
+  AssignmentQuestionOverride: { findOne: overrideFindOne, create: overrideCreate },
   Submission: {},
   CourseEnrollment: { findOne, findAll, create: createEnrollment },
   User: { findByPk, findOne: userFindOne, create: userCreate },
@@ -26,6 +36,10 @@ jest.unstable_mockModule('../utils/passwords.js', () => ({
   isStrongPassword: () => true,
   PASSWORD_POLICY_MESSAGE: 'password policy',
   verifyPassword: jest.fn(),
+}));
+
+jest.unstable_mockModule('../utils/grades.js', () => ({
+  recomputeAssignmentGrade,
 }));
 
 const instructorRouter = (await import('../routes/instructor.js')).default;
@@ -96,6 +110,16 @@ describe('instructor routes', () => {
     userFindOne.mockReset();
     userCreate.mockReset();
     hashPassword.mockReset();
+    assignmentFindByPk.mockReset();
+    assignmentFindAll.mockReset();
+    accommodationFindOne.mockReset();
+    accommodationCreate.mockReset();
+    extensionFindOne.mockReset();
+    extensionCreate.mockReset();
+    assignmentQuestionFindByPk.mockReset();
+    overrideFindOne.mockReset();
+    overrideCreate.mockReset();
+    recomputeAssignmentGrade.mockReset().mockResolvedValue(undefined);
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -182,6 +206,125 @@ describe('instructor routes', () => {
       expect(res.statusCode).toBe(200);
       expect(res.body).toEqual({ deleted: true, course_id: 1, user_id: 5 });
       expect(destroy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('POST /courses/:id/accommodations', () => {
+    it('rejects granting an accommodation to a user not enrolled in the course', async () => {
+      findOne
+        .mockResolvedValueOnce({ role: 'instructor' }) // requireInstructor
+        .mockResolvedValueOnce(null); // target enrollment check
+
+      const handlers = getRouteHandlers('/courses/:id/accommodations', 'post');
+      const req = {
+        params: { id: '3' },
+        body: { user_id: 55, late_penalty_waived: true },
+        user: { id: 2 },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(403);
+      expect(accommodationCreate).not.toHaveBeenCalled();
+    });
+
+    it('grants an accommodation to an enrolled user', async () => {
+      findOne
+        .mockResolvedValueOnce({ role: 'instructor' })
+        .mockResolvedValueOnce({ id: 1 });
+      accommodationFindOne.mockResolvedValueOnce(null);
+      accommodationCreate.mockResolvedValueOnce({ id: 10, user_id: 55, course_id: 3 });
+      assignmentFindAll.mockResolvedValueOnce([]);
+
+      const handlers = getRouteHandlers('/courses/:id/accommodations', 'post');
+      const req = {
+        params: { id: '3' },
+        body: { user_id: 55, late_penalty_waived: true },
+        user: { id: 2 },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(201);
+      expect(accommodationCreate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('POST /assignments/:id/extensions', () => {
+    it('rejects granting an extension to a user not enrolled in the course', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3 });
+      findOne
+        .mockResolvedValueOnce({ role: 'instructor' })
+        .mockResolvedValueOnce(null);
+
+      const handlers = getRouteHandlers('/assignments/:id/extensions', 'post');
+      const req = {
+        params: { id: '9' },
+        body: { user_id: 55, extended_due_date: '2026-05-01T00:00:00Z' },
+        user: { id: 2 },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(403);
+      expect(extensionCreate).not.toHaveBeenCalled();
+    });
+
+    it('grants an extension to an enrolled user', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3 });
+      findOne
+        .mockResolvedValueOnce({ role: 'instructor' })
+        .mockResolvedValueOnce({ id: 1 });
+      extensionFindOne.mockResolvedValueOnce(null);
+      extensionCreate.mockResolvedValueOnce({ id: 11, assignment_id: 9, user_id: 55 });
+
+      const handlers = getRouteHandlers('/assignments/:id/extensions', 'post');
+      const req = {
+        params: { id: '9' },
+        body: { user_id: 55, extended_due_date: '2026-05-01T00:00:00Z' },
+        user: { id: 2 },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(201);
+      expect(extensionCreate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('POST /assignment-questions/:id/overrides', () => {
+    it('rejects granting an attempt override to a user not enrolled in the course', async () => {
+      assignmentQuestionFindByPk.mockResolvedValueOnce({ id: 20, Assignment: { course_id: 3 } });
+      findOne
+        .mockResolvedValueOnce({ role: 'instructor' })
+        .mockResolvedValueOnce(null);
+
+      const handlers = getRouteHandlers('/assignment-questions/:id/overrides', 'post');
+      const req = {
+        params: { id: '20' },
+        body: { user_id: 55, extra_attempts: 2 },
+        user: { id: 2 },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(403);
+      expect(overrideCreate).not.toHaveBeenCalled();
+    });
+
+    it('grants an attempt override to an enrolled user', async () => {
+      assignmentQuestionFindByPk.mockResolvedValueOnce({ id: 20, Assignment: { course_id: 3 } });
+      findOne
+        .mockResolvedValueOnce({ role: 'instructor' })
+        .mockResolvedValueOnce({ id: 1 });
+      overrideFindOne.mockResolvedValueOnce(null);
+      overrideCreate.mockResolvedValueOnce({ id: 12, assignment_question_id: 20, user_id: 55 });
+
+      const handlers = getRouteHandlers('/assignment-questions/:id/overrides', 'post');
+      const req = {
+        params: { id: '20' },
+        body: { user_id: 55, extra_attempts: 2 },
+        user: { id: 2 },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(201);
+      expect(overrideCreate).toHaveBeenCalledTimes(1);
     });
   });
 });

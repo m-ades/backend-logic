@@ -25,6 +25,8 @@ import errorHandler from './middleware/error-handler.js';
 dotenv.config();
 
 const app = express();
+// trust the first proxy hop so req.ip reflects the real client address
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 const defaultAllowedOrigins = [
   'https://hunterlogic.org',
