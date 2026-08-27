@@ -58,7 +58,11 @@ const assertCurrentPasswordValid = async ({ req, record }) => {
   }
 };
 
-const router = createCrudRouter(User, {
+// unscoped: password_hash is excluded from User's default scope, but the
+// self-service password change flow below needs it (assertCurrentPasswordValid)
+// on the record crud.js fetches internally. sanitizeUser still strips it from
+// every response.
+const router = createCrudRouter(User.unscoped(), {
   sanitize: sanitizeUser,
   allowCreate: false,
   authorizeList: (req) => isSystemAdmin(req.user),

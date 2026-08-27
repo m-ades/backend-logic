@@ -4,6 +4,7 @@ import { User } from '../models/index.js';
 import { verifyPassword } from '../utils/passwords.js';
 import { signUserToken } from '../utils/jwt.js';
 import { handleValidationResult } from '../middleware/validation.js';
+import requireAuth from '../middleware/auth.js';
 
 const router = express.Router();
 const COOKIE_NAME = 'auth_token';
@@ -63,7 +64,9 @@ router.post(
   try {
     const { username, password } = req.body;
 
-    const user = await User.findOne({
+    // unscoped: password_hash is excluded from User's default scope, but
+    // login needs it to verify the submitted password.
+    const user = await User.unscoped().findOne({
       where: {
         username,
       },
@@ -94,13 +97,12 @@ router.post('/logout', (_req, res) => {
   res.json({ ok: true });
 });
 
-router.post('/logout-all', async (req, res, next) => {
+router.post('/logout-all', requireAuth, async (req, res, next) => {
   try {
     // bump token_version so all existing tokens become invalid
-    const userId = req.user?.id;
-    if (!userId) {
-      return res.status(401).json({ message: 'unauthorized' });
-    }
+    // requireAuth runs first, so req.user.id is always set here regardless of
+    // router mount order (the /api/auth router itself sits ahead of the global gate).
+    const userId = req.user.id;
 
     const user = await User.findByPk(userId);
     if (!user) {

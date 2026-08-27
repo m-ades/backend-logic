@@ -252,7 +252,7 @@ router.get('/:id/grades', [assignmentIdParam, handleValidationResult], async (re
     }
     const grades = await AssignmentGrade.findAll({
       where: { assignment_id: req.params.id },
-      include: [{ model: User }],
+      include: [{ model: User, attributes: ['id', 'username'] }],
       order: [['graded_at', 'DESC']],
     });
     res.json(grades);

@@ -182,7 +182,7 @@ router.get('/:id/enrollments', [courseIdParam, handleValidationResult], async (r
     }
     const enrollments = await CourseEnrollment.findAll({
       where: { course_id: req.params.id },
-      include: [{ model: User }],
+      include: [{ model: User, attributes: ['id', 'username'] }],
     });
     res.json(enrollments);
   } catch (error) {

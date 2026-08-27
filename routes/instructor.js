@@ -238,7 +238,7 @@ router.get('/courses/:id/roster', courseAccessValidators, async (req, res, next)
 
     const roster = await CourseEnrollment.findAll({
       where: { course_id: courseId },
-      include: [{ model: User }],
+      include: [{ model: User, attributes: ['id', 'username'] }],
       order: [['role', 'ASC']],
     });
 
@@ -295,7 +295,7 @@ router.get('/courses/:id/accommodations', courseAccessValidators, async (req, re
 
     const accommodations = await Accommodation.findAll({
       where: { course_id: courseId },
-      include: [{ model: User }],
+      include: [{ model: User, attributes: ['id', 'username'] }],
       order: [['id', 'ASC']],
     });
 
@@ -362,7 +362,7 @@ router.get('/assignments/:id/extensions', assignmentAccessValidators, async (req
 
     const extensions = await AssignmentExtension.findAll({
       where: { assignment_id: assignmentId },
-      include: [{ model: User }],
+      include: [{ model: User, attributes: ['id', 'username'] }],
       order: [['id', 'ASC']],
     });
 
@@ -521,7 +521,7 @@ router.get('/assignments/:id/submissions', assignmentAccessValidators, async (re
           model: AssignmentQuestion,
           where: { assignment_id: assignmentId },
         },
-        { model: User },
+        { model: User, attributes: ['id', 'username'] },
       ],
       order: [['submitted_at', 'DESC']],
     });
@@ -549,11 +549,11 @@ router.get('/assignments/:id/grades', assignmentAccessValidators, async (req, re
     const [gradesFromDb, enrollments] = await Promise.all([
       AssignmentGrade.findAll({
         where: { assignment_id: assignmentId },
-        include: [{ model: User }],
+        include: [{ model: User, attributes: ['id', 'username'] }],
       }),
       CourseEnrollment.findAll({
         where: { course_id: assignment.course_id, role: { [Op.in]: ['student', 'ta'] } },
-        include: [{ model: User }],
+        include: [{ model: User, attributes: ['id', 'username'] }],
         attributes: ['user_id'],
       }),
     ]);
