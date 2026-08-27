@@ -1,9 +1,10 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { createCrudRouter } from './crud.js';
-import { Assignment, AssignmentQuestion, Course, CourseEnrollment, sequelize } from '../models/index.js';
+import { Assignment, AssignmentQuestion, Course, sequelize } from '../models/index.js';
 import { handleValidationResult } from '../middleware/validation.js';
 import { requireUser } from '../middleware/auth.js';
+import { isSystemAdmin } from '../utils/authorization.js';
 import {
   assignmentIdBody,
 } from '../validators/common.js';
@@ -20,18 +21,6 @@ async function ensureInstructorForAssignment(assignmentId, userId) {
   if (!assignmentId || !userId) return false;
   const assignment = await Assignment.findByPk(assignmentId, { attributes: ['course_id'] });
   return assignment ? requireInstructorOrAdmin(assignment.course_id, userId) : false;
-}
-
-// read: instructor/admin or enrolled in course. write: instructor only.
-async function canAccessAssignment(assignmentId, userId) {
-  if (!assignmentId || !userId) return false;
-  const assignment = await Assignment.findByPk(assignmentId, { attributes: ['course_id'] });
-  if (!assignment) return false;
-  if (await requireInstructorOrAdmin(assignment.course_id, userId)) return true;
-  const enrollment = await CourseEnrollment.findOne({
-    where: { course_id: assignment.course_id, user_id: userId },
-  });
-  return Boolean(enrollment);
 }
 
 // assignment must exist. 404 if not. run before auth.
@@ -255,10 +244,14 @@ router.use(
       }
       return ensureInstructorForAssignment(Number(assignmentId), req.user.id)
     },
-    authorizeRecord: async (req, record, action) => {
-      if (action === 'read') return canAccessAssignment(record.assignment_id, req.user.id)
-      return ensureInstructorForAssignment(record.assignment_id, req.user.id)
-    },
+    // No product flow reads raw question_snapshot (with answer keys) through this
+    // generic endpoint for students; restrict all record access to the assignment's
+    // instructor/admin so answer keys can't be pulled directly by id.
+    authorizeRecord: async (req, record) => ensureInstructorForAssignment(record.assignment_id, req.user.id),
+    // The unfiltered collection route has no course scoping, so it's restricted to
+    // system administrators. Instructors already load a course's questions through
+    // /api/assignments/:id/questions and /bulk create above.
+    authorizeList: async (req) => isSystemAdmin(req.user),
   })
 );
 

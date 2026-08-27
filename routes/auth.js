@@ -4,10 +4,39 @@ import { User } from '../models/index.js';
 import { verifyPassword } from '../utils/passwords.js';
 import { signUserToken } from '../utils/jwt.js';
 import { handleValidationResult } from '../middleware/validation.js';
+import requireAuth from '../middleware/auth.js';
 
 const router = express.Router();
 const COOKIE_NAME = 'auth_token';
 const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const MAX_FAILURES_PER_ACCOUNT = 10;
+const MAX_FAILURES_PER_USERNAME = 10;
+const MAX_FAILURES_PER_IP = 30; 
+const accountFailureTracker = new Map();
+const usernameFailureTracker = new Map();
+const ipFailureTracker = new Map();
+
+function isLockedOut(tracker, key, limit) {
+  const entry = tracker.get(key);
+  if (!entry) return false;
+  if (Date.now() - entry.windowStart >= LOGIN_WINDOW_MS) {
+    tracker.delete(key);
+    return false;
+  }
+  return entry.count >= limit;
+}
+
+function recordLoginFailure(tracker, key) {
+  const entry = tracker.get(key);
+  if (!entry || Date.now() - entry.windowStart >= LOGIN_WINDOW_MS) {
+    tracker.set(key, { count: 1, windowStart: Date.now() });
+    return;
+  }
+  entry.count += 1;
+}
 
 const getCookieOptions = () => {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -62,21 +91,40 @@ router.post(
   async (req, res, next) => {
   try {
     const { username, password } = req.body;
+    const ip = req.ip;
+    const accountKey = `${ip}:${username}`;
 
-    const user = await User.findOne({
+    if (
+      isLockedOut(accountFailureTracker, accountKey, MAX_FAILURES_PER_ACCOUNT)
+      || isLockedOut(usernameFailureTracker, username, MAX_FAILURES_PER_USERNAME)
+      || isLockedOut(ipFailureTracker, ip, MAX_FAILURES_PER_IP)
+    ) {
+      return res.status(429).json({ message: 'Too many login attempts. Try again later.' });
+    }
+
+    const user = await User.unscoped().findOne({
       where: {
         username,
       },
     });
 
     if (!user) {
+      recordLoginFailure(accountFailureTracker, accountKey);
+      recordLoginFailure(usernameFailureTracker, username);
+      recordLoginFailure(ipFailureTracker, ip);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     const isValid = await verifyPassword(user.password_hash, password);
     if (!isValid) {
+      recordLoginFailure(accountFailureTracker, accountKey);
+      recordLoginFailure(usernameFailureTracker, username);
+      recordLoginFailure(ipFailureTracker, ip);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
+
+    accountFailureTracker.delete(accountKey);
+    usernameFailureTracker.delete(username);
 
     // issue jwt
     const token = signUserToken(user);
@@ -94,13 +142,10 @@ router.post('/logout', (_req, res) => {
   res.json({ ok: true });
 });
 
-router.post('/logout-all', async (req, res, next) => {
+router.post('/logout-all', requireAuth, async (req, res, next) => {
   try {
     // bump token_version so all existing tokens become invalid
-    const userId = req.user?.id;
-    if (!userId) {
-      return res.status(401).json({ message: 'unauthorized' });
-    }
+    const userId = req.user.id;
 
     const user = await User.findByPk(userId);
     if (!user) {

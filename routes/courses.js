@@ -37,11 +37,17 @@ async function requireInstructorInAnyCourseOrAdmin(user) {
   return Boolean(enrollment);
 }
 
+// course mutation contract
+// instructors may update courses they control
+// only system administrators may permanently delete courses
 const router = createCrudRouter(Course, {
   authorizeCreate: (req) => requireInstructorInAnyCourseOrAdmin(req.user),
   authorizeRecord: (req, record, action) => {
     if (action === 'read') {
       return true;
+    }
+    if (action === 'delete') {
+      return isSystemAdmin(req.user);
     }
     return requireInstructorOrAdmin(record.id, req.user.id);
   },
@@ -182,7 +188,7 @@ router.get('/:id/enrollments', [courseIdParam, handleValidationResult], async (r
     }
     const enrollments = await CourseEnrollment.findAll({
       where: { course_id: req.params.id },
-      include: [{ model: User }],
+      include: [{ model: User, attributes: ['id', 'username'] }],
     });
     res.json(enrollments);
   } catch (error) {

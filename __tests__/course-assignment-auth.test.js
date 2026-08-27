@@ -10,6 +10,7 @@ const assignmentQuestionFindAll = jest.fn();
 const assignmentDraftFindOne = jest.fn();
 const submissionFindAll = jest.fn();
 const requireInstructorOrAdmin = jest.fn();
+const autoSubmitIfPastDeadline = jest.fn();
 const sequelizeFn = jest.fn((name, value) => ({ name, value }));
 const sequelizeCol = jest.fn((value) => value);
 
@@ -32,6 +33,10 @@ jest.unstable_mockModule('../routes/instructor.js', () => ({
   requireInstructorOrAdmin,
 }));
 
+jest.unstable_mockModule('../utils/autoSubmit.js', () => ({
+  autoSubmitIfPastDeadline,
+}));
+
 const coursesRouter = (await import('../routes/courses.js')).default;
 const assignmentsRouter = (await import('../routes/assignments.js')).default;
 
@@ -48,12 +53,17 @@ const getRouteHandlers = (router, path, method) => {
 const createRes = () => ({
   statusCode: 200,
   body: null,
+  ended: false,
   status(code) {
     this.statusCode = code;
     return this;
   },
   json(payload) {
     this.body = payload;
+    return this;
+  },
+  end() {
+    this.ended = true;
     return this;
   },
 });
@@ -100,6 +110,7 @@ describe('course and assignment auth', () => {
     assignmentDraftFindOne.mockReset();
     submissionFindAll.mockReset();
     requireInstructorOrAdmin.mockReset();
+    autoSubmitIfPastDeadline.mockReset();
     sequelizeFn.mockClear();
     sequelizeCol.mockClear();
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -145,6 +156,38 @@ describe('course and assignment auth', () => {
       expect(res.statusCode).toBe(403);
       expect(update).not.toHaveBeenCalled();
     });
+
+    it('rejects permanent course deletion for instructors', async () => {
+      const destroy = jest.fn();
+      courseFindByPk.mockResolvedValueOnce({ id: 5, destroy });
+
+      const handlers = getRouteHandlers(coursesRouter, '/:id', 'delete');
+      const req = {
+        params: { id: '5' },
+        user: { id: 7, is_system_admin: false },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(403);
+      expect(destroy).not.toHaveBeenCalled();
+      expect(requireInstructorOrAdmin).not.toHaveBeenCalled();
+    });
+
+    it('allows system administrators to permanently delete courses', async () => {
+      const destroy = jest.fn().mockResolvedValueOnce();
+      courseFindByPk.mockResolvedValueOnce({ id: 5, destroy });
+
+      const handlers = getRouteHandlers(coursesRouter, '/:id', 'delete');
+      const req = {
+        params: { id: '5' },
+        user: { id: 1, is_system_admin: true },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(204);
+      expect(destroy).toHaveBeenCalledTimes(1);
+      expect(res.ended).toBe(true);
+    });
   });
 
   describe('assignments', () => {
@@ -184,6 +227,24 @@ describe('course and assignment auth', () => {
       expect(update).not.toHaveBeenCalled();
     });
 
+    it('keeps course ownership unchanged during instructor updates', async () => {
+      const update = jest.fn().mockResolvedValueOnce();
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3, update });
+      requireInstructorOrAdmin.mockResolvedValueOnce(true);
+
+      const handlers = getRouteHandlers(assignmentsRouter, '/:id', 'put');
+      const req = {
+        params: { id: '9' },
+        body: { course_id: 99, title: 'New title' },
+        user: { id: 7, is_system_admin: false },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(requireInstructorOrAdmin).toHaveBeenCalledWith(3, 7);
+      expect(update).toHaveBeenCalledWith({ title: 'New title' });
+    });
+
     it('rejects assignment list reads for non-admins', async () => {
       const handlers = getRouteHandlers(assignmentsRouter, '/', 'get');
       const req = { user: { id: 7, is_system_admin: false } };
@@ -203,6 +264,31 @@ describe('course and assignment auth', () => {
 
       expect(res.statusCode).toBe(403);
       expect(res.body).toEqual({ message: 'Enrollment required' });
+    });
+
+    it('keeps assignment reads side effect free after the due date', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({
+        id: 9,
+        course_id: 3,
+        kind: 'assignment',
+        due_date: '2026-01-01T00:00:00.000Z',
+        late_window_days: 3,
+        late_penalty_percent: 20,
+      });
+      requireInstructorOrAdmin.mockResolvedValueOnce(false);
+      courseEnrollmentFindOne.mockResolvedValueOnce({ id: 14, role: 'student' });
+      assignmentQuestionFindAll.mockResolvedValueOnce([]);
+
+      const handlers = getRouteHandlers(assignmentsRouter, '/:id', 'get');
+      const req = {
+        params: { id: '9' },
+        query: { userId: '7' },
+        user: { id: 7, is_system_admin: false },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(autoSubmitIfPastDeadline).not.toHaveBeenCalled();
     });
 
     it('strips answers from question payloads for enrolled students', async () => {

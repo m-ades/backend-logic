@@ -6,9 +6,14 @@ const findByPk = jest.fn();
 const update = jest.fn();
 const create = jest.fn();
 const findOne = jest.fn();
+const assignmentQuestionFindByPk = jest.fn();
+const courseEnrollmentFindOne = jest.fn();
 
 jest.unstable_mockModule('../models/index.js', () => ({
   AssignmentDraft: { findAll, findByPk, update, create, findOne },
+  AssignmentQuestion: { findByPk: assignmentQuestionFindByPk },
+  Assignment: {},
+  CourseEnrollment: { findOne: courseEnrollmentFindOne },
 }));
 
 jest.unstable_mockModule('../utils/authorization.js', () => ({
@@ -77,6 +82,11 @@ describe('assignment draft routes', () => {
     update.mockReset();
     create.mockReset();
     findOne.mockReset();
+    assignmentQuestionFindByPk.mockReset().mockResolvedValue({
+      id: 237,
+      Assignment: { course_id: 3 },
+    });
+    courseEnrollmentFindOne.mockReset().mockResolvedValue({ id: 1 });
   });
 
   it('updates an existing draft without creating a duplicate row', async () => {
@@ -123,5 +133,68 @@ describe('assignment draft routes', () => {
     expect(res.statusCode).toBe(200);
     expect(saved.update).toHaveBeenCalledTimes(1);
     expect(res.body).toBe(saved);
+  });
+
+  it('rejects a draft upsert for a question in a course the caller is not enrolled in', async () => {
+    courseEnrollmentFindOne.mockResolvedValueOnce(null);
+
+    const handlers = getRouteHandlers('/', 'put');
+    const req = {
+      body: { assignment_question_id: 237, user_id: 48, draft_data: { ans: 'p' } },
+      user: { id: 48, is_system_admin: false },
+    };
+    const res = await runHandlers(handlers, req, createRes());
+
+    expect(res.statusCode).toBe(403);
+    expect(update).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a draft upsert for a nonexistent question', async () => {
+    assignmentQuestionFindByPk.mockResolvedValueOnce(null);
+
+    const handlers = getRouteHandlers('/', 'put');
+    const req = {
+      body: { assignment_question_id: 999, user_id: 48, draft_data: { ans: 'p' } },
+      user: { id: 48, is_system_admin: false },
+    };
+    const res = await runHandlers(handlers, req, createRes());
+
+    expect(res.statusCode).toBe(404);
+    expect(update).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a generic draft create for a course the caller is not enrolled in', async () => {
+    courseEnrollmentFindOne.mockResolvedValueOnce(null);
+
+    const handlers = getRouteHandlers('/', 'post');
+    const req = {
+      body: { assignment_question_id: 237, draft_data: { ans: 'p' } },
+      user: { id: 48, is_system_admin: false },
+    };
+    const res = await runHandlers(handlers, req, createRes());
+
+    expect(res.statusCode).toBe(403);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('allows a generic draft create for an enrolled caller', async () => {
+    const saved = { id: 12, assignment_question_id: 237, user_id: 48 };
+    create.mockResolvedValueOnce(saved);
+
+    const handlers = getRouteHandlers('/', 'post');
+    const req = {
+      body: { assignment_question_id: 237, draft_data: { ans: 'p' } },
+      user: { id: 48, is_system_admin: false },
+    };
+    const res = await runHandlers(handlers, req, createRes());
+
+    expect(res.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith({
+      assignment_question_id: 237,
+      draft_data: { ans: 'p' },
+      user_id: 48,
+    });
   });
 });

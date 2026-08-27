@@ -33,6 +33,12 @@ export default function initUser(sequelize) {
       sequelize,
       tableName: 'users',
       timestamps: false,
+      // password_hash must never be selected by default. the handful of call
+      // sites that legitimately need it (login, password verification) opt back
+      // in explicitly via User.unscoped().
+      defaultScope: {
+        attributes: { exclude: ['password_hash'] },
+      },
     }
   );
 

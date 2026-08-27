@@ -11,6 +11,9 @@ import { computeDeadlinePolicy } from './assignmentPolicy.js';
 
 const toNumber = (value) => (value === null || value === undefined ? 0 : Number(value));
 
+// assignment grade contract
+// each question contributes its highest score ever
+// the earliest submission attaining that score determines lateness
 export async function recomputeAssignmentGrade({ assignmentId, userId }) {
   const assignment = await Assignment.findByPk(assignmentId);
   if (!assignment) {
@@ -28,11 +31,14 @@ export async function recomputeAssignmentGrade({ assignmentId, userId }) {
   const questionIds = questions.map((question) => question.id);
   const submissionRows = await sequelize.query(
     `
-      SELECT assignment_question_id, MAX(score) AS max_score, MAX(submitted_at) AS latest_submitted_at
+      SELECT DISTINCT ON (assignment_question_id)
+        assignment_question_id,
+        score AS best_score,
+        submitted_at AS best_submitted_at
       FROM submissions
       WHERE user_id = :userId
         AND assignment_question_id IN (:questionIds)
-      GROUP BY assignment_question_id
+      ORDER BY assignment_question_id, score DESC, submitted_at ASC, id ASC
     `,
     {
       type: QueryTypes.SELECT,
@@ -45,13 +51,13 @@ export async function recomputeAssignmentGrade({ assignmentId, userId }) {
   }
 
   const scoreByQuestion = new Map();
-  let latestSubmissionAt = null;
+  let latestBestSubmissionAt = null;
   for (const row of submissionRows) {
-    scoreByQuestion.set(row.assignment_question_id, toNumber(row.max_score));
-    if (row.latest_submitted_at) {
-      const candidateDate = new Date(row.latest_submitted_at);
-      if (!latestSubmissionAt || candidateDate > latestSubmissionAt) {
-        latestSubmissionAt = candidateDate;
+    scoreByQuestion.set(row.assignment_question_id, toNumber(row.best_score));
+    if (row.best_submitted_at) {
+      const candidateDate = new Date(row.best_submitted_at);
+      if (!latestBestSubmissionAt || candidateDate > latestBestSubmissionAt) {
+        latestBestSubmissionAt = candidateDate;
       }
     }
   }
@@ -71,7 +77,7 @@ export async function recomputeAssignmentGrade({ assignmentId, userId }) {
   const policy = computeDeadlinePolicy({ assignment, extension, accommodation });
 
   let penaltyPercent = 0;
-  if (policy.due_at && latestSubmissionAt && latestSubmissionAt > policy.due_at) {
+  if (policy.due_at && latestBestSubmissionAt && latestBestSubmissionAt > policy.due_at) {
     penaltyPercent = policy.late_penalty_percent ?? 0;
   }
 

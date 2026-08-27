@@ -14,7 +14,6 @@ import {
   sequelize,
 } from '../models/index.js';
 import { addDays, computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
-import { autoSubmitIfPastDeadline } from '../utils/autoSubmit.js';
 import { ensureSelfOrAdmin, isSystemAdmin } from '../utils/authorization.js';
 import { requireInstructorOrAdmin } from './instructor.js';
 import { formatDueDateEastern, parseDueDateForStorage } from '../utils/easternDate.js';
@@ -29,6 +28,15 @@ function normalizeDueDate(body) {
   const b = { ...body };
   if (b.due_date != null) b.due_date = parseDueDateForStorage(b.due_date);
   return b;
+}
+
+// assignment update contract
+// course ownership is immutable after creation
+// editable fields retain existing date normalization
+function normalizeAssignmentUpdate(body) {
+  const payload = normalizeDueDate(body);
+  delete payload.course_id;
+  return payload;
 }
 
 function formatPolicyDates(policy) {
@@ -100,7 +108,7 @@ const router = createCrudRouter(Assignment, {
     }
     return payload;
   },
-  beforeUpdate: async (req, body) => normalizeDueDate(body),
+  beforeUpdate: async (req, body) => normalizeAssignmentUpdate(body),
   authorizeCreate: async (req) => {
     const courseId = Number(req.body?.course_id);
     if (!Number.isFinite(courseId)) {
@@ -161,7 +169,6 @@ router.get('/:id', [assignmentIdParam, userIdOptionalQuery, handleValidationResu
             ? formatDueDateEastern(accommodationDueAt)
             : null,
         };
-        await autoSubmitIfPastDeadline(assignment, requestedUserId);
       }
     }
 
@@ -252,7 +259,7 @@ router.get('/:id/grades', [assignmentIdParam, handleValidationResult], async (re
     }
     const grades = await AssignmentGrade.findAll({
       where: { assignment_id: req.params.id },
-      include: [{ model: User }],
+      include: [{ model: User, attributes: ['id', 'username'] }],
       order: [['graded_at', 'DESC']],
     });
     res.json(grades);
