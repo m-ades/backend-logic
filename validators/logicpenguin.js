@@ -1,4 +1,5 @@
 import derivationHurley from '../lib/logicpenguin/checkers/derivation-hurley.js';
+import derivationCalgary from '../lib/logicpenguin/checkers/derivation-calgary.js';
 import formulaTruthTable from '../lib/logicpenguin/checkers/formula-truth-table.js';
 import equivalenceTruthTable from '../lib/logicpenguin/checkers/equivalence-truth-table.js';
 import argumentTruthTable from '../lib/logicpenguin/checkers/argument-truth-table.js';
@@ -15,10 +16,12 @@ import partialTruthTable from '../lib/logicpenguin/checkers/partial-truth-table.
 import nonclassicalTruthTable from '../lib/logicpenguin/checkers/nonclassical-truth-table.js';
 import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
 import { formulaTable, equivTables, argumentTables, libtf } from '../lib/logicpenguin/symbolic/libsemantics.js';
+import { getDerivationProblemType, getLogicSystem } from '../lib/logicSystems.js';
 
 const CHECKERS = {
   derivation: derivationHurley,
   'derivation-hurley': derivationHurley,
+  'derivation-calgary': derivationCalgary,
   'formula-truth-table': formulaTruthTable,
   'equivalence-truth-table': equivalenceTruthTable,
   'argument-truth-table': argumentTruthTable,
@@ -280,7 +283,7 @@ function normalizeSubmissionByType({ checkerKey, submission, question }) {
   if (checkerKey === 'symbolic-translation') {
     return normalizeSymbolicSubmission(submission);
   }
-  if (checkerKey === 'derivation' || checkerKey === 'derivation-hurley') {
+  if (checkerKey === 'derivation' || checkerKey === 'derivation-hurley' || checkerKey === 'derivation-calgary') {
     return normalizeDerivationSubmission(submission);
   }
   if (checkerKey === 'true-false' || checkerKey === 'evaluate-truth') {
@@ -328,6 +331,16 @@ function normalizeType(question) {
   return question?.type || question?.problemType || question?.logic_problem_type || 'derivation';
 }
 
+function resolveCheckerKey(type, question, options) {
+  if (type === 'truth-table') {
+    return `${question.truthTable?.kind || 'formula'}-truth-table`;
+  }
+  if (options?.logicSystem && type === 'derivation') {
+    return getDerivationProblemType(options.logicSystem, 'hurley');
+  }
+  return type;
+}
+
 function buildDerivationFromLines(proof) {
   const parts = (proof?.lines || []).map((line) => {
     const refs = Array.isArray(line.refs) ? line.refs : [];
@@ -357,7 +370,7 @@ function computeTruthAnswer(question, options) {
   if (kind === 'equivalence') {
     const left = Formula.from(truthTable.left);
     const right = Formula.from(truthTable.right);
-    return equivTables(left, right);
+    return equivTables(left, right, notation);
   }
 
   if (kind === 'argument') {
@@ -375,7 +388,7 @@ function computeEvaluateTruthAnswer(question, options) {
   const statement = question.evaluateTruth || question.statement;
   const interpretation = question.interpretation || {};
   const f = Formula.from(statement);
-  const result = libtf.evaluate(f, interpretation);
+  const result = libtf.evaluate(f, interpretation, notation);
   return Boolean(result.tv);
 }
 
@@ -385,7 +398,7 @@ function computeSingleRowTruthTableAnswer(question, options) {
   const statement = question.statement || question.evaluateTruth;
   const interpretation = question.interpretation || {};
   const f = Formula.from(statement);
-  const result = libtf.evaluate(f, interpretation);
+  const result = libtf.evaluate(f, interpretation, notation);
   return {
     row: result.row,
     opspot: result.opspot,
@@ -467,19 +480,28 @@ export async function validateLogicPenguin({
   points,
   options = {},
 }) {
+  const type = normalizeType(question);
   const mergedOptions = {
     ...options,
     ...(question?.options || {}),
     ...(question?.truthTable?.options || {}),
     ...(question?.truth_table?.options || {}),
   };
+  if (options.logicSystem) {
+    mergedOptions.logicSystem = options.logicSystem;
+    if (type === 'derivation-hurley') {
+      mergedOptions.notation = 'hurley';
+    } else if (type === 'derivation-calgary') {
+      mergedOptions.notation = 'calgary';
+    } else {
+      mergedOptions.notation = getLogicSystem(options.logicSystem, 'hurley').derivationSystem;
+    }
+    delete mergedOptions.ruleset;
+  }
   const partialcredit = Boolean(
     mergedOptions.partialcredit ?? mergedOptions.partialCredit ?? mergedOptions.partial_credit
   );
-  const type = normalizeType(question);
-  const checkerKey = type === 'truth-table'
-    ? `${question.truthTable?.kind || 'formula'}-truth-table`
-    : type;
+  const checkerKey = resolveCheckerKey(type, question, mergedOptions);
   const checker = CHECKERS[checkerKey];
   const normalizedQuestion = {
     ...question,

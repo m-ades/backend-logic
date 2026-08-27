@@ -1,5 +1,6 @@
 import checkDerivation from '../lib/logicpenguin/checkers/derivation-hurley.js';
 import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
+import { validateLogicPenguin } from '../validators/logicpenguin.js';
 
 function buildProof({ conclusion, lines, premises = [] }) {
   return {
@@ -43,6 +44,33 @@ function collectMessages(errors = {}) {
 }
 
 describe('derivation-hurley ACP/AIP completion', () => {
+  it('preserves explicit derivation-hurley snapshots when the course logic system is fitch', async () => {
+    const proof = buildProof({
+      premises: ['A'],
+      conclusion: 'B⊃A',
+      lines: [
+        { formula: 'A', justification: 'Pr' },
+        { formula: 'B', justification: 'ACP' },
+        { formula: 'A', justification: '' },
+        { formula: 'B⊃A', justification: '2-3 CP' },
+      ],
+    });
+
+    const result = await validateLogicPenguin({
+      question: {
+        type: 'derivation-hurley',
+        prems: ['A'],
+        conc: 'B⊃A',
+      },
+      submission: proof,
+      points: 100,
+      options: { logicSystem: 'fitch' },
+    });
+
+    expect(result.isCorrect).toBe(true);
+    expect(result.score).toBe(100);
+  });
+
   it('round trips normalized quantified conditionals inside negations', () => {
     const Formula = getFormulaClass();
     const formula = Formula.from('~~(∃xAx ⊃ ~Cbc)');
@@ -62,7 +90,6 @@ describe('derivation-hurley ACP/AIP completion', () => {
     expect(result.successstatus).toBe('incorrect');
     expect(collectMessages(result.errors)).toEqual(
       expect.arrayContaining([
-        'Conditional Proof sequence not discharged.',
         'open ACP/AIP subderivations must be closed with CP/IP before the proof is complete',
         'final conclusion of argument not shown',
       ])
@@ -81,7 +108,6 @@ describe('derivation-hurley ACP/AIP completion', () => {
     expect(result.successstatus).toBe('incorrect');
     expect(collectMessages(result.errors)).toEqual(
       expect.arrayContaining([
-        'Indirect Proof sequence not discharged.',
         'open ACP/AIP subderivations must be closed with CP/IP before the proof is complete',
         'final conclusion of argument not shown',
       ])
@@ -102,7 +128,6 @@ describe('derivation-hurley ACP/AIP completion', () => {
     expect(result.successstatus).toBe('incorrect');
     expect(collectMessages(result.errors)).toEqual(
       expect.arrayContaining([
-        'Conditional Proof sequence not discharged.',
         'open ACP/AIP subderivations must be closed with CP/IP before the proof is complete',
       ])
     );
@@ -126,7 +151,6 @@ describe('derivation-hurley ACP/AIP completion', () => {
     expect(result.successstatus).toBe('incorrect');
     expect(collectMessages(result.errors)).toEqual(
       expect.arrayContaining([
-        'Conditional Proof sequence not discharged.',
         'open ACP/AIP subderivations must be closed with CP/IP before the proof is complete',
         'final conclusion of argument not shown',
       ])

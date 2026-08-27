@@ -6,10 +6,12 @@ import {
   AssignmentExtension,
   AssignmentQuestionOverride,
   Accommodation,
+  Course,
   CourseEnrollment,
   Submission,
 } from '../models/index.js';
 import { validateLogicPenguin } from '../validators/logicpenguin.js';
+import { LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '../lib/logicSystems.js';
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { recomputeAssignmentGrade, ensureZeroGradesForPastDue, ensureZeroGradesForUnlocked } from '../utils/grades.js';
 import { handleValidationResult } from '../middleware/validation.js';
@@ -33,8 +35,6 @@ router.post(
       attempt,
       user_id,
       submission_data,
-      notation,
-      ruleset,
       validation_version,
     } = req.body;
     if (!ensureSelfOrAdmin(req, res, user_id)) {
@@ -44,7 +44,7 @@ router.post(
     // require fields that are definitely needed to accept a submission
     // load the question and its assignment for policy checks
     const assignmentQuestion = await AssignmentQuestion.findByPk(assignment_question_id, {
-      include: [{ model: Assignment }],
+      include: [{ model: Assignment, include: [{ model: Course, attributes: ['id', 'logic_system'] }] }],
     });
 
     // 404
@@ -118,8 +118,12 @@ router.post(
       return res.status(400).json({ message: `Next attempt must be ${nextAttempt}` });
     }
 
-    // validator options from the question snapshot + request overrides
+    // validator options from the course and question snapshot
     const questionSnapshot = assignmentQuestion.question_snapshot || {};
+    const logicSystem = normalizeLogicSystem(
+      assignmentQuestion.Assignment?.Course?.logic_system,
+      LEGACY_LOGIC_SYSTEM
+    );
     const snapshotPartial =
       questionSnapshot.partialCredit ??
       questionSnapshot.partialcredit ??
@@ -135,8 +139,7 @@ router.post(
       questionSnapshot.truth_table?.options?.partial_credit ??
       false;
     const options = {
-      notation: notation || questionSnapshot.notation || 'hurley',
-      ruleset: ruleset || questionSnapshot.ruleset || 'hurley_default',
+      logicSystem,
       partialcredit: Boolean(snapshotPartial),
     };
 
