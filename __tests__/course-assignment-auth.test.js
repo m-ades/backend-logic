@@ -48,12 +48,17 @@ const getRouteHandlers = (router, path, method) => {
 const createRes = () => ({
   statusCode: 200,
   body: null,
+  ended: false,
   status(code) {
     this.statusCode = code;
     return this;
   },
   json(payload) {
     this.body = payload;
+    return this;
+  },
+  end() {
+    this.ended = true;
     return this;
   },
 });
@@ -145,6 +150,38 @@ describe('course and assignment auth', () => {
       expect(res.statusCode).toBe(403);
       expect(update).not.toHaveBeenCalled();
     });
+
+    it('rejects permanent course deletion for instructors', async () => {
+      const destroy = jest.fn();
+      courseFindByPk.mockResolvedValueOnce({ id: 5, destroy });
+
+      const handlers = getRouteHandlers(coursesRouter, '/:id', 'delete');
+      const req = {
+        params: { id: '5' },
+        user: { id: 7, is_system_admin: false },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(403);
+      expect(destroy).not.toHaveBeenCalled();
+      expect(requireInstructorOrAdmin).not.toHaveBeenCalled();
+    });
+
+    it('allows system administrators to permanently delete courses', async () => {
+      const destroy = jest.fn().mockResolvedValueOnce();
+      courseFindByPk.mockResolvedValueOnce({ id: 5, destroy });
+
+      const handlers = getRouteHandlers(coursesRouter, '/:id', 'delete');
+      const req = {
+        params: { id: '5' },
+        user: { id: 1, is_system_admin: true },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(204);
+      expect(destroy).toHaveBeenCalledTimes(1);
+      expect(res.ended).toBe(true);
+    });
   });
 
   describe('assignments', () => {
@@ -182,6 +219,24 @@ describe('course and assignment auth', () => {
 
       expect(res.statusCode).toBe(403);
       expect(update).not.toHaveBeenCalled();
+    });
+
+    it('keeps course ownership unchanged during instructor updates', async () => {
+      const update = jest.fn().mockResolvedValueOnce();
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3, update });
+      requireInstructorOrAdmin.mockResolvedValueOnce(true);
+
+      const handlers = getRouteHandlers(assignmentsRouter, '/:id', 'put');
+      const req = {
+        params: { id: '9' },
+        body: { course_id: 99, title: 'New title' },
+        user: { id: 7, is_system_admin: false },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(requireInstructorOrAdmin).toHaveBeenCalledWith(3, 7);
+      expect(update).toHaveBeenCalledWith({ title: 'New title' });
     });
 
     it('rejects assignment list reads for non-admins', async () => {

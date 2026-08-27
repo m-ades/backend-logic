@@ -31,6 +31,15 @@ function normalizeDueDate(body) {
   return b;
 }
 
+// assignment update contract
+// course ownership is immutable after creation
+// editable fields retain existing date normalization
+function normalizeAssignmentUpdate(body) {
+  const payload = normalizeDueDate(body);
+  delete payload.course_id;
+  return payload;
+}
+
 function formatPolicyDates(policy) {
   if (!policy) return null;
   return {
@@ -100,7 +109,7 @@ const router = createCrudRouter(Assignment, {
     }
     return payload;
   },
-  beforeUpdate: async (req, body) => normalizeDueDate(body),
+  beforeUpdate: async (req, body) => normalizeAssignmentUpdate(body),
   authorizeCreate: async (req) => {
     const courseId = Number(req.body?.course_id);
     if (!Number.isFinite(courseId)) {
