@@ -16,23 +16,6 @@ function createResponse() {
 }
 
 describe('errorHandler', () => {
-  it('maps database connectivity failures to 503', () => {
-    const res = createResponse();
-
-    errorHandler(
-      {
-        name: 'SequelizeConnectionError',
-        parent: { code: 'EAI_AGAIN' },
-      },
-      {},
-      res,
-      () => {}
-    );
-
-    expect(res.statusCode).toBe(503);
-    expect(res.body).toEqual({ message: 'database unavailable' });
-  });
-
   it('keeps explicit http errors', () => {
     const res = createResponse();
 

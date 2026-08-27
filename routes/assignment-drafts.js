@@ -5,22 +5,9 @@ import {
   assignmentQuestionIdBody,
   userIdBody,
 } from '../validators/common.js';
-import { AssignmentDraft, AssignmentQuestion, Assignment } from '../models/index.js';
+import { AssignmentDraft } from '../models/index.js';
 import { ensureSelfOrAdmin, isSystemAdmin } from '../utils/authorization.js';
-import { requireEnrollmentForCourse } from '../utils/enrollment.js';
-
-async function assertDraftEnrollment(req, userId, assignmentQuestionId) {
-  if (isSystemAdmin(req.user)) return;
-  const question = await AssignmentQuestion.findByPk(assignmentQuestionId, {
-    include: [{ model: Assignment }],
-  });
-  if (!question) {
-    const error = new Error('assignment_question_id not found');
-    error.status = 404;
-    throw error;
-  }
-  await requireEnrollmentForCourse(userId, question.Assignment?.course_id);
-}
+import { requireEnrollmentForAssignmentQuestion } from '../utils/enrollment.js';
 
 const router = createCrudRouter(AssignmentDraft, {
   listFilter: (req) => (isSystemAdmin(req.user) ? {} : { where: { user_id: req.user.id } }),
@@ -30,13 +17,13 @@ const router = createCrudRouter(AssignmentDraft, {
   authorizeCreate: (req) => Boolean(req.user),
   beforeCreate: async (req, payload) => {
     const effective = isSystemAdmin(req.user) ? payload : { ...payload, user_id: req.user.id };
-    await assertDraftEnrollment(req, effective.user_id, effective.assignment_question_id);
+    await requireEnrollmentForAssignmentQuestion(req.user, effective.assignment_question_id);
     return effective;
   },
   beforeUpdate: async (req, payload, record) => {
     const effective = isSystemAdmin(req.user) ? payload : { ...payload, user_id: record.user_id };
     const assignmentQuestionId = effective.assignment_question_id ?? record.assignment_question_id;
-    await assertDraftEnrollment(req, effective.user_id, assignmentQuestionId);
+    await requireEnrollmentForAssignmentQuestion(req.user, assignmentQuestionId);
     return effective;
   },
 });
@@ -56,7 +43,7 @@ router.put(
       return;
     }
     const effectiveUserId = isSystemAdmin(req.user) ? user_id : req.user.id;
-    await assertDraftEnrollment(req, effectiveUserId, assignment_question_id);
+    await requireEnrollmentForAssignmentQuestion(req.user, assignment_question_id);
     const updated_at = new Date();
     const where = { assignment_question_id, user_id: effectiveUserId };
 

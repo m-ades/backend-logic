@@ -12,10 +12,8 @@ const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
-const MAX_FAILURES_PER_ACCOUNT = 10;
 const MAX_FAILURES_PER_USERNAME = 10;
-const MAX_FAILURES_PER_IP = 30; 
-const accountFailureTracker = new Map();
+const MAX_FAILURES_PER_IP = 50;
 const usernameFailureTracker = new Map();
 const ipFailureTracker = new Map();
 
@@ -37,6 +35,23 @@ function recordLoginFailure(tracker, key) {
   }
   entry.count += 1;
 }
+
+// normalize case before using as a Map key
+const normalizeUsername = (username) => username.toLowerCase();
+
+function sweepExpiredEntries(tracker) {
+  const now = Date.now();
+  for (const [key, entry] of tracker) {
+    if (now - entry.windowStart >= LOGIN_WINDOW_MS) {
+      tracker.delete(key);
+    }
+  }
+}
+
+setInterval(() => {
+  sweepExpiredEntries(usernameFailureTracker);
+  sweepExpiredEntries(ipFailureTracker);
+}, LOGIN_WINDOW_MS).unref();
 
 const getCookieOptions = () => {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -92,11 +107,10 @@ router.post(
   try {
     const { username, password } = req.body;
     const ip = req.ip;
-    const accountKey = `${ip}:${username}`;
+    const usernameKey = normalizeUsername(username);
 
     if (
-      isLockedOut(accountFailureTracker, accountKey, MAX_FAILURES_PER_ACCOUNT)
-      || isLockedOut(usernameFailureTracker, username, MAX_FAILURES_PER_USERNAME)
+      isLockedOut(usernameFailureTracker, usernameKey, MAX_FAILURES_PER_USERNAME)
       || isLockedOut(ipFailureTracker, ip, MAX_FAILURES_PER_IP)
     ) {
       return res.status(429).json({ message: 'Too many login attempts. Try again later.' });
@@ -109,22 +123,19 @@ router.post(
     });
 
     if (!user) {
-      recordLoginFailure(accountFailureTracker, accountKey);
-      recordLoginFailure(usernameFailureTracker, username);
+      recordLoginFailure(usernameFailureTracker, usernameKey);
       recordLoginFailure(ipFailureTracker, ip);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     const isValid = await verifyPassword(user.password_hash, password);
     if (!isValid) {
-      recordLoginFailure(accountFailureTracker, accountKey);
-      recordLoginFailure(usernameFailureTracker, username);
+      recordLoginFailure(usernameFailureTracker, usernameKey);
       recordLoginFailure(ipFailureTracker, ip);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    accountFailureTracker.delete(accountKey);
-    usernameFailureTracker.delete(username);
+    usernameFailureTracker.delete(usernameKey);
 
     // issue jwt
     const token = signUserToken(user);

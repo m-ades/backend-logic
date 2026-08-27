@@ -172,6 +172,7 @@ router.get('/:id', [assignmentIdParam, userIdOptionalQuery, handleValidationResu
       }
     }
 
+    // drafts stay drafts until submitted
     const questions = await AssignmentQuestion.findAll({
       where: { assignment_id: assignment.id },
       order: [['order_index', 'ASC']],

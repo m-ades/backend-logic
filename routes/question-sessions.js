@@ -1,19 +1,7 @@
 import { createCrudRouter } from './crud.js';
-import { AssignmentQuestion, Assignment, QuestionSession } from '../models/index.js';
+import { QuestionSession } from '../models/index.js';
 import { isSystemAdmin } from '../utils/authorization.js';
-import { requireEnrollmentForCourse } from '../utils/enrollment.js';
-
-async function loadQuestionOrThrow(assignmentQuestionId) {
-  const assignmentQuestion = await AssignmentQuestion.findByPk(assignmentQuestionId, {
-    include: [{ model: Assignment }],
-  });
-  if (!assignmentQuestion) {
-    const error = new Error('assignment_question_id not found');
-    error.status = 404;
-    throw error;
-  }
-  return assignmentQuestion;
-}
+import { requireEnrollmentForAssignmentQuestion } from '../utils/enrollment.js';
 
 const router = createCrudRouter(QuestionSession, {
   listFilter: (req) => (isSystemAdmin(req.user) ? {} : { where: { user_id: req.user.id } }),
@@ -29,20 +17,13 @@ const router = createCrudRouter(QuestionSession, {
       throw error;
     }
 
-    const assignmentQuestion = await loadQuestionOrThrow(assignmentQuestionId);
-    const effective = isSystemAdmin(req.user) ? payload : { ...payload, user_id: req.user.id };
-    if (!isSystemAdmin(req.user)) {
-      await requireEnrollmentForCourse(effective.user_id, assignmentQuestion.Assignment?.course_id);
-    }
-    return effective;
+    await requireEnrollmentForAssignmentQuestion(req.user, assignmentQuestionId);
+    return isSystemAdmin(req.user) ? payload : { ...payload, user_id: req.user.id };
   },
   beforeUpdate: async (req, payload, record) => {
     const effective = isSystemAdmin(req.user) ? payload : { ...payload, user_id: record.user_id };
-    if (!isSystemAdmin(req.user)) {
-      const assignmentQuestionId = effective.assignment_question_id ?? record.assignment_question_id;
-      const assignmentQuestion = await loadQuestionOrThrow(assignmentQuestionId);
-      await requireEnrollmentForCourse(effective.user_id, assignmentQuestion.Assignment?.course_id);
-    }
+    const assignmentQuestionId = effective.assignment_question_id ?? record.assignment_question_id;
+    await requireEnrollmentForAssignmentQuestion(req.user, assignmentQuestionId);
     return effective;
   },
 });

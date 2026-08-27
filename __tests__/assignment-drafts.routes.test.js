@@ -197,4 +197,23 @@ describe('assignment draft routes', () => {
       user_id: 48,
     });
   });
+
+  it('allows a system administrator to create a draft for any question, skipping the enrollment check', async () => {
+    const saved = { id: 13, assignment_question_id: 237, user_id: 99 };
+    create.mockResolvedValueOnce(saved);
+
+    const handlers = getRouteHandlers('/', 'post');
+    const req = {
+      body: { assignment_question_id: 237, user_id: 99, draft_data: { ans: 'p' } },
+      user: { id: 1, is_system_admin: true },
+    };
+    const res = await runHandlers(handlers, req, createRes());
+
+    expect(res.statusCode).toBe(201);
+    /* the question must still exist (404 here), but
+    the enrollment check itself is skipped for admins
+    */
+    expect(assignmentQuestionFindByPk).toHaveBeenCalledTimes(1);
+    expect(courseEnrollmentFindOne).not.toHaveBeenCalled();
+  });
 });
