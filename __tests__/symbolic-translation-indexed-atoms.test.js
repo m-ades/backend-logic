@@ -84,3 +84,51 @@ describe('indexed propositional atoms', () => {
     });
   });
 });
+
+describe('multiple statement translation answers', () => {
+  const answer = 'L∨(T∧B), (L∨T)∧B';
+
+  it('accepts comma separated statements in any order', async () => {
+    await expect(check(answer, '(L ∨ T) ∧ B, L ∨ (T ∧ B)')).resolves.toMatchObject({
+      successstatus: 'correct',
+      points: 1,
+    });
+  });
+
+  it('requires every statement in the answer line', async () => {
+    await expect(check(answer, 'L ∨ (T ∧ B)')).resolves.toMatchObject({
+      successstatus: 'incorrect',
+      points: 0,
+    });
+    await expect(check(answer, 'L ∨ (T ∧ B), L ∨ T ∨ B')).resolves.toMatchObject({
+      successstatus: 'incorrect',
+      points: 0,
+    });
+  });
+
+  it('keeps the conclusion after the therefore sign', async () => {
+    const argument = 'P→Q, P ∴ Q';
+    await expect(check(argument, 'P, P→Q :. Q')).resolves.toMatchObject({
+      successstatus: 'correct',
+      points: 1,
+    });
+    await expect(check(argument, 'Q, P→Q ∴ P')).resolves.toMatchObject({
+      successstatus: 'incorrect',
+      points: 0,
+    });
+  });
+
+  it('does not split commas inside predicate argument lists', async () => {
+    const result = await checkTranslation(
+      {},
+      'R(a,b), S(a)',
+      'S(a), R(a,b)',
+      false,
+      1,
+      false,
+      { ...options, pred: true }
+    );
+
+    expect(result).toMatchObject({ successstatus: 'correct', points: 1 });
+  });
+});
