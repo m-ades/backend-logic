@@ -18,7 +18,7 @@ describe('proof argument extraction', () => {
     const result = await validateLogicPenguin({
       question,
       submission: {
-        argumentLine: 'P ∧ S / S → R // R ∨ E',
+        argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
         justifications: correctJustifications,
       },
       points: 100,
@@ -29,11 +29,26 @@ describe('proof argument extraction', () => {
     expect(result.score).toBe(100);
   });
 
+  it('rejects slash separators in the extracted argument', async () => {
+    const result = await validateLogicPenguin({
+      question,
+      submission: {
+        argumentLine: 'P ∧ S / S → R // R ∨ E',
+        justifications: correctJustifications,
+      },
+      points: 100,
+      options: { logicSystem: 'fitch' },
+    });
+
+    expect(result.isCorrect).toBe(false);
+    expect(result.score).toBe(0);
+  });
+
   it('rejects a correct proof paired with the wrong argument', async () => {
     const result = await validateLogicPenguin({
       question,
       submission: {
-        argumentLine: 'S → R / P ∧ S // R ∨ E',
+        argumentLine: 'S → R, P ∧ S ∴ R ∨ E',
         justifications: correctJustifications,
       },
       points: 100,
@@ -48,7 +63,7 @@ describe('proof argument extraction', () => {
     const result = await validateLogicPenguin({
       question,
       submission: {
-        argumentLine: 'P ∧ S / S → R // R ∨ E',
+        argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
         justifications: ['∧E 2', '∧E 1', '→E 2,4', '∨I 5'],
       },
       points: 100,
@@ -66,7 +81,7 @@ describe('proof argument extraction', () => {
         justifications: ['∧E 1', '', '', '∨I 5'],
       },
       submission: {
-        argumentLine: 'P ∧ S / S → R // R ∨ E',
+        argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
         justifications: ['∧E 2', '∧E 1', '→E 2,4', '∨I 2'],
       },
       points: 100,
@@ -84,7 +99,7 @@ describe('proof argument extraction', () => {
         justifications: correctJustifications,
       },
       submission: {
-        argumentLine: 'P ∧ S / S → R // R ∨ E',
+        argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
       },
       points: 100,
       options: { logicSystem: 'fitch' },
@@ -103,7 +118,7 @@ describe('proof argument extraction', () => {
         assumptionScopes: [{ start: 1, end: 3 }],
       },
       submission: {
-        argumentLine: 'J → ¬J // ¬J',
+        argumentLine: 'J → ¬J ∴ ¬J',
         justifications: ['R 1', 'AS', '→E 1,3', '¬E 3,4', '¬I 3-5'],
       },
       points: 100,
@@ -123,7 +138,7 @@ describe('proof argument extraction', () => {
         assumptionScopes: [{ start: 0, end: 0 }],
       },
       submission: {
-        argumentLine: 'P ∧ D // P',
+        argumentLine: 'P ∧ D ∴ P',
         justifications: ['∧E 1', '∧E 1'],
       },
       points: 100,
@@ -144,7 +159,7 @@ describe('proof argument extraction', () => {
         assumptionScopes: [{ start: 0, end: 0 }],
       },
       submission: {
-        argumentLine: 'P ∧ D // P',
+        argumentLine: 'P ∧ D ∴ P',
         justifications: ['AS'],
       },
       points: 100,
@@ -168,7 +183,7 @@ describe('proof argument extraction', () => {
         ],
       },
       submission: {
-        argumentLine: 'R // P → (Q → P)',
+        argumentLine: 'R ∴ P → (Q → P)',
         justifications: ['AS', 'AS', 'R 2', '→I 3-4', '→I 2-5'],
       },
       points: 100,
@@ -190,7 +205,7 @@ describe('proof argument extraction', () => {
         ],
       },
       submission: {
-        argumentLine: 'P ∧ S / S → R // R ∨ E',
+        argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
         justifications: correctJustifications,
       },
       points: 100,
@@ -206,7 +221,7 @@ describe('proof argument extraction', () => {
     const result = await validateLogicPenguin({
       question,
       submission: {
-        argumentLine: 'P ∧ S / S → R // R ∨ E',
+        argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
         proof: {
           parts: [{
             parts: ['Pr', 'Pr', ...correctJustifications].map((justification, index) => ({
@@ -232,7 +247,7 @@ describe('proof argument extraction', () => {
         lines: ['P', 'R', 'R ∨ E'],
       },
       submission: {
-        argumentLine: 'P • S / P ⊃ R // R ∨ E',
+        argumentLine: 'P • S, P ⊃ R ∴ R ∨ E',
         justifications: ['1 Simp', '2,3 MP', '4 Add'],
       },
       points: 100,
@@ -252,7 +267,7 @@ describe('proof argument extraction', () => {
         assumptionScopes: [{ start: 0, end: 1 }],
       },
       submission: {
-        argumentLine: 'A • C // B ⊃ A',
+        argumentLine: 'A • C ∴ B ⊃ A',
         justifications: ['ACP', '1 Simp', '2-3 CP'],
       },
       points: 100,
@@ -271,7 +286,7 @@ describe('proof argument extraction', () => {
         assumptionScopes: [{ start: 0, end: 3 }],
       },
       submission: {
-        argumentLine: 'A • ~A // ~B',
+        argumentLine: 'A • ~A ∴ ~B',
         justifications: ['AIP', '1 Com', '1 Simp', '3 Simp', '2-5 IP'],
       },
       points: 100,
@@ -291,7 +306,7 @@ describe('proof argument extraction', () => {
         assumptionScopes: [{ start: 0, end: 0 }],
       },
       submission: {
-        argumentLine: 'A • C // B ⊃ A',
+        argumentLine: 'A • C ∴ B ⊃ A',
         justifications: ['ACP', '1 Simp', '2-3 CP'],
       },
       points: 100,
@@ -315,7 +330,7 @@ describe('proof argument extraction', () => {
         assumptionScopes,
       },
       submission: {
-        argumentLine: 'A // A',
+        argumentLine: 'A ∴ A',
         justifications: [],
       },
       points: 100,
@@ -334,7 +349,7 @@ describe('proof argument extraction', () => {
         justifications: ['∧E 2', '', '', '∨I 5'],
       },
       submission: {
-        argumentLine: 'P ∧ S / S → R // R ∨ E',
+        argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
         justifications: correctJustifications,
       },
       points: 100,
