@@ -187,7 +187,7 @@ describe('proof argument extraction question boundaries', () => {
         assignment_question_id: 21,
         user_id: 7,
         submission_data: {
-          argumentLine: 'P ∧ Q // P',
+          argumentLine: 'P ∧ Q ∴ P',
           justifications: ['∧E 1'],
         },
       },

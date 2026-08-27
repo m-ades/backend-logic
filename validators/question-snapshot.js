@@ -126,7 +126,7 @@ export async function assertValidQuestionSnapshot(question, options = {}) {
     { ...question, justifications },
     null,
     {
-      argumentLine: `${premises.join(' / ')} // ${conclusion}`,
+      argumentLine: `${premises.join(', ')} ∴ ${conclusion}`,
       justifications: [],
     },
     false,
