@@ -10,6 +10,7 @@ const assignmentQuestionFindAll = jest.fn();
 const assignmentDraftFindOne = jest.fn();
 const submissionFindAll = jest.fn();
 const requireInstructorOrAdmin = jest.fn();
+const autoSubmitIfPastDeadline = jest.fn();
 const sequelizeFn = jest.fn((name, value) => ({ name, value }));
 const sequelizeCol = jest.fn((value) => value);
 
@@ -30,6 +31,10 @@ jest.unstable_mockModule('../models/index.js', () => ({
 
 jest.unstable_mockModule('../routes/instructor.js', () => ({
   requireInstructorOrAdmin,
+}));
+
+jest.unstable_mockModule('../utils/autoSubmit.js', () => ({
+  autoSubmitIfPastDeadline,
 }));
 
 const coursesRouter = (await import('../routes/courses.js')).default;
@@ -105,6 +110,7 @@ describe('course and assignment auth', () => {
     assignmentDraftFindOne.mockReset();
     submissionFindAll.mockReset();
     requireInstructorOrAdmin.mockReset();
+    autoSubmitIfPastDeadline.mockReset();
     sequelizeFn.mockClear();
     sequelizeCol.mockClear();
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -258,6 +264,31 @@ describe('course and assignment auth', () => {
 
       expect(res.statusCode).toBe(403);
       expect(res.body).toEqual({ message: 'Enrollment required' });
+    });
+
+    it('keeps assignment reads side effect free after the due date', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({
+        id: 9,
+        course_id: 3,
+        kind: 'assignment',
+        due_date: '2026-01-01T00:00:00.000Z',
+        late_window_days: 3,
+        late_penalty_percent: 20,
+      });
+      requireInstructorOrAdmin.mockResolvedValueOnce(false);
+      courseEnrollmentFindOne.mockResolvedValueOnce({ id: 14, role: 'student' });
+      assignmentQuestionFindAll.mockResolvedValueOnce([]);
+
+      const handlers = getRouteHandlers(assignmentsRouter, '/:id', 'get');
+      const req = {
+        params: { id: '9' },
+        query: { userId: '7' },
+        user: { id: 7, is_system_admin: false },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(autoSubmitIfPastDeadline).not.toHaveBeenCalled();
     });
 
     it('strips answers from question payloads for enrolled students', async () => {

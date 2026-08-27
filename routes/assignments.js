@@ -14,7 +14,6 @@ import {
   sequelize,
 } from '../models/index.js';
 import { addDays, computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
-import { autoSubmitIfPastDeadline } from '../utils/autoSubmit.js';
 import { ensureSelfOrAdmin, isSystemAdmin } from '../utils/authorization.js';
 import { requireInstructorOrAdmin } from './instructor.js';
 import { formatDueDateEastern, parseDueDateForStorage } from '../utils/easternDate.js';
@@ -170,7 +169,6 @@ router.get('/:id', [assignmentIdParam, userIdOptionalQuery, handleValidationResu
             ? formatDueDateEastern(accommodationDueAt)
             : null,
         };
-        await autoSubmitIfPastDeadline(assignment, requestedUserId);
       }
     }
 
