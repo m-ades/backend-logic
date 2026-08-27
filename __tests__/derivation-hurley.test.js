@@ -75,7 +75,7 @@ describe('derivation-hurley ACP/AIP completion', () => {
     const Formula = getFormulaClass();
     const formula = Formula.from('~~(∃xAx ⊃ ~Cbc)');
 
-    expect(formula.normal).toBe('~~(∃xAx ⊃ ~Cbc)');
+    expect(formula.normal).toBe('~~((∃x)Ax ⊃ ~Cbc)');
   });
 
   // this one catches the old bug where an open acp could still look complete

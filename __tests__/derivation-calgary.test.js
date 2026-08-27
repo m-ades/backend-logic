@@ -57,6 +57,59 @@ describe('derivation-calgary checker', () => {
     expect(result.points).toBe(1);
   });
 
+  it('checks derivations containing indexed sentence letters', async () => {
+    const proof = buildProof({
+      premises: ['E₁', 'E_1 → S₂'],
+      conclusion: 'S_2',
+      lines: [
+        { formula: 'E_1', justification: 'Pr' },
+        { formula: 'E₁ → S_2', justification: 'Pr' },
+        { formula: 'S₂', justification: '→E 1,2' },
+      ],
+    });
+
+    const result = await checkDerivation(
+      { prems: ['E₁', 'E_1 → S₂'], conc: 'S_2' },
+      null,
+      proof,
+      false,
+      1,
+      false,
+      {}
+    );
+
+    expect(result.successstatus).toBe('correct');
+    expect(result.points).toBe(1);
+  });
+
+  test.each([
+    ['1,2 →E', 'must put the rule before the cited line number(s)'],
+    ['→E1,2', 'must include a space between the rule and cited line number(s)'],
+  ])('rejects malformed Calgary justification %s', async (justification, message) => {
+    const proof = buildProof({
+      premises: ['P', 'P → Q'],
+      conclusion: 'Q',
+      lines: [
+        { formula: 'P', justification: 'Pr' },
+        { formula: 'P → Q', justification: 'Pr' },
+        { formula: 'Q', justification },
+      ],
+    });
+
+    const result = await checkDerivation(
+      { prems: ['P', 'P → Q'], conc: 'Q' },
+      null,
+      proof,
+      false,
+      1,
+      false,
+      {}
+    );
+
+    expect(result.successstatus).toBe('incorrect');
+    expect(result.errors['3']?.justification?.high?.[message]).toBe(1);
+  });
+
   it('checks a calgary proof with an AS subderivation', async () => {
     const proof = buildNestedProof({
       premises: ['J → ¬J'],
