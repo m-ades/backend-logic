@@ -86,7 +86,13 @@ async function getAssignmentReadAccess(assignment, user) {
   const enrollment = await CourseEnrollment.findOne({
     where: { course_id: assignment.course_id, user_id: user.id },
   });
-  return { allowed: Boolean(enrollment), canSeeAnswers: false };
+  if (!enrollment) {
+    return { allowed: false, canSeeAnswers: false };
+  }
+  if (assignment.is_locked && enrollment.role !== 'ta') {
+    return { allowed: false, canSeeAnswers: false };
+  }
+  return { allowed: true, canSeeAnswers: false };
 }
 
 async function requireAssignmentReadAccess(req, res, assignment) {
