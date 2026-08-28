@@ -5,6 +5,7 @@ import { sequelize } from './config/sequelize.js';
 import usersRouter from './routes/users.js';
 import authRouter from './routes/auth.js';
 import coursesRouter from './routes/courses.js';
+import courseContactsRouter from './routes/course-contacts.js';
 import courseEnrollmentsRouter from './routes/course-enrollments.js';
 import assignmentsRouter from './routes/assignments.js';
 import assignmentQuestionsRouter from './routes/assignment-questions.js';
@@ -68,6 +69,7 @@ app.use('/api', (req, res, next) => {
 });
 app.use('/api/users', usersRouter);
 app.use('/api/courses', coursesRouter);
+app.use('/api/courses', courseContactsRouter);
 app.use('/api/course-enrollments', courseEnrollmentsRouter);
 app.use('/api/assignments', assignmentsRouter);
 app.use('/api/assignment-questions', assignmentQuestionsRouter);
