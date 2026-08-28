@@ -53,23 +53,19 @@ const router = createCrudRouter(Course, {
   },
 });
 
-async function requireEnrollmentOrAdmin(courseId, user) {
-  if (isSystemAdmin(user)) {
-    return true;
-  }
-  const enrollment = await CourseEnrollment.findOne({
-    where: { course_id: courseId, user_id: user.id },
-  });
-  return Boolean(enrollment);
-}
-
 router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (req, res, next) => {
   try {
-    if (!(await requireEnrollmentOrAdmin(req.params.id, req.user))) {
-      return res.status(403).json({ message: 'Enrollment required' });
-    }
     const courseId = req.params.id;
     const userId = req.user?.id ?? null;
+    const admin = isSystemAdmin(req.user);
+    // single enrollment lookup covers both "may view this course" and "may see locked assignments"
+    const enrollment = admin
+      ? null
+      : await CourseEnrollment.findOne({ where: { course_id: courseId, user_id: userId } });
+    if (!admin && !enrollment) {
+      return res.status(403).json({ message: 'Enrollment required' });
+    }
+    const canSeeLocked = admin || enrollment?.role === 'instructor' || enrollment?.role === 'ta';
     // one query. assignments and counts.
     const rows = await sequelize.query(
       `
@@ -110,12 +106,13 @@ router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (r
         type: QueryTypes.SELECT,
       }
     );
+    const visibleRows = canSeeLocked ? rows : rows.filter((row) => !row.is_locked);
     const accommodation = userId
       ? await Accommodation.findOne({
         where: { course_id: courseId, user_id: userId },
       })
       : null;
-    const assignmentIds = rows.map((row) => row.id);
+    const assignmentIds = visibleRows.map((row) => row.id);
     const extensions = userId && assignmentIds.length
       ? await AssignmentExtension.findAll({
         where: { user_id: userId, assignment_id: assignmentIds },
@@ -125,7 +122,7 @@ router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (r
       extensions.map((extension) => [extension.assignment_id, extension])
     );
 
-    const payload = rows.map((row) => {
+    const payload = visibleRows.map((row) => {
       const question_count = Number(row.question_count) || 0;
       const answered_count = Number(row.answered_count) || 0;
       const completed =

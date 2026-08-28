@@ -1,3 +1,4 @@
+import { Op } from 'sequelize';
 import { createCrudRouter } from './crud.js';
 import { User, CourseEnrollment, Course } from '../models/index.js';
 import { hashPassword, isStrongPassword, PASSWORD_POLICY_MESSAGE, verifyPassword } from '../utils/passwords.js';
@@ -109,7 +110,19 @@ router.get('/:id/grades', [userIdParam, handleValidationResult], async (req, res
       return res.status(403).json({ message: 'Forbidden' });
     }
     const grades = await fetchEffectiveGrades(req.params.id);
-    res.json(grades);
+    // locked assignments are drafts; keep them out of this "my grades" view for students
+    let visibleGrades = grades;
+    if (!isSystemAdmin(req.user)) {
+      const staffEnrollments = await CourseEnrollment.findAll({
+        where: { user_id: req.params.id, role: { [Op.in]: ['instructor', 'ta'] } },
+        attributes: ['course_id'],
+      });
+      const staffCourseIds = new Set(staffEnrollments.map((e) => e.course_id));
+      visibleGrades = grades.filter((grade) => (
+        !grade.Assignment?.is_locked || staffCourseIds.has(grade.Assignment?.course_id)
+      ));
+    }
+    res.json(visibleGrades);
   } catch (error) {
     next(error);
   }

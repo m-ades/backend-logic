@@ -89,13 +89,25 @@ router.get(
       return;
     }
 
-    const [assignments, performance, submissionCount, submittedAssignments, time] = await Promise.all([
+    const [assignmentsRaw, performance, submissionCount, submittedAssignments, time] = await Promise.all([
       fetchStudentAssignments(sequelize, userId, courseId),
       fetchStudentPerformance(sequelize, userId, courseId),
       fetchStudentSubmissionCount(sequelize, userId, courseId),
       fetchStudentSubmittedAssignments(sequelize, userId, courseId),
       fetchStudentTime(sequelize, userId, courseId),
     ]);
+    // keep locked assignments out of view for students in assignments page
+    let assignments = assignmentsRaw || [];
+    if (!isSystemAdmin(req.user)) {
+      const staffEnrollments = await CourseEnrollment.findAll({
+        where: { user_id: userId, role: { [Op.in]: ['instructor', 'ta'] } },
+        attributes: ['course_id'],
+      });
+      const staffCourseIds = new Set(staffEnrollments.map((e) => e.course_id));
+      assignments = assignments.filter((assignment) => (
+        !assignment.is_locked || staffCourseIds.has(assignment.course_id)
+      ));
+    }
 
     const now = new Date();
     let upcoming = 0;
@@ -384,8 +396,12 @@ router.get('/gradebook-summary', [courseIdParam, handleValidationResult], async 
     }
     const rows = await fetchAssignmentGradeSummary(sequelize, courseId);
     const class_avg_with_drop = await computeClassAvgWithDrop(courseId, rows);
+    const canSeeLocked = isSystemAdmin(req.user)
+      || enrollment?.role === 'instructor'
+      || enrollment?.role === 'ta';
+    const visibleRows = canSeeLocked ? rows : rows.filter((row) => !row.is_locked);
     res.json({
-      assignments: rows,
+      assignments: visibleRows,
       class_avg_with_drop: class_avg_with_drop != null ? class_avg_with_drop : null,
     });
   } catch (error) {

@@ -13,20 +13,23 @@ const requireInstructorOrAdmin = jest.fn();
 const autoSubmitIfPastDeadline = jest.fn();
 const sequelizeFn = jest.fn((name, value) => ({ name, value }));
 const sequelizeCol = jest.fn((value) => value);
+const sequelizeQuery = jest.fn();
+const assignmentExtensionFindAll = jest.fn();
+const accommodationFindOne = jest.fn();
 
 jest.unstable_mockModule('../models/index.js', () => ({
   Course: { findByPk: courseFindByPk, create: courseCreate },
   Assignment: { findByPk: assignmentFindByPk, create: assignmentCreate },
   AssignmentDraft: { findOne: assignmentDraftFindOne },
-  AssignmentExtension: { findOne: jest.fn() },
+  AssignmentExtension: { findOne: jest.fn(), findAll: assignmentExtensionFindAll },
   AssignmentGrade: {},
   AssignmentQuestion: { findAll: assignmentQuestionFindAll },
   AssignmentQuestionOverride: { findAll: jest.fn() },
-  Accommodation: { findOne: jest.fn() },
+  Accommodation: { findOne: accommodationFindOne },
   CourseEnrollment: { findOne: courseEnrollmentFindOne },
   Submission: { findAll: submissionFindAll },
   User: {},
-  sequelize: { fn: sequelizeFn, col: sequelizeCol },
+  sequelize: { fn: sequelizeFn, col: sequelizeCol, query: sequelizeQuery },
 }));
 
 jest.unstable_mockModule('../routes/instructor.js', () => ({
@@ -113,6 +116,9 @@ describe('course and assignment auth', () => {
     autoSubmitIfPastDeadline.mockReset();
     sequelizeFn.mockClear();
     sequelizeCol.mockClear();
+    sequelizeQuery.mockReset();
+    assignmentExtensionFindAll.mockReset();
+    accommodationFindOne.mockReset();
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -187,6 +193,47 @@ describe('course and assignment auth', () => {
       expect(res.statusCode).toBe(204);
       expect(destroy).toHaveBeenCalledTimes(1);
       expect(res.ended).toBe(true);
+    });
+
+    const mockCourseAssignmentRows = () => sequelizeQuery.mockResolvedValueOnce([
+      {
+        id: 1, course_id: 3, title: 'Unlocked HW', kind: 'assignment', is_locked: false,
+        due_date: null, chapter: 1, subchapter: 'A', late_window_days: null, late_penalty_percent: null,
+        question_count: 2, answered_count: 0,
+      },
+      {
+        id: 2, course_id: 3, title: 'Draft HW', kind: 'assignment', is_locked: true,
+        due_date: null, chapter: 1, subchapter: 'A', late_window_days: null, late_penalty_percent: null,
+        question_count: 0, answered_count: 0,
+      },
+    ]);
+
+    it('excludes locked assignments from the course list for students', async () => {
+      courseEnrollmentFindOne.mockResolvedValueOnce({ id: 14, role: 'student' });
+      mockCourseAssignmentRows();
+      accommodationFindOne.mockResolvedValueOnce(null);
+      assignmentExtensionFindAll.mockResolvedValueOnce([]);
+
+      const handlers = getRouteHandlers(coursesRouter, '/:id/assignments', 'get');
+      const req = { params: { id: '3' }, user: { id: 7, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.map((a) => a.id)).toEqual([1]);
+    });
+
+    it('includes locked assignments in the course list for TAs', async () => {
+      courseEnrollmentFindOne.mockResolvedValueOnce({ id: 14, role: 'ta' });
+      mockCourseAssignmentRows();
+      accommodationFindOne.mockResolvedValueOnce(null);
+      assignmentExtensionFindAll.mockResolvedValueOnce([]);
+
+      const handlers = getRouteHandlers(coursesRouter, '/:id/assignments', 'get');
+      const req = { params: { id: '3' }, user: { id: 8, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.map((a) => a.id).sort()).toEqual([1, 2]);
     });
   });
 
@@ -289,6 +336,45 @@ describe('course and assignment auth', () => {
 
       expect(res.statusCode).toBe(200);
       expect(autoSubmitIfPastDeadline).not.toHaveBeenCalled();
+    });
+
+    it('hides a locked assignment from an enrolled student', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3, kind: 'assignment', is_locked: true });
+      requireInstructorOrAdmin.mockResolvedValueOnce(false);
+      courseEnrollmentFindOne.mockResolvedValueOnce({ id: 14, role: 'student' });
+
+      const handlers = getRouteHandlers(assignmentsRouter, '/:id', 'get');
+      const req = { params: { id: '9' }, query: {}, user: { id: 7, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(403);
+      expect(assignmentQuestionFindAll).not.toHaveBeenCalled();
+    });
+
+    it('hides a locked assignment\'s questions from an enrolled student', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3, kind: 'assignment', is_locked: true });
+      requireInstructorOrAdmin.mockResolvedValueOnce(false);
+      courseEnrollmentFindOne.mockResolvedValueOnce({ id: 14, role: 'student' });
+
+      const handlers = getRouteHandlers(assignmentsRouter, '/:id/questions', 'get');
+      const req = { params: { id: '9' }, query: {}, user: { id: 7, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(403);
+      expect(assignmentQuestionFindAll).not.toHaveBeenCalled();
+    });
+
+    it('still lets a TA read a locked assignment', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3, kind: 'assignment', is_locked: true });
+      requireInstructorOrAdmin.mockResolvedValueOnce(false);
+      courseEnrollmentFindOne.mockResolvedValueOnce({ id: 14, role: 'ta' });
+      assignmentQuestionFindAll.mockResolvedValueOnce([]);
+
+      const handlers = getRouteHandlers(assignmentsRouter, '/:id', 'get');
+      const req = { params: { id: '9' }, query: {}, user: { id: 7, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(200);
     });
 
     it('strips answers from question payloads for enrolled students', async () => {
