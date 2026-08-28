@@ -28,16 +28,12 @@ const app = express();
 // trust the first proxy hop so req.ip reflects the real client address
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
-<<<<<<< Updated upstream
 const defaultAllowedOrigins = [
   'https://hunterlogic.org',
   'https://www.hunterlogic.org',
   'https://hunterlogic.vercel.app',
 ].join(',');
 const rawOrigins = process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || defaultAllowedOrigins;
-=======
-const rawOrigins = process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || 'https://hunterlogic.vercel.app';
->>>>>>> Stashed changes
 const allowedOrigins = parseAllowedOrigins(rawOrigins);
 const csrfProtection = createCsrfProtection(allowedOrigins);
 
