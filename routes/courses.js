@@ -86,6 +86,7 @@ router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (r
         a.late_penalty_percent,
         a.total_points,
         a.is_locked,
+        a.group_questions_by_type,
         a.created_at,
         COALESCE(stats.question_count, 0) AS question_count,
         COALESCE(stats.answered_count, 0) AS answered_count
@@ -167,6 +168,7 @@ router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (r
         late_penalty_percent: row.late_penalty_percent,
         total_points: question_count * 100,
         is_locked: row.is_locked,
+        group_questions_by_type: row.group_questions_by_type,
         created_at: row.created_at,
         question_count,
         answered_count,

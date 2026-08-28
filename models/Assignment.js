@@ -31,6 +31,11 @@ export default function initAssignment(sequelize) {
         allowNull: false,
         defaultValue: false,
       },
+      group_questions_by_type: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
       chapter: {
         type: DataTypes.INTEGER,
         allowNull: false,
