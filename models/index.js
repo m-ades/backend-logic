@@ -12,6 +12,7 @@ import initAssignmentExtension from './AssignmentExtension.js';
 import initAssignmentQuestionOverride from './AssignmentQuestionOverride.js';
 import initAccommodation from './Accommodation.js';
 import initAssignmentGrade from './AssignmentGrade.js';
+import initCourseContact from './CourseContact.js';
 
 const User = initUser(sequelize);
 const Course = initCourse(sequelize);
@@ -26,6 +27,7 @@ const AssignmentExtension = initAssignmentExtension(sequelize);
 const AssignmentQuestionOverride = initAssignmentQuestionOverride(sequelize);
 const Accommodation = initAccommodation(sequelize);
 const AssignmentGrade = initAssignmentGrade(sequelize);
+const CourseContact = initCourseContact(sequelize);
 
 // Associations
 User.hasMany(CourseEnrollment, { foreignKey: 'user_id' });
@@ -96,6 +98,9 @@ AssignmentGrade.belongsTo(User, { foreignKey: 'user_id' });
 User.hasMany(AssignmentGrade, { foreignKey: 'graded_by', as: 'gradedAssignments' });
 AssignmentGrade.belongsTo(User, { foreignKey: 'graded_by', as: 'gradedBy' });
 
+Course.hasMany(CourseContact, { foreignKey: 'course_id' });
+CourseContact.belongsTo(Course, { foreignKey: 'course_id' });
+
 export {
   sequelize,
   User,
@@ -111,4 +116,5 @@ export {
   AssignmentQuestionOverride,
   Accommodation,
   AssignmentGrade,
+  CourseContact,
 };
