@@ -352,7 +352,7 @@ function normalizeType(question) {
 
 function resolveCheckerKey(type, question, options) {
   if (type === 'truth-table') {
-    return `${question.truthTable?.kind || 'formula'}-truth-table`;
+    return `${question.truthTable?.kind || question.truth_table?.kind || 'formula'}-truth-table`;
   }
   if (options?.logicSystem && type === 'derivation') {
     return getDerivationProblemType(options.logicSystem, 'hurley');
@@ -378,7 +378,7 @@ function buildDerivationFromLines(proof) {
 function computeTruthAnswer(question, options) {
   const notation = options?.notation || 'hurley';
   const Formula = getFormulaClass(notation);
-  const truthTable = question.truthTable || {};
+  const truthTable = question.truthTable || question.truth_table || {};
   const kind = truthTable.kind || 'formula';
 
   if (kind === 'formula') {
