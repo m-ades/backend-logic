@@ -8,7 +8,6 @@ import comboTranslationDerivation from '../lib/logicpenguin/checkers/combo-trans
 import proofArgumentExtraction from '../lib/logicpenguin/checkers/proof-argument-extraction.js';
 import symbolicTranslation from '../lib/logicpenguin/checkers/symbolic-translation.js';
 import multipleChoice from '../lib/logicpenguin/checkers/multiple-choice.js';
-import trueFalse from '../lib/logicpenguin/checkers/true-false.js';
 import evaluateTruth from '../lib/logicpenguin/checkers/evaluate-truth.js';
 // import validCorrectSound from '../lib/logicpenguin/checkers/valid-correct-sound.js';
 import singleRowTruthTable from '../lib/logicpenguin/checkers/single-row-truth-table.js';
@@ -35,7 +34,6 @@ const CHECKERS = {
   'indirect-truth-table': indirectTruthTable,
   'nonclassical-truth-table': nonclassicalTruthTable,
   'partial-truth-table': partialTruthTable,
-  'true-false': trueFalse,
   'evaluate-truth': evaluateTruth,
   // 'valid-correct-sound': validCorrectSound,
   'single-row-truth-table': singleRowTruthTable,
@@ -302,7 +300,7 @@ function normalizeSubmissionByType({ checkerKey, submission, question }) {
   if (checkerKey === 'derivation' || checkerKey === 'derivation-hurley' || checkerKey === 'derivation-calgary') {
     return normalizeDerivationSubmission(submission);
   }
-  if (checkerKey === 'true-false' || checkerKey === 'evaluate-truth') {
+  if (checkerKey === 'evaluate-truth') {
     return normalizeBooleanSubmission(submission);
   }
   if (checkerKey === 'multiple-choice') {
@@ -470,10 +468,6 @@ function computeAnswer(question, options) {
       question?.answerIndices,
       question?.answer
     );
-  }
-
-  if (type === 'true-false') {
-    return pickDefined(question?.trueFalse?.answer, question?.answer);
   }
 
   if (type === 'symbolic-translation') {
