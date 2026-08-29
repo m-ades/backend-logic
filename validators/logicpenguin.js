@@ -564,7 +564,7 @@ export async function validateLogicPenguin({
   const componentScores = Array.isArray(checkResult.componentScores)
     ? checkResult.componentScores.map(clampFraction)
     : null;
-  const effectiveComponentCount = componentCount || componentScores?.length || 1;
+  const effectiveComponentCount = componentScores?.length || componentCount || 1;
   const normalizedScores = componentScores
     ? componentScores
     : Array(effectiveComponentCount).fill(clampFraction(rawScore / points));
