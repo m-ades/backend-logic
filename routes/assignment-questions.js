@@ -1,7 +1,13 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { createCrudRouter } from './crud.js';
-import { Assignment, AssignmentQuestion, Course, sequelize } from '../models/index.js';
+import {
+  Assignment,
+  AssignmentGrade,
+  AssignmentQuestion,
+  Course,
+  sequelize,
+} from '../models/index.js';
 import { handleValidationResult } from '../middleware/validation.js';
 import { requireUser } from '../middleware/auth.js';
 import { isSystemAdmin } from '../utils/authorization.js';
@@ -10,6 +16,7 @@ import {
 } from '../validators/common.js';
 import { assertValidQuestionSnapshot } from '../validators/question-snapshot.js';
 import { LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '../lib/logicSystems.js';
+import { recomputeAssignmentGrade } from '../utils/grades.js';
 import { requireInstructorOrAdmin } from './instructor.js';
 
 const router = express.Router();
@@ -51,6 +58,34 @@ async function assertValidSnapshotForAssignment(questionSnapshot, assignmentOrId
     LEGACY_LOGIC_SYSTEM
   );
   await assertValidQuestionSnapshot(questionSnapshot, { logicSystem });
+}
+
+// deletes assignment questions and restores every persisted grade in one transaction
+// returns the number of questions deleted
+// leaves grades unchanged when no matching question exists
+// rolls back deletion when any grade cannot be restored
+async function deleteQuestionsAndRecomputeGrades(assignmentId, ids) {
+  return sequelize.transaction(async (transaction) => {
+    const gradeRows = await AssignmentGrade.findAll({
+      where: { assignment_id: assignmentId },
+      attributes: ['user_id'],
+      transaction,
+    });
+    const deleted = await AssignmentQuestion.destroy({
+      where: { id: ids, assignment_id: assignmentId },
+      transaction,
+    });
+    if (!deleted) return 0;
+
+    for (const grade of gradeRows) {
+      await recomputeAssignmentGrade({
+        assignmentId,
+        userId: grade.user_id,
+        transaction,
+      });
+    }
+    return deleted;
+  });
 }
 
 // deep merge. source overwrites. arrays replace.
@@ -186,9 +221,7 @@ router.delete(
     }
     const ids = Array.isArray(req.body.ids) ? req.body.ids : null;
 
-    const deleted = await AssignmentQuestion.destroy({
-      where: { id: ids, assignment_id: assignmentId },
-    });
+    const deleted = await deleteQuestionsAndRecomputeGrades(assignmentId, ids);
 
     res.json({ deleted });
   } catch (error) {

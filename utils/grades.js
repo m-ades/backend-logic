@@ -11,11 +11,14 @@ import { computeDeadlinePolicy } from './assignmentPolicy.js';
 
 const toNumber = (value) => (value === null || value === undefined ? 0 : Number(value));
 
-// assignment grade contract
-// each question contributes its highest score ever
-// the earliest submission attaining that score determines lateness
-export async function recomputeAssignmentGrade({ assignmentId, userId }) {
-  const assignment = await Assignment.findByPk(assignmentId);
+// recomputes one persisted grade from the remaining questions and submissions
+// returns null only when the assignment or its questions no longer exist
+// removes the persisted grade when no questions remain
+// writes a zero grade when no submissions remain and a grade already exists
+// uses the supplied transaction for every read and write
+export async function recomputeAssignmentGrade({ assignmentId, userId, transaction = null }) {
+  const queryOptions = transaction ? { transaction } : {};
+  const assignment = await Assignment.findByPk(assignmentId, queryOptions);
   if (!assignment) {
     return null;
   }
@@ -23,8 +26,13 @@ export async function recomputeAssignmentGrade({ assignmentId, userId }) {
   const questions = await AssignmentQuestion.findAll({
     where: { assignment_id: assignmentId },
     attributes: ['id'],
+    ...queryOptions,
   });
   if (!questions.length) {
+    await AssignmentGrade.destroy({
+      where: { assignment_id: assignmentId, user_id: userId },
+      ...queryOptions,
+    });
     return null;
   }
 
@@ -43,10 +51,14 @@ export async function recomputeAssignmentGrade({ assignmentId, userId }) {
     {
       type: QueryTypes.SELECT,
       replacements: { userId, questionIds },
+      ...queryOptions,
     }
   );
-
-  if (!submissionRows.length) {
+  const existing = await AssignmentGrade.findOne({
+    where: { assignment_id: assignmentId, user_id: userId },
+    ...queryOptions,
+  });
+  if (!submissionRows.length && !existing) {
     return null;
   }
 
@@ -70,9 +82,11 @@ export async function recomputeAssignmentGrade({ assignmentId, userId }) {
 
   const extension = await AssignmentExtension.findOne({
     where: { assignment_id: assignmentId, user_id: userId },
+    ...queryOptions,
   });
   const accommodation = await Accommodation.findOne({
     where: { course_id: assignment.course_id, user_id: userId },
+    ...queryOptions,
   });
   const policy = computeDeadlinePolicy({ assignment, extension, accommodation });
 
@@ -86,10 +100,6 @@ export async function recomputeAssignmentGrade({ assignmentId, userId }) {
     Math.round(rawScore * (1 - penaltyPercent / 100))
   );
 
-  const existing = await AssignmentGrade.findOne({
-    where: { assignment_id: assignmentId, user_id: userId },
-  });
-
   const payload = {
     assignment_id: assignmentId,
     user_id: userId,
@@ -101,7 +111,9 @@ export async function recomputeAssignmentGrade({ assignmentId, userId }) {
     graded_by: null,
   };
 
-  const grade = existing ? await existing.update(payload) : await AssignmentGrade.create(payload);
+  const grade = existing
+    ? await existing.update(payload, queryOptions)
+    : await AssignmentGrade.create(payload, queryOptions);
   return grade;
 }
 
