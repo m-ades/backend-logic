@@ -56,6 +56,22 @@ async function canAccessCourse(courseId, user) {
   return Boolean(enrollment);
 }
 
+// limit textbook to Fitch courses for now so it doesn't leak into Hurley courses
+
+async function requireTextbookCourse(req, res, next) {
+  try {
+    const course = await Course.findByPk(req.params.id, {
+      attributes: ['id', 'logic_system'],
+    });
+    if (!course || course.logic_system !== 'fitch') {
+      return res.status(404).json({ message: 'Textbook not available for this course' });
+    }
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+}
+
 // course mutation contract
 // instructors may update courses they control
 // only system administrators may permanently delete courses
@@ -213,10 +229,10 @@ router.get('/:id/enrollments', [courseIdParam, handleValidationResult], async (r
     next(error);
   }
 });
-
+ofessor Plum were in the study at the time of the murder. Reverend Green had the candlestick in the ballroom, and we know that there is no blood on his hands. Hence Colonel Mustard did it 
 router.get(
   '/:id/textbook-structure',
-  [courseIdParam, handleValidationResult],
+  [courseIdParam, handleValidationResult, requireTextbookCourse],
   async (req, res, next) => {
     try {
       const courseId = req.params.id;
@@ -239,7 +255,7 @@ router.get(
 
 router.put(
   '/:id/textbook-structure',
-  [courseIdParam, ...textbookStructureBody, handleValidationResult],
+  [courseIdParam, ...textbookStructureBody, handleValidationResult, requireTextbookCourse],
   async (req, res, next) => {
     try {
       const courseId = req.params.id;
@@ -270,7 +286,7 @@ router.put(
 
 router.delete(
   '/:id/textbook-structure',
-  [courseIdParam, handleValidationResult],
+  [courseIdParam, handleValidationResult, requireTextbookCourse],
   async (req, res, next) => {
     try {
       const courseId = req.params.id;
@@ -293,7 +309,7 @@ router.delete(
 
 router.get(
   '/:id/textbook-practice-links',
-  [courseIdParam, handleValidationResult],
+  [courseIdParam, handleValidationResult, requireTextbookCourse],
   async (req, res, next) => {
     try {
       const courseId = req.params.id;
@@ -316,7 +332,7 @@ router.get(
 
 router.put(
   '/:id/textbook-practice-links',
-  [courseIdParam, ...textbookPracticeLinksBody, handleValidationResult],
+  [courseIdParam, ...textbookPracticeLinksBody, handleValidationResult, requireTextbookCourse],
   async (req, res, next) => {
     try {
       const courseId = req.params.id;
@@ -347,7 +363,7 @@ router.put(
 
 router.delete(
   '/:id/textbook-practice-links',
-  [courseIdParam, handleValidationResult],
+  [courseIdParam, handleValidationResult, requireTextbookCourse],
   async (req, res, next) => {
     try {
       const courseId = req.params.id;

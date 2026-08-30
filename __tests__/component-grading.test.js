@@ -37,7 +37,7 @@ describe('component grading', () => {
     expect(result.points).toBe(1.5);
   });
 
-  it('treats one correct half of a single row answer as partial', async () => {
+  it('splits single row table and classification credit evenly', async () => {
     const result = await singleRowTruthTable(
       {},
       { row: [true], tv: true },
@@ -51,6 +51,25 @@ describe('component grading', () => {
     expect(result.successstatus).toBe('partial');
     expect(result.points).toBe(0.5);
     expect(result.componentScores).toEqual([1, 0]);
+  });
+
+  it('grades the operator cell in a single row conditional', async () => {
+    const result = await validateLogicPenguin({
+      question: {
+        type: 'single-row-truth-table',
+        statement: 'A-->B',
+        interpretation: { A: true, B: false },
+      },
+      submission: {
+        row: ['T', 'F', 'F'],
+        compound: 'F',
+      },
+      points: 1,
+      options: { notation: 'hurley' },
+    });
+
+    expect(result.result.successstatus).toBe('correct');
+    expect(result.result.points).toBe(1);
   });
 
   it('keeps nested true false choices inside composite multiple choice', async () => {

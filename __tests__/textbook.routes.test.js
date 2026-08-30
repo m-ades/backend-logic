@@ -2,6 +2,7 @@ import { jest } from '@jest/globals';
 import errorHandler from '../middleware/error-handler.js';
 
 const courseEnrollmentFindOne = jest.fn();
+const courseFindByPk = jest.fn();
 const structureFindByPk = jest.fn();
 const structureUpsert = jest.fn();
 const structureDestroy = jest.fn();
@@ -11,7 +12,7 @@ const linksDestroy = jest.fn();
 const requireInstructorOrAdmin = jest.fn();
 
 jest.unstable_mockModule('../models/index.js', () => ({
-  Course: {},
+  Course: { findByPk: courseFindByPk },
   Assignment: {},
   AssignmentDraft: {},
   AssignmentExtension: { findOne: jest.fn() },
@@ -95,6 +96,8 @@ const runHandlers = async (handlers, req, res) => {
 
 describe('textbook course routes', () => {
   beforeEach(() => {
+    courseFindByPk.mockReset();
+    courseFindByPk.mockResolvedValue({ id: 3, logic_system: 'fitch' });
     courseEnrollmentFindOne.mockReset();
     structureFindByPk.mockReset();
     structureUpsert.mockReset();
@@ -103,6 +106,39 @@ describe('textbook course routes', () => {
     linksUpsert.mockReset();
     linksDestroy.mockReset();
     requireInstructorOrAdmin.mockReset();
+  });
+
+  test('GET textbook-structure is unavailable for Hurley courses', async () => {
+    courseFindByPk.mockResolvedValue({ id: 3, logic_system: 'hurley' });
+    const handlers = getRouteHandlers(coursesRouter, '/:id/textbook-structure', 'get');
+    const res = await runHandlers(
+      handlers,
+      { params: { id: 3 }, user: { id: 9 } },
+      createRes()
+    );
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toEqual({ message: 'Textbook not available for this course' });
+    expect(courseEnrollmentFindOne).not.toHaveBeenCalled();
+    expect(structureFindByPk).not.toHaveBeenCalled();
+  });
+
+  test('PUT textbook-practice-links cannot write to Hurley courses', async () => {
+    courseFindByPk.mockResolvedValue({ id: 3, logic_system: 'hurley' });
+    const handlers = getRouteHandlers(coursesRouter, '/:id/textbook-practice-links', 'put');
+    const res = await runHandlers(
+      handlers,
+      {
+        params: { id: 3 },
+        user: { id: 9 },
+        body: { links: [] },
+      },
+      createRes()
+    );
+
+    expect(res.statusCode).toBe(404);
+    expect(requireInstructorOrAdmin).not.toHaveBeenCalled();
+    expect(linksUpsert).not.toHaveBeenCalled();
   });
 
   test('GET textbook-structure requires enrollment', async () => {
