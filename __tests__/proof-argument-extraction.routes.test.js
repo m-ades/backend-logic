@@ -4,7 +4,9 @@ import errorHandler from '../middleware/error-handler.js';
 const assignmentFindByPk = jest.fn();
 const assignmentQuestionBulkCreate = jest.fn();
 const assignmentQuestionCreate = jest.fn();
+const assignmentQuestionDestroy = jest.fn();
 const assignmentQuestionFindByPk = jest.fn();
+const assignmentGradeFindAll = jest.fn();
 const accommodationFindOne = jest.fn();
 const courseEnrollmentFindOne = jest.fn();
 const extensionFindOne = jest.fn();
@@ -12,15 +14,19 @@ const overrideFindOne = jest.fn();
 const submissionCount = jest.fn();
 const submissionCreate = jest.fn();
 const requireInstructorOrAdmin = jest.fn();
-const transaction = jest.fn(async (callback) => callback({}));
+const recomputeAssignmentGrade = jest.fn();
+const databaseTransaction = {};
+const transaction = jest.fn(async (callback) => callback(databaseTransaction));
 
 jest.unstable_mockModule('../models/index.js', () => ({
   Accommodation: { findOne: accommodationFindOne },
   Assignment: { findByPk: assignmentFindByPk },
   AssignmentExtension: { findOne: extensionFindOne },
+  AssignmentGrade: { findAll: assignmentGradeFindAll },
   AssignmentQuestion: {
     bulkCreate: assignmentQuestionBulkCreate,
     create: assignmentQuestionCreate,
+    destroy: assignmentQuestionDestroy,
     findByPk: assignmentQuestionFindByPk,
   },
   AssignmentQuestionOverride: { findOne: overrideFindOne },
@@ -38,7 +44,7 @@ jest.unstable_mockModule('../routes/instructor.js', () => ({
 jest.unstable_mockModule('../utils/grades.js', () => ({
   ensureZeroGradesForPastDue: jest.fn(),
   ensureZeroGradesForUnlocked: jest.fn(),
-  recomputeAssignmentGrade: jest.fn(),
+  recomputeAssignmentGrade,
 }));
 
 const assignmentQuestionsRouter = (await import('../routes/assignment-questions.js')).default;
@@ -138,6 +144,33 @@ describe('proof argument extraction question boundaries', () => {
     expect(res.statusCode).toBe(422);
     expect(res.body.message).toContain('must end before the conclusion');
     expect(assignmentQuestionCreate).not.toHaveBeenCalled();
+  });
+
+  it('recomputes persisted grades after deleting a question', async () => {
+    assignmentFindByPk.mockResolvedValue(assignment);
+    assignmentGradeFindAll.mockResolvedValue([{ user_id: 7 }, { user_id: 8 }]);
+    assignmentQuestionDestroy.mockResolvedValue(1);
+    recomputeAssignmentGrade.mockResolvedValue({});
+    const handlers = getRouteHandlers(assignmentQuestionsRouter, '/', 'delete');
+    const req = {
+      body: { assignment_id: assignment.id, ids: [21] },
+      user: { id: 4 },
+    };
+
+    const res = await runHandlers(handlers, req, createRes());
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ deleted: 1 });
+    expect(assignmentQuestionDestroy).toHaveBeenCalledWith({
+      where: { id: [21], assignment_id: assignment.id },
+      transaction: databaseTransaction,
+    });
+    expect(recomputeAssignmentGrade).toHaveBeenCalledTimes(2);
+    expect(recomputeAssignmentGrade).toHaveBeenCalledWith({
+      assignmentId: assignment.id,
+      userId: 7,
+      transaction: databaseTransaction,
+    });
   });
 
   it('rejects invalid provided citations before update', async () => {

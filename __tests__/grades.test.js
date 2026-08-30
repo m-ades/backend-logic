@@ -6,6 +6,7 @@ const assignmentExtensionFindOne = jest.fn();
 const accommodationFindOne = jest.fn();
 const assignmentGradeFindOne = jest.fn();
 const assignmentGradeCreate = jest.fn();
+const assignmentGradeDestroy = jest.fn();
 const sequelizeQuery = jest.fn();
 
 jest.unstable_mockModule('../models/index.js', () => ({
@@ -15,6 +16,7 @@ jest.unstable_mockModule('../models/index.js', () => ({
   AssignmentGrade: {
     findOne: assignmentGradeFindOne,
     create: assignmentGradeCreate,
+    destroy: assignmentGradeDestroy,
   },
   AssignmentQuestion: { findAll: assignmentQuestionFindAll },
 }));
@@ -41,6 +43,7 @@ describe('assignment grade recomputation', () => {
     accommodationFindOne.mockReset().mockResolvedValue(null);
     assignmentGradeFindOne.mockReset();
     assignmentGradeCreate.mockReset();
+    assignmentGradeDestroy.mockReset();
     sequelizeQuery.mockReset();
   });
 
@@ -73,7 +76,7 @@ describe('assignment grade recomputation', () => {
       max_score: 200,
       penalty_percent: 0,
       final_score: 150,
-    }));
+    }), {});
   });
 
   it('keeps a perfect on time score unpenalized', async () => {
@@ -98,7 +101,7 @@ describe('assignment grade recomputation', () => {
       raw_score: 200,
       penalty_percent: 0,
       final_score: 200,
-    }));
+    }), {});
   });
 
   it('applies the late penalty when a higher score is first attained late', async () => {
@@ -123,6 +126,46 @@ describe('assignment grade recomputation', () => {
       raw_score: 150,
       penalty_percent: 20,
       final_score: 120,
-    }));
+    }), {});
+  });
+
+  it('resets an existing grade when no submissions remain', async () => {
+    const update = jest.fn().mockResolvedValue({ id: 31 });
+    assignmentGradeFindOne.mockResolvedValue({ update });
+    sequelizeQuery.mockResolvedValue([]);
+
+    await recomputeAssignmentGrade({ assignmentId: 9, userId: 7 });
+
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      raw_score: 0,
+      max_score: 200,
+      penalty_percent: 0,
+      final_score: 0,
+    }), {});
+  });
+
+  it('does not create a first grade when no submissions exist', async () => {
+    assignmentGradeFindOne.mockResolvedValue(null);
+    sequelizeQuery.mockResolvedValue([]);
+
+    const result = await recomputeAssignmentGrade({ assignmentId: 9, userId: 7 });
+
+    expect(result).toBeNull();
+    expect(assignmentGradeCreate).not.toHaveBeenCalled();
+    expect(assignmentExtensionFindOne).not.toHaveBeenCalled();
+    expect(accommodationFindOne).not.toHaveBeenCalled();
+  });
+
+  it('removes the persisted grade when no questions remain', async () => {
+    assignmentQuestionFindAll.mockResolvedValue([]);
+    assignmentGradeDestroy.mockResolvedValue(1);
+
+    const result = await recomputeAssignmentGrade({ assignmentId: 9, userId: 7 });
+
+    expect(result).toBeNull();
+    expect(assignmentGradeDestroy).toHaveBeenCalledWith({
+      where: { assignment_id: 9, user_id: 7 },
+    });
+    expect(sequelizeQuery).not.toHaveBeenCalled();
   });
 });
