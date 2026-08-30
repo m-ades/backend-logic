@@ -43,6 +43,19 @@ async function requireInstructorInAnyCourseOrAdmin(user) {
   return Boolean(enrollment);
 }
 
+async function canAccessCourse(courseId, user) {
+  if (isSystemAdmin(user)) {
+    return true;
+  }
+  if (!user?.id) {
+    return false;
+  }
+  const enrollment = await CourseEnrollment.findOne({
+    where: { course_id: courseId, user_id: user.id },
+  });
+  return Boolean(enrollment);
+}
+
 // course mutation contract
 // instructors may update courses they control
 // only system administrators may permanently delete courses
@@ -207,7 +220,7 @@ router.get(
   async (req, res, next) => {
     try {
       const courseId = req.params.id;
-      if (!(await requireEnrollmentOrAdmin(courseId, req.user))) {
+      if (!(await canAccessCourse(courseId, req.user))) {
         return res.status(403).json({ message: 'Enrollment required' });
       }
 
@@ -284,7 +297,7 @@ router.get(
   async (req, res, next) => {
     try {
       const courseId = req.params.id;
-      if (!(await requireEnrollmentOrAdmin(courseId, req.user))) {
+      if (!(await canAccessCourse(courseId, req.user))) {
         return res.status(403).json({ message: 'Enrollment required' });
       }
 
