@@ -263,19 +263,22 @@ router.put(
       }
 
       const nodes = Array.isArray(req.body.nodes) ? req.body.nodes : [];
-      await CourseTextbookStructure.upsert({
-        course_id: courseId,
-        nodes,
-        updated_at: new Date(),
-        updated_by: req.user.id,
-      });
-      const row = await CourseTextbookStructure.findByPk(courseId);
+      const updatedAt = new Date();
+      const [row] = await CourseTextbookStructure.upsert(
+        {
+          course_id: courseId,
+          nodes,
+          updated_at: updatedAt,
+          updated_by: req.user.id,
+        },
+        { returning: true }
+      );
 
       return res.json({
         courseId: Number(courseId),
         nodes: row?.nodes ?? nodes,
         usingDefaults: false,
-        updatedAt: row?.updated_at ?? null,
+        updatedAt: row?.updated_at ?? updatedAt,
       });
     } catch (error) {
       return next(error);
@@ -340,19 +343,22 @@ router.put(
       }
 
       const links = Array.isArray(req.body.links) ? req.body.links : [];
-      await CourseTextbookPracticeLinks.upsert({
-        course_id: courseId,
-        links,
-        updated_at: new Date(),
-        updated_by: req.user.id,
-      });
-      const row = await CourseTextbookPracticeLinks.findByPk(courseId);
+      const updatedAt = new Date();
+      const [row] = await CourseTextbookPracticeLinks.upsert(
+        {
+          course_id: courseId,
+          links,
+          updated_at: updatedAt,
+          updated_by: req.user.id,
+        },
+        { returning: true }
+      );
 
       return res.json({
         courseId: Number(courseId),
         links: row?.links ?? links,
         usingDefaults: false,
-        updatedAt: row?.updated_at ?? null,
+        updatedAt: row?.updated_at ?? updatedAt,
       });
     } catch (error) {
       return next(error);

@@ -210,11 +210,10 @@ describe('textbook course routes', () => {
         match: null,
       },
     ];
-    linksUpsert.mockResolvedValue([{}]);
-    linksFindByPk.mockResolvedValue({
+    linksUpsert.mockResolvedValue([{
       links,
       updated_at: '2026-01-01T00:00:00.000Z',
-    });
+    }]);
 
     const handlers = getRouteHandlers(coursesRouter, '/:id/textbook-practice-links', 'put');
     const res = await runHandlers(
@@ -228,6 +227,7 @@ describe('textbook course routes', () => {
     );
 
     expect(linksUpsert).toHaveBeenCalled();
+    expect(linksFindByPk).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
     expect(res.body.usingDefaults).toBe(false);
     expect(res.body.links).toEqual(links);
