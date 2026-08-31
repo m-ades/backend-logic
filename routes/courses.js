@@ -229,7 +229,6 @@ router.get('/:id/enrollments', [courseIdParam, handleValidationResult], async (r
     next(error);
   }
 });
-ofessor Plum were in the study at the time of the murder. Reverend Green had the candlestick in the ballroom, and we know that there is no blood on his hands. Hence Colonel Mustard did it 
 router.get(
   '/:id/textbook-structure',
   [courseIdParam, handleValidationResult, requireTextbookCourse],
