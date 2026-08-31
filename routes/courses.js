@@ -5,6 +5,8 @@ import {
   AssignmentExtension,
   Course,
   CourseEnrollment,
+  CourseTextbookPracticeLinks,
+  CourseTextbookStructure,
   User,
   sequelize,
 } from '../models/index.js';
@@ -12,6 +14,10 @@ import { formatDueDateEastern } from '../utils/easternDate.js';
 import { addDays, computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { handleValidationResult } from '../middleware/validation.js';
 import { courseIdParam } from '../validators/common.js';
+import {
+  textbookPracticeLinksBody,
+  textbookStructureBody,
+} from '../validators/textbook.js';
 import { isSystemAdmin } from '../utils/authorization.js';
 import { requireInstructorOrAdmin } from './instructor.js';
 
@@ -35,6 +41,35 @@ async function requireInstructorInAnyCourseOrAdmin(user) {
     },
   });
   return Boolean(enrollment);
+}
+
+async function canAccessCourse(courseId, user) {
+  if (isSystemAdmin(user)) {
+    return true;
+  }
+  if (!user?.id) {
+    return false;
+  }
+  const enrollment = await CourseEnrollment.findOne({
+    where: { course_id: courseId, user_id: user.id },
+  });
+  return Boolean(enrollment);
+}
+
+// limit textbook to Fitch courses for now so it doesn't leak into Hurley courses
+
+async function requireTextbookCourse(req, res, next) {
+  try {
+    const course = await Course.findByPk(req.params.id, {
+      attributes: ['id', 'logic_system'],
+    });
+    if (!course || course.logic_system !== 'fitch') {
+      return res.status(404).json({ message: 'Textbook not available for this course' });
+    }
+    return next();
+  } catch (error) {
+    return next(error);
+  }
 }
 
 // course mutation contract
@@ -194,5 +229,164 @@ router.get('/:id/enrollments', [courseIdParam, handleValidationResult], async (r
     next(error);
   }
 });
+router.get(
+  '/:id/textbook-structure',
+  [courseIdParam, handleValidationResult, requireTextbookCourse],
+  async (req, res, next) => {
+    try {
+      const courseId = req.params.id;
+      if (!(await canAccessCourse(courseId, req.user))) {
+        return res.status(403).json({ message: 'Enrollment required' });
+      }
+
+      const row = await CourseTextbookStructure.findByPk(courseId);
+      return res.json({
+        courseId: Number(courseId),
+        nodes: row?.nodes ?? null,
+        usingDefaults: !row,
+        updatedAt: row?.updated_at ?? null,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+
+router.put(
+  '/:id/textbook-structure',
+  [courseIdParam, ...textbookStructureBody, handleValidationResult, requireTextbookCourse],
+  async (req, res, next) => {
+    try {
+      const courseId = req.params.id;
+      if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
+        return res.status(403).json({ message: 'Instructor or admin access required' });
+      }
+
+      const nodes = Array.isArray(req.body.nodes) ? req.body.nodes : [];
+      const updatedAt = new Date();
+      const [row] = await CourseTextbookStructure.upsert(
+        {
+          course_id: courseId,
+          nodes,
+          updated_at: updatedAt,
+          updated_by: req.user.id,
+        },
+        { returning: true }
+      );
+
+      return res.json({
+        courseId: Number(courseId),
+        nodes: row?.nodes ?? nodes,
+        usingDefaults: false,
+        updatedAt: row?.updated_at ?? updatedAt,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+
+router.delete(
+  '/:id/textbook-structure',
+  [courseIdParam, handleValidationResult, requireTextbookCourse],
+  async (req, res, next) => {
+    try {
+      const courseId = req.params.id;
+      if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
+        return res.status(403).json({ message: 'Instructor or admin access required' });
+      }
+
+      await CourseTextbookStructure.destroy({ where: { course_id: courseId } });
+      return res.json({
+        courseId: Number(courseId),
+        nodes: null,
+        usingDefaults: true,
+        updatedAt: null,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+
+router.get(
+  '/:id/textbook-practice-links',
+  [courseIdParam, handleValidationResult, requireTextbookCourse],
+  async (req, res, next) => {
+    try {
+      const courseId = req.params.id;
+      if (!(await canAccessCourse(courseId, req.user))) {
+        return res.status(403).json({ message: 'Enrollment required' });
+      }
+
+      const row = await CourseTextbookPracticeLinks.findByPk(courseId);
+      return res.json({
+        courseId: Number(courseId),
+        links: row?.links ?? null,
+        usingDefaults: !row,
+        updatedAt: row?.updated_at ?? null,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+
+router.put(
+  '/:id/textbook-practice-links',
+  [courseIdParam, ...textbookPracticeLinksBody, handleValidationResult, requireTextbookCourse],
+  async (req, res, next) => {
+    try {
+      const courseId = req.params.id;
+      if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
+        return res.status(403).json({ message: 'Instructor or admin access required' });
+      }
+
+      const links = Array.isArray(req.body.links) ? req.body.links : [];
+      const updatedAt = new Date();
+      const [row] = await CourseTextbookPracticeLinks.upsert(
+        {
+          course_id: courseId,
+          links,
+          updated_at: updatedAt,
+          updated_by: req.user.id,
+        },
+        { returning: true }
+      );
+
+      return res.json({
+        courseId: Number(courseId),
+        links: row?.links ?? links,
+        usingDefaults: false,
+        updatedAt: row?.updated_at ?? updatedAt,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+
+router.delete(
+  '/:id/textbook-practice-links',
+  [courseIdParam, handleValidationResult, requireTextbookCourse],
+  async (req, res, next) => {
+    try {
+      const courseId = req.params.id;
+      if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
+        return res.status(403).json({ message: 'Instructor or admin access required' });
+      }
+
+      await CourseTextbookPracticeLinks.destroy({ where: { course_id: courseId } });
+      return res.json({
+        courseId: Number(courseId),
+        links: null,
+        usingDefaults: true,
+        updatedAt: null,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
 
 export default router;
