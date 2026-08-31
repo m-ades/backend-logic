@@ -1,5 +1,5 @@
 import { createCrudRouter } from './crud.js';
-import { QueryTypes } from 'sequelize';
+import { QueryTypes, UniqueConstraintError } from 'sequelize';
 import {
   Accommodation,
   AssignmentExtension,
@@ -20,6 +20,7 @@ import {
 } from '../validators/textbook.js';
 import { isSystemAdmin } from '../utils/authorization.js';
 import { requireEnrollmentForCourse } from '../utils/enrollment.js';
+import { DEFAULT_LOGIC_SYSTEM, normalizeLogicSystem } from '../lib/logicSystems.js';
 import { requireInstructorOrAdmin } from './instructor.js';
 
 function formatPolicyDates(policy) {
@@ -44,14 +45,17 @@ async function requireInstructorInAnyCourseOrAdmin(user) {
   return Boolean(enrollment);
 }
 
-// limit textbook to Fitch courses for now so it doesn't leak into Hurley courses
+// limit textbook to fitch courses for now so it does not leak into hurley courses
 
 async function requireTextbookCourse(req, res, next) {
   try {
     const course = await Course.findByPk(req.params.id, {
       attributes: ['id', 'logic_system'],
     });
-    if (!course || course.logic_system !== 'fitch') {
+    if (
+      !course
+      || normalizeLogicSystem(course.logic_system, DEFAULT_LOGIC_SYSTEM) !== DEFAULT_LOGIC_SYSTEM
+    ) {
       return res.status(404).json({ message: 'Textbook not available for this course' });
     }
     return next();
@@ -218,7 +222,9 @@ router.get('/:id/enrollments', [courseIdParam, handleValidationResult], async (r
   }
 });
 
-// reads require enrollment, writes require instructor access, null means bundled defaults
+// reads require enrollment and writes require instructor access
+// saves require the updatedat returned by the latest read or save
+// stale saves return conflict without changing the resource
 function registerTextbookResourceRoutes({ path, model, valueKey, bodyValidators }) {
   router.get(
     path,
@@ -245,7 +251,13 @@ function registerTextbookResourceRoutes({ path, model, valueKey, bodyValidators 
 
   router.put(
     path,
-    [courseIdParam, ...bodyValidators, handleValidationResult, requireTextbookCourse],
+    [
+      courseIdParam,
+      handleValidationResult,
+      requireTextbookCourse,
+      ...bodyValidators,
+      handleValidationResult,
+    ],
     async (req, res, next) => {
       try {
         const courseId = req.params.id;
@@ -254,16 +266,49 @@ function registerTextbookResourceRoutes({ path, model, valueKey, bodyValidators 
         }
 
         const values = Array.isArray(req.body[valueKey]) ? req.body[valueKey] : [];
+        const expectedUpdatedAt = req.body.updatedAt ?? null;
         const updatedAt = new Date();
-        const [row] = await model.upsert(
-          {
-            course_id: courseId,
-            [valueKey]: values,
-            updated_at: updatedAt,
-            updated_by: req.user.id,
-          },
-          { returning: true }
-        );
+        const nextValues = {
+          course_id: courseId,
+          [valueKey]: values,
+          updated_at: updatedAt,
+          updated_by: req.user.id,
+        };
+
+        let row;
+        if (expectedUpdatedAt == null) {
+          try {
+            row = await model.create(nextValues);
+          } catch (error) {
+            if (error instanceof UniqueConstraintError || error?.name === 'SequelizeUniqueConstraintError') {
+              return res.status(409).json({
+                message: 'Textbook resource changed since it was loaded',
+              });
+            }
+            throw error;
+          }
+        } else {
+          const [updatedCount, updatedRows] = await model.update(
+            {
+              [valueKey]: values,
+              updated_at: updatedAt,
+              updated_by: req.user.id,
+            },
+            {
+              where: {
+                course_id: courseId,
+                updated_at: new Date(expectedUpdatedAt),
+              },
+              returning: true,
+            }
+          );
+          if (updatedCount !== 1) {
+            return res.status(409).json({
+              message: 'Textbook resource changed since it was loaded',
+            });
+          }
+          [row] = updatedRows;
+        }
 
         return res.json({
           courseId: Number(courseId),
