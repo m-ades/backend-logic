@@ -1,5 +1,5 @@
 import { createCrudRouter } from './crud.js';
-import { QueryTypes } from 'sequelize';
+import { QueryTypes, UniqueConstraintError } from 'sequelize';
 import {
   Accommodation,
   AssignmentExtension,
@@ -19,6 +19,8 @@ import {
   textbookStructureBody,
 } from '../validators/textbook.js';
 import { isSystemAdmin } from '../utils/authorization.js';
+import { requireEnrollmentForCourse } from '../utils/enrollment.js';
+import { DEFAULT_LOGIC_SYSTEM, normalizeLogicSystem } from '../lib/logicSystems.js';
 import { requireInstructorOrAdmin } from './instructor.js';
 
 function formatPolicyDates(policy) {
@@ -43,27 +45,17 @@ async function requireInstructorInAnyCourseOrAdmin(user) {
   return Boolean(enrollment);
 }
 
-async function canAccessCourse(courseId, user) {
-  if (isSystemAdmin(user)) {
-    return true;
-  }
-  if (!user?.id) {
-    return false;
-  }
-  const enrollment = await CourseEnrollment.findOne({
-    where: { course_id: courseId, user_id: user.id },
-  });
-  return Boolean(enrollment);
-}
-
-// limit textbook to Fitch courses for now so it doesn't leak into Hurley courses
+// limit textbook to fitch courses for now so it does not leak into hurley courses
 
 async function requireTextbookCourse(req, res, next) {
   try {
     const course = await Course.findByPk(req.params.id, {
       attributes: ['id', 'logic_system'],
     });
-    if (!course || course.logic_system !== 'fitch') {
+    if (
+      !course
+      || normalizeLogicSystem(course.logic_system, DEFAULT_LOGIC_SYSTEM) !== DEFAULT_LOGIC_SYSTEM
+    ) {
       return res.status(404).json({ message: 'Textbook not available for this course' });
     }
     return next();
@@ -229,164 +221,143 @@ router.get('/:id/enrollments', [courseIdParam, handleValidationResult], async (r
     next(error);
   }
 });
-router.get(
-  '/:id/textbook-structure',
-  [courseIdParam, handleValidationResult, requireTextbookCourse],
-  async (req, res, next) => {
-    try {
-      const courseId = req.params.id;
-      if (!(await canAccessCourse(courseId, req.user))) {
-        return res.status(403).json({ message: 'Enrollment required' });
-      }
 
-      const row = await CourseTextbookStructure.findByPk(courseId);
-      return res.json({
-        courseId: Number(courseId),
-        nodes: row?.nodes ?? null,
-        usingDefaults: !row,
-        updatedAt: row?.updated_at ?? null,
-      });
-    } catch (error) {
-      return next(error);
+// reads require enrollment and writes require instructor access
+// saves require the updatedat returned by the latest read or save
+// stale saves return conflict without changing the resource
+function registerTextbookResourceRoutes({ path, model, valueKey, bodyValidators }) {
+  router.get(
+    path,
+    [courseIdParam, handleValidationResult, requireTextbookCourse],
+    async (req, res, next) => {
+      try {
+        const courseId = req.params.id;
+        if (!isSystemAdmin(req.user)) {
+          await requireEnrollmentForCourse(req.user.id, courseId, 'Enrollment required');
+        }
+
+        const row = await model.findByPk(courseId);
+        return res.json({
+          courseId: Number(courseId),
+          [valueKey]: row?.[valueKey] ?? null,
+          usingDefaults: !row,
+          updatedAt: row?.updated_at ?? null,
+        });
+      } catch (error) {
+        return next(error);
+      }
     }
-  }
-);
+  );
 
-router.put(
-  '/:id/textbook-structure',
-  [courseIdParam, ...textbookStructureBody, handleValidationResult, requireTextbookCourse],
-  async (req, res, next) => {
-    try {
-      const courseId = req.params.id;
-      if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
-        return res.status(403).json({ message: 'Instructor or admin access required' });
-      }
+  router.put(
+    path,
+    [
+      courseIdParam,
+      handleValidationResult,
+      requireTextbookCourse,
+      ...bodyValidators,
+      handleValidationResult,
+    ],
+    async (req, res, next) => {
+      try {
+        const courseId = req.params.id;
+        if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
+          return res.status(403).json({ message: 'Instructor or admin access required' });
+        }
 
-      const nodes = Array.isArray(req.body.nodes) ? req.body.nodes : [];
-      const updatedAt = new Date();
-      const [row] = await CourseTextbookStructure.upsert(
-        {
+        const values = Array.isArray(req.body[valueKey]) ? req.body[valueKey] : [];
+        const expectedUpdatedAt = req.body.updatedAt ?? null;
+        const updatedAt = new Date();
+        const nextValues = {
           course_id: courseId,
-          nodes,
+          [valueKey]: values,
           updated_at: updatedAt,
           updated_by: req.user.id,
-        },
-        { returning: true }
-      );
+        };
 
-      return res.json({
-        courseId: Number(courseId),
-        nodes: row?.nodes ?? nodes,
-        usingDefaults: false,
-        updatedAt: row?.updated_at ?? updatedAt,
-      });
-    } catch (error) {
-      return next(error);
-    }
-  }
-);
+        let row;
+        if (expectedUpdatedAt == null) {
+          try {
+            row = await model.create(nextValues);
+          } catch (error) {
+            if (error instanceof UniqueConstraintError || error?.name === 'SequelizeUniqueConstraintError') {
+              return res.status(409).json({
+                message: 'Textbook resource changed since it was loaded',
+              });
+            }
+            throw error;
+          }
+        } else {
+          const [updatedCount, updatedRows] = await model.update(
+            {
+              [valueKey]: values,
+              updated_at: updatedAt,
+              updated_by: req.user.id,
+            },
+            {
+              where: {
+                course_id: courseId,
+                updated_at: new Date(expectedUpdatedAt),
+              },
+              returning: true,
+            }
+          );
+          if (updatedCount !== 1) {
+            return res.status(409).json({
+              message: 'Textbook resource changed since it was loaded',
+            });
+          }
+          [row] = updatedRows;
+        }
 
-router.delete(
-  '/:id/textbook-structure',
-  [courseIdParam, handleValidationResult, requireTextbookCourse],
-  async (req, res, next) => {
-    try {
-      const courseId = req.params.id;
-      if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
-        return res.status(403).json({ message: 'Instructor or admin access required' });
+        return res.json({
+          courseId: Number(courseId),
+          [valueKey]: row?.[valueKey] ?? values,
+          usingDefaults: false,
+          updatedAt: row?.updated_at ?? updatedAt,
+        });
+      } catch (error) {
+        return next(error);
       }
-
-      await CourseTextbookStructure.destroy({ where: { course_id: courseId } });
-      return res.json({
-        courseId: Number(courseId),
-        nodes: null,
-        usingDefaults: true,
-        updatedAt: null,
-      });
-    } catch (error) {
-      return next(error);
     }
-  }
-);
+  );
 
-router.get(
-  '/:id/textbook-practice-links',
-  [courseIdParam, handleValidationResult, requireTextbookCourse],
-  async (req, res, next) => {
-    try {
-      const courseId = req.params.id;
-      if (!(await canAccessCourse(courseId, req.user))) {
-        return res.status(403).json({ message: 'Enrollment required' });
+  router.delete(
+    path,
+    [courseIdParam, handleValidationResult, requireTextbookCourse],
+    async (req, res, next) => {
+      try {
+        const courseId = req.params.id;
+        if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
+          return res.status(403).json({ message: 'Instructor or admin access required' });
+        }
+
+        await model.destroy({ where: { course_id: courseId } });
+        return res.json({
+          courseId: Number(courseId),
+          [valueKey]: null,
+          usingDefaults: true,
+          updatedAt: null,
+        });
+      } catch (error) {
+        return next(error);
       }
-
-      const row = await CourseTextbookPracticeLinks.findByPk(courseId);
-      return res.json({
-        courseId: Number(courseId),
-        links: row?.links ?? null,
-        usingDefaults: !row,
-        updatedAt: row?.updated_at ?? null,
-      });
-    } catch (error) {
-      return next(error);
     }
-  }
-);
+  );
+}
 
-router.put(
-  '/:id/textbook-practice-links',
-  [courseIdParam, ...textbookPracticeLinksBody, handleValidationResult, requireTextbookCourse],
-  async (req, res, next) => {
-    try {
-      const courseId = req.params.id;
-      if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
-        return res.status(403).json({ message: 'Instructor or admin access required' });
-      }
+registerTextbookResourceRoutes({
+  path: '/:id/textbook-structure',
+  model: CourseTextbookStructure,
+  valueKey: 'nodes',
+  bodyValidators: textbookStructureBody,
+});
 
-      const links = Array.isArray(req.body.links) ? req.body.links : [];
-      const updatedAt = new Date();
-      const [row] = await CourseTextbookPracticeLinks.upsert(
-        {
-          course_id: courseId,
-          links,
-          updated_at: updatedAt,
-          updated_by: req.user.id,
-        },
-        { returning: true }
-      );
-
-      return res.json({
-        courseId: Number(courseId),
-        links: row?.links ?? links,
-        usingDefaults: false,
-        updatedAt: row?.updated_at ?? updatedAt,
-      });
-    } catch (error) {
-      return next(error);
-    }
-  }
-);
-
-router.delete(
-  '/:id/textbook-practice-links',
-  [courseIdParam, handleValidationResult, requireTextbookCourse],
-  async (req, res, next) => {
-    try {
-      const courseId = req.params.id;
-      if (!(await requireInstructorOrAdmin(courseId, req.user.id))) {
-        return res.status(403).json({ message: 'Instructor or admin access required' });
-      }
-
-      await CourseTextbookPracticeLinks.destroy({ where: { course_id: courseId } });
-      return res.json({
-        courseId: Number(courseId),
-        links: null,
-        usingDefaults: true,
-        updatedAt: null,
-      });
-    } catch (error) {
-      return next(error);
-    }
-  }
-);
+registerTextbookResourceRoutes({
+  path: '/:id/textbook-practice-links',
+  model: CourseTextbookPracticeLinks,
+  valueKey: 'links',
+  bodyValidators: textbookPracticeLinksBody,
+});
 
 export default router;

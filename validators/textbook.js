@@ -10,6 +10,10 @@ const STRUCTURE_KINDS = new Set([
 ]);
 
 export const textbookStructureBody = [
+  body('updatedAt')
+    .optional({ nullable: true })
+    .isISO8601({ strict: true })
+    .withMessage('updatedAt must be an ISO 8601 timestamp or null'),
   body('nodes')
     .isArray()
     .withMessage('nodes must be an array'),
@@ -55,6 +59,10 @@ export const textbookStructureBody = [
 ];
 
 export const textbookPracticeLinksBody = [
+  body('updatedAt')
+    .optional({ nullable: true })
+    .isISO8601({ strict: true })
+    .withMessage('updatedAt must be an ISO 8601 timestamp or null'),
   body('links')
     .isArray()
     .withMessage('links must be an array'),

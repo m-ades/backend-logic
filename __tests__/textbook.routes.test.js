@@ -4,10 +4,12 @@ import errorHandler from '../middleware/error-handler.js';
 const courseEnrollmentFindOne = jest.fn();
 const courseFindByPk = jest.fn();
 const structureFindByPk = jest.fn();
-const structureUpsert = jest.fn();
+const structureCreate = jest.fn();
+const structureUpdate = jest.fn();
 const structureDestroy = jest.fn();
 const linksFindByPk = jest.fn();
-const linksUpsert = jest.fn();
+const linksCreate = jest.fn();
+const linksUpdate = jest.fn();
 const linksDestroy = jest.fn();
 const requireInstructorOrAdmin = jest.fn();
 
@@ -23,12 +25,14 @@ jest.unstable_mockModule('../models/index.js', () => ({
   CourseEnrollment: { findOne: courseEnrollmentFindOne },
   CourseTextbookStructure: {
     findByPk: structureFindByPk,
-    upsert: structureUpsert,
+    create: structureCreate,
+    update: structureUpdate,
     destroy: structureDestroy,
   },
   CourseTextbookPracticeLinks: {
     findByPk: linksFindByPk,
-    upsert: linksUpsert,
+    create: linksCreate,
+    update: linksUpdate,
     destroy: linksDestroy,
   },
   Submission: {},
@@ -100,10 +104,12 @@ describe('textbook course routes', () => {
     courseFindByPk.mockResolvedValue({ id: 3, logic_system: 'fitch' });
     courseEnrollmentFindOne.mockReset();
     structureFindByPk.mockReset();
-    structureUpsert.mockReset();
+    structureCreate.mockReset();
+    structureUpdate.mockReset();
     structureDestroy.mockReset();
     linksFindByPk.mockReset();
-    linksUpsert.mockReset();
+    linksCreate.mockReset();
+    linksUpdate.mockReset();
     linksDestroy.mockReset();
     requireInstructorOrAdmin.mockReset();
   });
@@ -131,14 +137,29 @@ describe('textbook course routes', () => {
       {
         params: { id: 3 },
         user: { id: 9 },
-        body: { links: [] },
+        body: { links: 'invalid' },
       },
       createRes()
     );
 
     expect(res.statusCode).toBe(404);
     expect(requireInstructorOrAdmin).not.toHaveBeenCalled();
-    expect(linksUpsert).not.toHaveBeenCalled();
+    expect(linksCreate).not.toHaveBeenCalled();
+    expect(linksUpdate).not.toHaveBeenCalled();
+  });
+
+  test('GET textbook-structure uses the default logic system when the course omits one', async () => {
+    courseFindByPk.mockResolvedValue({ id: 3, logic_system: null });
+    courseEnrollmentFindOne.mockResolvedValue({ role: 'student' });
+    structureFindByPk.mockResolvedValue(null);
+    const handlers = getRouteHandlers(coursesRouter, '/:id/textbook-structure', 'get');
+    const res = await runHandlers(
+      handlers,
+      { params: { id: 3 }, user: { id: 9 } },
+      createRes()
+    );
+
+    expect(res.statusCode).toBe(200);
   });
 
   test('GET textbook-structure requires enrollment', async () => {
@@ -198,7 +219,7 @@ describe('textbook course routes', () => {
     expect(res.statusCode).toBe(403);
   });
 
-  test('PUT textbook-practice-links upserts for instructor', async () => {
+  test('PUT textbook-practice-links creates an override for instructor', async () => {
     requireInstructorOrAdmin.mockResolvedValue(true);
     const links = [
       {
@@ -210,10 +231,10 @@ describe('textbook course routes', () => {
         match: null,
       },
     ];
-    linksUpsert.mockResolvedValue([{
+    linksCreate.mockResolvedValue({
       links,
       updated_at: '2026-01-01T00:00:00.000Z',
-    }]);
+    });
 
     const handlers = getRouteHandlers(coursesRouter, '/:id/textbook-practice-links', 'put');
     const res = await runHandlers(
@@ -221,15 +242,95 @@ describe('textbook course routes', () => {
       {
         params: { id: 3 },
         user: { id: 9 },
-        body: { links },
+        body: { links, updatedAt: null },
       },
       createRes()
     );
 
-    expect(linksUpsert).toHaveBeenCalled();
+    expect(linksCreate).toHaveBeenCalledWith(expect.objectContaining({
+      course_id: 3,
+      links,
+      updated_by: 9,
+    }));
+    expect(linksUpdate).not.toHaveBeenCalled();
     expect(linksFindByPk).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
     expect(res.body.usingDefaults).toBe(false);
     expect(res.body.links).toEqual(links);
+  });
+
+  test('PUT textbook-practice-links updates only the loaded revision', async () => {
+    requireInstructorOrAdmin.mockResolvedValue(true);
+    const links = [];
+    const saved = {
+      links,
+      updated_at: '2026-01-02T00:00:00.000Z',
+    };
+    linksUpdate.mockResolvedValue([1, [saved]]);
+
+    const handlers = getRouteHandlers(coursesRouter, '/:id/textbook-practice-links', 'put');
+    const res = await runHandlers(
+      handlers,
+      {
+        params: { id: 3 },
+        user: { id: 9 },
+        body: { links, updatedAt: '2026-01-01T00:00:00.000Z' },
+      },
+      createRes()
+    );
+
+    expect(linksUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ links, updated_by: 9 }),
+      expect.objectContaining({
+        where: {
+          course_id: 3,
+          updated_at: new Date('2026-01-01T00:00:00.000Z'),
+        },
+        returning: true,
+      })
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body.updatedAt).toBe(saved.updated_at);
+  });
+
+  test('PUT textbook-practice-links rejects a stale revision', async () => {
+    requireInstructorOrAdmin.mockResolvedValue(true);
+    linksUpdate.mockResolvedValue([0, []]);
+
+    const handlers = getRouteHandlers(coursesRouter, '/:id/textbook-practice-links', 'put');
+    const res = await runHandlers(
+      handlers,
+      {
+        params: { id: 3 },
+        user: { id: 9 },
+        body: { links: [], updatedAt: '2026-01-01T00:00:00.000Z' },
+      },
+      createRes()
+    );
+
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toEqual({
+      message: 'Textbook resource changed since it was loaded',
+    });
+  });
+
+  test('PUT textbook-practice-links rejects a concurrent first save', async () => {
+    requireInstructorOrAdmin.mockResolvedValue(true);
+    const conflict = new Error('duplicate key');
+    conflict.name = 'SequelizeUniqueConstraintError';
+    linksCreate.mockRejectedValue(conflict);
+
+    const handlers = getRouteHandlers(coursesRouter, '/:id/textbook-practice-links', 'put');
+    const res = await runHandlers(
+      handlers,
+      {
+        params: { id: 3 },
+        user: { id: 9 },
+        body: { links: [], updatedAt: null },
+      },
+      createRes()
+    );
+
+    expect(res.statusCode).toBe(409);
   });
 });
