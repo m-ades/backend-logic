@@ -17,6 +17,7 @@ import { addDays, computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { ensureSelfOrAdmin, isSystemAdmin } from '../utils/authorization.js';
 import { requireInstructorOrAdmin } from './instructor.js';
 import { formatDueDateEastern, parseDueDateForStorage } from '../utils/easternDate.js';
+import { projectQuestionForStudent } from '../utils/questionVisibility.js';
 
 function sanitizeAssignment(record) {
   const data = record?.toJSON ? record.toJSON() : record;
@@ -48,31 +49,53 @@ function formatPolicyDates(policy) {
   };
 }
 
-function stripQuestionAnswers(snapshot) {
-  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
-    return snapshot;
-  }
-  if (
-    !Object.prototype.hasOwnProperty.call(snapshot, 'answer')
-    && !Object.prototype.hasOwnProperty.call(snapshot, 'answerIndex')
-  ) {
-    return snapshot;
-  }
-  const sanitized = { ...snapshot };
-  delete sanitized.answer;
-  delete sanitized.answerIndex;
-  return sanitized;
-}
+// uses server attempts and overrides so every student question endpoint reveals answers consistently
+async function projectQuestionsForStudent(questions, userId) {
+  if (!questions.length) return [];
 
-function sanitizeQuestionForUser(question, { canSeeAnswers, attemptCount = 0, alwaysHideAnswers = false }) {
-  const data = question.toJSON ? question.toJSON() : { ...question };
-  if (canSeeAnswers) {
-    return data;
-  }
-  if (alwaysHideAnswers || attemptCount < data.attempt_limit) {
-    data.question_snapshot = stripQuestionAnswers(data.question_snapshot);
-  }
-  return data;
+  const plainQuestions = questions.map((question) => (
+    question?.toJSON ? question.toJSON() : { ...question }
+  ));
+  const questionIds = plainQuestions.map((question) => question.id);
+  const [overrides, attemptCounts] = await Promise.all([
+    AssignmentQuestionOverride.findAll({
+      where: { assignment_question_id: questionIds, user_id: userId },
+    }),
+    Submission.findAll({
+      where: { assignment_question_id: questionIds, user_id: userId },
+      attributes: [
+        'assignment_question_id',
+        [sequelize.fn('COUNT', sequelize.col('id')), 'attempt_count'],
+      ],
+      group: ['assignment_question_id'],
+      raw: true,
+    }),
+  ]);
+  const overrideMap = new Map(
+    (overrides ?? []).map((override) => [
+      Number(override.assignment_question_id),
+      Number(override.extra_attempts) || 0,
+    ])
+  );
+  const attemptCountMap = new Map(
+    (attemptCounts ?? []).map((row) => [
+      Number(row.assignment_question_id),
+      Number(row.attempt_count) || 0,
+    ])
+  );
+
+  return plainQuestions.map((question) => {
+    const baseLimit = Number.isFinite(Number(question.attempt_limit))
+      ? Number(question.attempt_limit)
+      : 3;
+    const questionId = Number(question.id);
+    const attemptLimit = Math.max(1, baseLimit + (overrideMap.get(questionId) ?? 0));
+    const attemptCount = attemptCountMap.get(questionId) ?? 0;
+    return projectQuestionForStudent(
+      { ...question, attempt_limit: attemptLimit },
+      { revealAnswers: attemptCount >= attemptLimit }
+    );
+  });
 }
 
 async function getAssignmentReadAccess(assignment, user) {
@@ -185,44 +208,13 @@ router.get('/:id', [assignmentIdParam, userIdOptionalQuery, handleValidationResu
     });
 
     let questionsWithLimits = questions;
-    if (requestedUserId && questions.length) {
-      const questionIds = questions.map((question) => question.id);
-      const overrides = await AssignmentQuestionOverride.findAll({
-        where: { assignment_question_id: questionIds, user_id: requestedUserId },
-      });
-      const overrideMap = new Map(
-        overrides.map((override) => [override.assignment_question_id, override.extra_attempts])
-      );
-      questionsWithLimits = questions.map((question) => {
-        const data = question.toJSON ? question.toJSON() : { ...question };
-        const extraAttempts = Number.isFinite(overrideMap.get(question.id))
-          ? overrideMap.get(question.id)
-          : 0;
-        data.attempt_limit = Math.max(1, data.attempt_limit + extraAttempts);
-        return data;
-      });
-    }
-
     const userIdForFiltering = requestedUserId || req.user?.id;
     const { canSeeAnswers } = access;
     if (!canSeeAnswers && userIdForFiltering && questionsWithLimits.length) {
-      const questionIds = questionsWithLimits.map((question) => question.id);
-      const attemptCounts = await Submission.findAll({
-        where: { assignment_question_id: questionIds, user_id: userIdForFiltering },
-        attributes: [
-          'assignment_question_id',
-          [sequelize.fn('COUNT', sequelize.col('id')), 'attempt_count'],
-        ],
-        group: ['assignment_question_id'],
-        raw: true,
-      });
-      const attemptCountMap = new Map(
-        attemptCounts.map((row) => [row.assignment_question_id, Number(row.attempt_count)])
+      questionsWithLimits = await projectQuestionsForStudent(
+        questionsWithLimits,
+        userIdForFiltering
       );
-      questionsWithLimits = questionsWithLimits.map((question) => {
-        const attemptCount = attemptCountMap.get(question.id) ?? 0;
-        return sanitizeQuestionForUser(question, { canSeeAnswers, attemptCount });
-      });
     }
 
     const assignmentData = sanitizeAssignment(assignment);
@@ -249,10 +241,7 @@ router.get('/:id/questions', [assignmentIdParam, handleValidationResult], async 
     });
     const payload = access.canSeeAnswers
       ? questions
-      : questions.map((question) => sanitizeQuestionForUser(question, {
-        canSeeAnswers: false,
-        alwaysHideAnswers: true,
-      }));
+      : await projectQuestionsForStudent(questions, req.user.id);
     res.json(payload);
   } catch (error) {
     next(error);
@@ -291,16 +280,36 @@ router.get('/:id/submissions', [assignmentIdParam, userIdOptionalQuery, handleVa
     }
     const scopedUserId = requestedUserId || (isSystemAdmin(req.user) ? null : req.user.id);
     const submissions = await Submission.findAll({
+      attributes: [
+        'id',
+        'assignment_question_id',
+        'user_id',
+        'attempt',
+        'submission_data',
+        'score',
+        'is_correct',
+        'auto_submitted',
+        'submitted_at',
+        'validated_at',
+        'validation_version',
+      ],
       include: [
         {
           model: AssignmentQuestion,
+          attributes: [],
           where: { assignment_id: req.params.id },
         },
       ],
       ...(scopedUserId ? { where: { user_id: scopedUserId } } : {}),
       order: [['submitted_at', 'DESC']],
     });
-    res.json(submissions);
+    const payload = submissions.map((submission) => {
+      const data = submission?.toJSON ? submission.toJSON() : { ...submission };
+      delete data.AssignmentQuestion;
+      delete data.assignmentQuestion;
+      return data;
+    });
+    res.json(payload);
   } catch (error) {
     next(error);
   }
