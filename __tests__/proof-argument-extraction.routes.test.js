@@ -146,6 +146,33 @@ describe('proof argument extraction question boundaries', () => {
     expect(assignmentQuestionCreate).not.toHaveBeenCalled();
   });
 
+  it('normalizes nonpositive attempt limits when creating questions', async () => {
+    assignmentFindByPk.mockResolvedValueOnce(assignment);
+    assignmentQuestionCreate.mockImplementationOnce(async (payload) => payload);
+    const handlers = getRouteHandlers(getCrudRouter(assignmentQuestionsRouter), '/', 'post');
+    const req = {
+      body: {
+        assignment_id: assignment.id,
+        order_index: 0,
+        points_value: 100,
+        attempt_limit: 0,
+        question_snapshot: {
+          type: 'symbolic-translation',
+          prompt: 'Translate.',
+          answer: 'P',
+        },
+      },
+      user: { id: 7 },
+    };
+
+    const res = await runHandlers(handlers, req, createRes());
+
+    expect(res.statusCode).toBe(201);
+    expect(assignmentQuestionCreate).toHaveBeenCalledWith(expect.objectContaining({
+      attempt_limit: 3,
+    }));
+  });
+
   it('recomputes persisted grades after deleting a question', async () => {
     assignmentFindByPk.mockResolvedValue(assignment);
     assignmentGradeFindAll.mockResolvedValue([{ user_id: 7 }, { user_id: 8 }]);

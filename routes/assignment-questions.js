@@ -60,6 +60,11 @@ async function assertValidSnapshotForAssignment(questionSnapshot, assignmentOrId
   await assertValidQuestionSnapshot(questionSnapshot, { logicSystem });
 }
 
+function normalizeAttemptLimit(value) {
+  const limit = Number(value);
+  return Number.isInteger(limit) && limit >= 1 ? limit : 3;
+}
+
 // deletes assignment questions and restores every persisted grade in one transaction
 // returns the number of questions deleted
 // leaves grades unchanged when no matching question exists
@@ -125,7 +130,7 @@ router.post(
       question_snapshot: question.question_snapshot,
       order_index: question.order_index,
       points_value: question.points_value ?? 100,
-      attempt_limit: question.attempt_limit ?? 3,
+      attempt_limit: normalizeAttemptLimit(question.attempt_limit),
     }));
 
     if (payload.some((item) => item.question_snapshot == null || item.order_index == null)) {
@@ -234,7 +239,10 @@ router.use(
   createCrudRouter(AssignmentQuestion, {
     beforeCreate: async (_req, body) => {
       await assertValidSnapshotForAssignment(body.question_snapshot, body.assignment_id);
-      return body;
+      return {
+        ...body,
+        attempt_limit: normalizeAttemptLimit(body.attempt_limit),
+      };
     },
     beforeUpdate: async (req, body, record) => {
       const payload = {}
@@ -253,7 +261,7 @@ router.use(
       }
       if (body.attempt_limit !== undefined) {
         const n = Number(body.attempt_limit)
-        if (Number.isInteger(n) && n >= 0) payload.attempt_limit = n
+        if (Number.isInteger(n) && n >= 1) payload.attempt_limit = n
       }
       if (Object.keys(payload).length === 0) {
         const err = new Error('no valid fields to update')

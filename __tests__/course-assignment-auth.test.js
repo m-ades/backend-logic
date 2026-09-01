@@ -7,6 +7,7 @@ const courseEnrollmentFindOne = jest.fn();
 const assignmentFindByPk = jest.fn();
 const assignmentCreate = jest.fn();
 const assignmentQuestionFindAll = jest.fn();
+const assignmentQuestionOverrideFindAll = jest.fn();
 const assignmentDraftFindOne = jest.fn();
 const submissionFindAll = jest.fn();
 const requireInstructorOrAdmin = jest.fn();
@@ -24,7 +25,7 @@ jest.unstable_mockModule('../models/index.js', () => ({
   AssignmentExtension: { findOne: jest.fn(), findAll: assignmentExtensionFindAll },
   AssignmentGrade: {},
   AssignmentQuestion: { findAll: assignmentQuestionFindAll },
-  AssignmentQuestionOverride: { findAll: jest.fn() },
+  AssignmentQuestionOverride: { findAll: assignmentQuestionOverrideFindAll },
   Accommodation: { findOne: accommodationFindOne },
   CourseEnrollment: { findOne: courseEnrollmentFindOne },
   CourseTextbookStructure: {
@@ -120,6 +121,7 @@ describe('course and assignment auth', () => {
     assignmentFindByPk.mockReset();
     assignmentCreate.mockReset();
     assignmentQuestionFindAll.mockReset();
+    assignmentQuestionOverrideFindAll.mockReset();
     assignmentDraftFindOne.mockReset();
     submissionFindAll.mockReset();
     requireInstructorOrAdmin.mockReset();
@@ -421,6 +423,135 @@ describe('course and assignment auth', () => {
           },
         },
       ]);
+    });
+
+    it('strips nested answers aliases and solutions before the last attempt', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3, kind: 'assignment' });
+      requireInstructorOrAdmin.mockResolvedValueOnce(false);
+      courseEnrollmentFindOne.mockResolvedValueOnce({ id: 14, role: 'student' });
+      assignmentQuestionFindAll.mockResolvedValueOnce([
+        {
+          toJSON: () => ({
+            id: 21,
+            assignment_id: 9,
+            attempt_limit: 3,
+            question_snapshot: {
+              prompt: 'Choose.',
+              answerIndices: [0, 2],
+              translationAnswer: 'P',
+              solution: { row: ['T'] },
+              subquestions: [
+                { prompt: 'Nested.', choices: ['A', 'B'], answerIndex: 1, correctIndex: 1 },
+              ],
+            },
+          }),
+        },
+      ]);
+      assignmentQuestionOverrideFindAll.mockResolvedValueOnce([
+        { assignment_question_id: 21, extra_attempts: 1 },
+      ]);
+      submissionFindAll.mockResolvedValueOnce([
+        { assignment_question_id: 21, attempt_count: 3 },
+      ]);
+
+      const handlers = getRouteHandlers(assignmentsRouter, '/:id', 'get');
+      const req = { params: { id: '9' }, query: {}, user: { id: 7, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.questions[0].attempt_limit).toBe(4);
+      expect(res.body.questions[0].question_snapshot).toEqual({
+        prompt: 'Choose.',
+        subquestions: [{ prompt: 'Nested.', choices: ['A', 'B'] }],
+      });
+    });
+
+    it('reveals the complete snapshot after the effective last attempt', async () => {
+      const snapshot = {
+        logic_problem_type: 'combo-translation-derivation',
+        prompt: 'Translate and derive.',
+        answer: { premises: ['P'], conclusion: 'Q' },
+      };
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3, kind: 'assignment' });
+      requireInstructorOrAdmin.mockResolvedValueOnce(false);
+      courseEnrollmentFindOne.mockResolvedValueOnce({ id: 14, role: 'student' });
+      assignmentQuestionFindAll.mockResolvedValueOnce([
+        {
+          toJSON: () => ({
+            id: 21,
+            assignment_id: 9,
+            attempt_limit: 3,
+            question_snapshot: snapshot,
+          }),
+        },
+      ]);
+      assignmentQuestionOverrideFindAll.mockResolvedValueOnce([
+        { assignment_question_id: 21, extra_attempts: 1 },
+      ]);
+      submissionFindAll.mockResolvedValueOnce([
+        { assignment_question_id: 21, attempt_count: 4 },
+      ]);
+
+      const handlers = getRouteHandlers(assignmentsRouter, '/:id', 'get');
+      const req = { params: { id: '9' }, query: {}, user: { id: 7, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.questions[0].attempt_limit).toBe(4);
+      expect(res.body.questions[0].question_snapshot).toEqual(snapshot);
+    });
+
+    it('normalizes a zero attempt limit and keeps the answer hidden', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3, kind: 'assignment' });
+      requireInstructorOrAdmin.mockResolvedValueOnce(false);
+      courseEnrollmentFindOne.mockResolvedValueOnce({ id: 14, role: 'student' });
+      assignmentQuestionFindAll.mockResolvedValueOnce([
+        {
+          toJSON: () => ({
+            id: 21,
+            assignment_id: 9,
+            attempt_limit: 0,
+            question_snapshot: { prompt: 'Translate.', answer: 'P' },
+          }),
+        },
+      ]);
+      assignmentQuestionOverrideFindAll.mockResolvedValueOnce([]);
+      submissionFindAll.mockResolvedValueOnce([]);
+
+      const handlers = getRouteHandlers(assignmentsRouter, '/:id', 'get');
+      const req = { params: { id: '9' }, query: {}, user: { id: 7, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.questions[0].attempt_limit).toBe(1);
+      expect(res.body.questions[0].question_snapshot).toEqual({ prompt: 'Translate.' });
+    });
+
+    it('does not return assignment question snapshots with submissions', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3, kind: 'assignment' });
+      requireInstructorOrAdmin.mockResolvedValueOnce(false);
+      courseEnrollmentFindOne.mockResolvedValueOnce({ id: 14, role: 'student' });
+      submissionFindAll.mockResolvedValueOnce([
+        {
+          id: 31,
+          assignment_question_id: 21,
+          user_id: 7,
+          AssignmentQuestion: {
+            id: 21,
+            question_snapshot: { answer: 'P' },
+          },
+        },
+      ]);
+
+      const handlers = getRouteHandlers(assignmentsRouter, '/:id/submissions', 'get');
+      const req = { params: { id: '9' }, query: {}, user: { id: 7, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toEqual([{ id: 31, assignment_question_id: 21, user_id: 7 }]);
+      expect(submissionFindAll).toHaveBeenCalledWith(expect.objectContaining({
+        include: [expect.objectContaining({ attributes: [] })],
+      }));
     });
   });
 });
