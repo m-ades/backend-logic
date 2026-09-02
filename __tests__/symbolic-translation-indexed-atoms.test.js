@@ -57,6 +57,19 @@ describe('indexed propositional atoms', () => {
     });
   });
 
+  it('grades comma separated indexed statements', async () => {
+    await expect(check('B ∧ C_1, B ∧ C_2', 'B ∧ C_1, B ∧ C_2'))
+      .resolves.toMatchObject({
+        successstatus: 'correct',
+        points: 1,
+      });
+    await expect(check('B ∧ C_1, B ∧ C_2', 'B ∧ C₂, B ∧ C₁'))
+      .resolves.toMatchObject({
+        successstatus: 'correct',
+        points: 1,
+      });
+  });
+
   it('rejects formulas that collapse distinct indexed atoms', async () => {
     await expect(check('(E₁ ∧ E₂)', '(E₁ ∧ E₁)')).resolves.toMatchObject({
       successstatus: 'incorrect',
