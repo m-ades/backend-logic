@@ -22,7 +22,8 @@ export function isAssignmentLocked(assignment, now = new Date()) {
 
 /*
 manual locks clear publish times and unlocks stamp now
-scheduled times set the lock state and invalid timestamps throw request errors
+explicit unlocks use server time even when clients send a timestamp
+other scheduled times set the lock state and invalid timestamps throw request errors
 */
 export function normalizePublicationWrite(payload, { defaultLocked = false, now = new Date() } = {}) {
   const normalized = { ...payload };
@@ -37,6 +38,12 @@ export function normalizePublicationWrite(payload, { defaultLocked = false, now 
   }
 
   const current = toTemporalInstant(now);
+
+  if (hasLock && normalized.is_locked === false) {
+    normalized.is_locked = false;
+    normalized.publish_at = current.toString();
+    return normalized;
+  }
 
   if (hasPublishAt && normalized.publish_at != null && normalized.publish_at !== '') {
     let publishAt;

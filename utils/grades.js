@@ -12,6 +12,14 @@ import { isAssignmentLocked } from './publicationPolicy.js';
 
 const toNumber = (value) => (value === null || value === undefined ? 0 : Number(value));
 
+// sql equivalent of the effective publication policy
+const EFFECTIVELY_PUBLISHED_SQL = `
+  (
+    (a.publish_at IS NULL AND a.is_locked = false)
+    OR a.publish_at <= NOW()
+  )
+`;
+
 // recomputes one persisted grade from the remaining questions and submissions
 // returns null only when the assignment or its questions no longer exist
 // removes the persisted grade when no questions remain
@@ -235,6 +243,7 @@ export async function ensureZeroGradesForPastDue({ userId }) {
         ON sa.assignment_id = a.id
       WHERE a.kind = 'assignment'
         AND a.due_date IS NOT NULL
+        AND ${EFFECTIVELY_PUBLISHED_SQL}
         AND ag.assignment_id IS NULL
         AND sa.assignment_id IS NULL
         AND NOW() > (
@@ -303,10 +312,7 @@ export async function ensureZeroGradesForUnlocked({ userId }) {
       LEFT JOIN submitted_assignments sa
         ON sa.assignment_id = a.id
       WHERE a.kind = 'assignment'
-        AND (
-          (a.publish_at IS NULL AND a.is_locked = false)
-          OR a.publish_at <= NOW()
-        )
+        AND ${EFFECTIVELY_PUBLISHED_SQL}
         AND ag.assignment_id IS NULL
         AND sa.assignment_id IS NULL
       ON CONFLICT (assignment_id, user_id) DO NOTHING

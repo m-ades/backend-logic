@@ -37,9 +37,18 @@ describe('assignment publication policy', () => {
     });
   });
 
-  it('derives the stored lock flag from an explicit publish_at', () => {
+  it('uses server time when an explicit unlock includes a future client timestamp', () => {
     expect(normalizePublicationWrite({
       is_locked: false,
+      publish_at: '2026-09-04T16:00:01Z',
+    }, { now })).toEqual({
+      is_locked: false,
+      publish_at: '2026-09-04T16:00:00Z',
+    });
+  });
+
+  it('derives the stored lock flag from an explicit publish_at', () => {
+    expect(normalizePublicationWrite({
       publish_at: '2026-09-04T12:01:00-04:00',
     }, { now })).toEqual({
       is_locked: true,
