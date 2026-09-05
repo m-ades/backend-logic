@@ -17,27 +17,32 @@ import { addDays, computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { ensureSelfOrAdmin, isSystemAdmin } from '../utils/authorization.js';
 import { requireInstructorOrAdmin } from './instructor.js';
 import { formatDueDateEastern, parseDueDateForStorage } from '../utils/easternDate.js';
+import {
+  isAssignmentLocked,
+  normalizePublicationWrite,
+} from '../utils/publicationPolicy.js';
 import { projectQuestionForStudent } from '../utils/questionVisibility.js';
 
 function sanitizeAssignment(record) {
   const data = record?.toJSON ? record.toJSON() : record;
+  if (data) data.is_locked = isAssignmentLocked(data);
   if (data?.due_date != null) data.due_date = formatDueDateEastern(data.due_date);
+  if (data?.publish_at != null) data.publish_at = formatDueDateEastern(data.publish_at);
   return data;
 }
 
 function normalizeDueDate(body) {
   const b = { ...body };
-  if (b.due_date != null) b.due_date = parseDueDateForStorage(b.due_date);
+  if (b.due_date != null) b.due_date = parseDueDateForStorage(b.due_date, 'due_date');
+  if (b.publish_at != null) b.publish_at = parseDueDateForStorage(b.publish_at, 'publish_at');
   return b;
 }
 
-// assignment update contract
-// course ownership is immutable after creation
-// editable fields retain existing date normalization
+// updates keep course ownership fixed and normalize due and publication dates
 function normalizeAssignmentUpdate(body) {
   const payload = normalizeDueDate(body);
   delete payload.course_id;
-  return payload;
+  return normalizePublicationWrite(payload);
 }
 
 function formatPolicyDates(policy) {
@@ -112,7 +117,7 @@ async function getAssignmentReadAccess(assignment, user) {
   if (!enrollment) {
     return { allowed: false, canSeeAnswers: false };
   }
-  if (assignment.is_locked && enrollment.role !== 'ta') {
+  if (isAssignmentLocked(assignment) && enrollment.role !== 'ta') {
     return { allowed: false, canSeeAnswers: false };
   }
   return { allowed: true, canSeeAnswers: false };
@@ -131,10 +136,11 @@ const router = createCrudRouter(Assignment, {
   disableGetById: true,
   sanitize: sanitizeAssignment,
   beforeCreate: async (req, body) => {
-    const payload = normalizeDueDate(body);
+    let payload = normalizeDueDate(body);
     if (!Number.isFinite(Number(payload.total_points))) {
       payload.total_points = 0;
     }
+    payload = normalizePublicationWrite(payload, { defaultLocked: true });
     return payload;
   },
   beforeUpdate: async (req, body) => normalizeAssignmentUpdate(body),

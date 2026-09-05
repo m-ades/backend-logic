@@ -16,6 +16,7 @@ import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { recomputeAssignmentGrade, ensureZeroGradesForPastDue, ensureZeroGradesForUnlocked } from '../utils/grades.js';
 import { handleValidationResult } from '../middleware/validation.js';
 import { ensureSelfOrAdmin } from '../utils/authorization.js';
+import { isAssignmentLocked } from '../utils/publicationPolicy.js';
 
 const router = express.Router();
 
@@ -52,8 +53,7 @@ router.post(
       return res.status(404).json({ message: 'quetsion not found' });
     }
 
-    // block submissions if the assignment is manually locked
-    if (assignmentQuestion.Assignment?.is_locked) {
+    if (isAssignmentLocked(assignmentQuestion.Assignment)) {
       return res.status(403).json({ message: 'assignment is locked' });
     }
 

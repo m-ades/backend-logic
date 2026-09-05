@@ -47,6 +47,9 @@ export default function initAssignment(sequelize) {
       due_date: {
         type: DataTypes.DATE,
       },
+      publish_at: {
+        type: DataTypes.DATE,
+      },
       due_at: {
         type: DataTypes.VIRTUAL,
         get() {
