@@ -31,6 +31,7 @@ import {
   fetchInstructorTimeByCategory,
 } from '../queries/analytics.js';
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
+import { isAssignmentLocked } from '../utils/publicationPolicy.js';
 import { ensureSelfOrAdmin, isSystemAdmin } from '../utils/authorization.js';
 import { requireInstructorOrAdmin } from './instructor.js';
 
@@ -97,7 +98,10 @@ router.get(
       fetchStudentTime(sequelize, userId, courseId),
     ]);
     // keep locked assignments out of view for students in assignments page
-    let assignments = assignmentsRaw || [];
+    let assignments = (assignmentsRaw || []).map((assignment) => ({
+      ...assignment,
+      is_locked: isAssignmentLocked(assignment),
+    }));
     if (!isSystemAdmin(req.user)) {
       const staffEnrollments = await CourseEnrollment.findAll({
         where: { user_id: userId, role: { [Op.in]: ['instructor', 'ta'] } },
@@ -324,7 +328,7 @@ router.get(
 
 // same policy as your grade: unlocked only, drop two lowest when three or more (not when two)
 async function computeClassAvgWithDrop(courseId, rows) {
-  const unlocked = (rows || []).filter((r) => r.is_locked === false);
+  const unlocked = (rows || []).filter((row) => !isAssignmentLocked(row));
   const unlockedIds = unlocked.map((r) => r.id);
   if (unlockedIds.length === 0) return null;
 
@@ -395,11 +399,17 @@ router.get('/gradebook-summary', [courseIdParam, handleValidationResult], async 
       return res.status(403).json({ message: 'Enrollment required' });
     }
     const rows = await fetchAssignmentGradeSummary(sequelize, courseId);
-    const class_avg_with_drop = await computeClassAvgWithDrop(courseId, rows);
+    const effectiveRows = rows.map((row) => ({
+      ...row,
+      is_locked: isAssignmentLocked(row),
+    }));
+    const class_avg_with_drop = await computeClassAvgWithDrop(courseId, effectiveRows);
     const canSeeLocked = isSystemAdmin(req.user)
       || enrollment?.role === 'instructor'
       || enrollment?.role === 'ta';
-    const visibleRows = canSeeLocked ? rows : rows.filter((row) => !row.is_locked);
+    const visibleRows = canSeeLocked
+      ? effectiveRows
+      : effectiveRows.filter((row) => !row.is_locked);
     res.json({
       assignments: visibleRows,
       class_avg_with_drop: class_avg_with_drop != null ? class_avg_with_drop : null,
@@ -454,7 +464,7 @@ async function effectiveGradesForGradebook(assignments, enrollments, grades, cou
     for (const assignment of assignments) {
       if (hasGrade.has(`${userId}-${assignment.id}`)) continue;
 
-      const isUnlocked = assignment.is_locked === false;
+      const isUnlocked = !isAssignmentLocked(assignment);
       let includeAsZero = isUnlocked;
 
       if (!includeAsZero && assignment.due_date) {
@@ -627,7 +637,7 @@ export function computeGradebookStudents(
       return {
         assignment_id: assignment.id,
         title: assignment.title,
-        is_locked: Boolean(assignment.is_locked),
+        is_locked: isAssignmentLocked(assignment),
         final_score: finalScore,
         max_score: maxScore,
         percent,

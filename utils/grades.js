@@ -8,8 +8,17 @@ import {
 } from '../models/index.js';
 import { sequelize } from '../config/sequelize.js';
 import { computeDeadlinePolicy } from './assignmentPolicy.js';
+import { isAssignmentLocked } from './publicationPolicy.js';
 
 const toNumber = (value) => (value === null || value === undefined ? 0 : Number(value));
+
+// sql equivalent of the effective publication policy
+const EFFECTIVELY_PUBLISHED_SQL = `
+  (
+    (a.publish_at IS NULL AND a.is_locked = false)
+    OR a.publish_at <= NOW()
+  )
+`;
 
 // recomputes one persisted grade from the remaining questions and submissions
 // returns null only when the assignment or its questions no longer exist
@@ -142,6 +151,7 @@ export async function fetchEffectiveGrades(userId) {
       a.kind AS "a_kind",
       a.due_date AS "a_due_date",
       a.is_locked AS "a_is_locked",
+      a.publish_at AS "a_publish_at",
       (SELECT COUNT(*)::int * 100 FROM assignment_questions WHERE assignment_id = a.id) AS "a_total_points"
     FROM assignments a
     JOIN course_enrollments ce ON ce.course_id = a.course_id AND ce.user_id = :userId
@@ -154,16 +164,8 @@ export async function fetchEffectiveGrades(userId) {
       replacements: { userId },
     }
   );
-  return (rows || []).map((r) => ({
-    assignment_id: r.assignment_id,
-    user_id: r.user_id,
-    raw_score: Number(r.raw_score) || 0,
-    max_score: Number(r.max_score) || 0,
-    penalty_percent: Number(r.penalty_percent) || 0,
-    final_score: Number(r.final_score) || 0,
-    graded_at: r.graded_at,
-    graded_by: r.graded_by ?? null,
-    Assignment: {
+  return (rows || []).map((r) => {
+    const assignment = {
       id: r.a_id,
       title: r.a_title,
       course_id: r.a_course_id,
@@ -171,9 +173,22 @@ export async function fetchEffectiveGrades(userId) {
       kind: r.a_kind,
       due_date: r.a_due_date,
       is_locked: r.a_is_locked,
+      publish_at: r.a_publish_at,
       total_points: r.a_total_points,
-    },
-  }));
+    };
+    assignment.is_locked = isAssignmentLocked(assignment);
+    return {
+      assignment_id: r.assignment_id,
+      user_id: r.user_id,
+      raw_score: Number(r.raw_score) || 0,
+      max_score: Number(r.max_score) || 0,
+      penalty_percent: Number(r.penalty_percent) || 0,
+      final_score: Number(r.final_score) || 0,
+      graded_at: r.graded_at,
+      graded_by: r.graded_by ?? null,
+      Assignment: assignment,
+    };
+  });
 }
 
 export async function ensureZeroGradesForPastDue({ userId }) {
@@ -228,6 +243,7 @@ export async function ensureZeroGradesForPastDue({ userId }) {
         ON sa.assignment_id = a.id
       WHERE a.kind = 'assignment'
         AND a.due_date IS NOT NULL
+        AND ${EFFECTIVELY_PUBLISHED_SQL}
         AND ag.assignment_id IS NULL
         AND sa.assignment_id IS NULL
         AND NOW() > (
@@ -296,7 +312,7 @@ export async function ensureZeroGradesForUnlocked({ userId }) {
       LEFT JOIN submitted_assignments sa
         ON sa.assignment_id = a.id
       WHERE a.kind = 'assignment'
-        AND a.is_locked = false
+        AND ${EFFECTIVELY_PUBLISHED_SQL}
         AND ag.assignment_id IS NULL
         AND sa.assignment_id IS NULL
       ON CONFLICT (assignment_id, user_id) DO NOTHING

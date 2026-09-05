@@ -260,4 +260,69 @@ describe('proof argument extraction question boundaries', () => {
     expect(res.body.message).toContain('must end before the conclusion');
     expect(submissionCreate).not.toHaveBeenCalled();
   });
+
+  it('allows validation after a schedule is reached despite a stale lock flag', async () => {
+    assignmentQuestionFindByPk.mockResolvedValue({
+      id: 21,
+      attempt_limit: 3,
+      question_snapshot: invalidScopeQuestion,
+      Assignment: {
+        ...assignment,
+        is_locked: true,
+        publish_at: '2000-01-01T00:00:00Z',
+        kind: 'assignment',
+      },
+    });
+    accommodationFindOne.mockResolvedValue(null);
+    extensionFindOne.mockResolvedValue(null);
+    overrideFindOne.mockResolvedValue(null);
+    courseEnrollmentFindOne.mockResolvedValue({ id: 5 });
+    submissionCount.mockResolvedValue(0);
+    const handlers = getRouteHandlers(validateRouter, '/submission', 'post');
+    const req = {
+      body: {
+        assignment_question_id: 21,
+        user_id: 7,
+        submission_data: {
+          argumentLine: 'P ∧ Q ∴ P',
+          justifications: ['∧E 1'],
+        },
+      },
+      user: { id: 7 },
+    };
+
+    const res = await runHandlers(handlers, req, createRes());
+
+    expect(res.statusCode).toBe(422);
+    expect(res.body.message).toContain('must end before the conclusion');
+  });
+
+  it('blocks validation before a schedule despite a stale unlocked flag', async () => {
+    assignmentQuestionFindByPk.mockResolvedValue({
+      id: 21,
+      attempt_limit: 3,
+      question_snapshot: validQuestion,
+      Assignment: {
+        ...assignment,
+        is_locked: false,
+        publish_at: '2999-01-01T00:00:00Z',
+        kind: 'assignment',
+      },
+    });
+    const handlers = getRouteHandlers(validateRouter, '/submission', 'post');
+    const req = {
+      body: {
+        assignment_question_id: 21,
+        user_id: 7,
+        submission_data: {},
+      },
+      user: { id: 7 },
+    };
+
+    const res = await runHandlers(handlers, req, createRes());
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toEqual({ message: 'assignment is locked' });
+    expect(accommodationFindOne).not.toHaveBeenCalled();
+  });
 });

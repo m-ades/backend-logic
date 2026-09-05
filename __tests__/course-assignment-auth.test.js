@@ -234,6 +234,56 @@ describe('course and assignment auth', () => {
       expect(res.body.map((a) => a.id)).toEqual([1]);
     });
 
+    it('shows a reached schedule even when the stored lock flag is true', async () => {
+      courseEnrollmentFindOne.mockResolvedValueOnce({ id: 14, role: 'student' });
+      sequelizeQuery.mockResolvedValueOnce([{
+        id: 3,
+        course_id: 3,
+        title: 'published on schedule',
+        kind: 'assignment',
+        is_locked: true,
+        publish_at: '2000-01-01T00:00:00Z',
+        due_date: null,
+        question_count: 1,
+        answered_count: 0,
+      }]);
+      accommodationFindOne.mockResolvedValueOnce(null);
+      assignmentExtensionFindAll.mockResolvedValueOnce([]);
+
+      const handlers = getRouteHandlers(coursesRouter, '/:id/assignments', 'get');
+      const req = { params: { id: '3' }, user: { id: 7, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toEqual([
+        expect.objectContaining({ id: 3, is_locked: false }),
+      ]);
+    });
+
+    it('hides a future schedule even when the stored lock flag is false', async () => {
+      courseEnrollmentFindOne.mockResolvedValueOnce({ id: 14, role: 'student' });
+      sequelizeQuery.mockResolvedValueOnce([{
+        id: 4,
+        course_id: 3,
+        title: 'scheduled',
+        kind: 'assignment',
+        is_locked: false,
+        publish_at: '2999-01-01T00:00:00Z',
+        due_date: null,
+        question_count: 1,
+        answered_count: 0,
+      }]);
+      accommodationFindOne.mockResolvedValueOnce(null);
+      assignmentExtensionFindAll.mockResolvedValueOnce([]);
+
+      const handlers = getRouteHandlers(coursesRouter, '/:id/assignments', 'get');
+      const req = { params: { id: '3' }, user: { id: 7, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toEqual([]);
+    });
+
     it('includes locked assignments in the course list for TAs', async () => {
       courseEnrollmentFindOne.mockResolvedValueOnce({ id: 14, role: 'ta' });
       mockCourseAssignmentRows();
@@ -304,6 +354,43 @@ describe('course and assignment auth', () => {
       expect(update).toHaveBeenCalledWith({ title: 'New title' });
     });
 
+    it('clears an old schedule when an instructor manually locks an assignment', async () => {
+      const update = jest.fn().mockResolvedValueOnce();
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3, update });
+      requireInstructorOrAdmin.mockResolvedValueOnce(true);
+
+      const handlers = getRouteHandlers(assignmentsRouter, '/:id', 'put');
+      const req = {
+        params: { id: '9' },
+        body: { is_locked: true },
+        user: { id: 7, is_system_admin: false },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(update).toHaveBeenCalledWith({ is_locked: true, publish_at: null });
+    });
+
+    it('rejects an ambiguous new york schedule before updating the assignment', async () => {
+      const update = jest.fn();
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3, update });
+      requireInstructorOrAdmin.mockResolvedValueOnce(true);
+
+      const handlers = getRouteHandlers(assignmentsRouter, '/:id', 'put');
+      const req = {
+        params: { id: '9' },
+        body: { publish_at: '2026-11-01T01:30' },
+        user: { id: 7, is_system_admin: false },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body).toEqual({
+        message: 'publish_at must be a valid New York timestamp',
+      });
+      expect(update).not.toHaveBeenCalled();
+    });
+
     it('rejects assignment list reads for non-admins', async () => {
       const handlers = getRouteHandlers(assignmentsRouter, '/', 'get');
       const req = { user: { id: 7, is_system_admin: false } };
@@ -361,6 +448,26 @@ describe('course and assignment auth', () => {
 
       expect(res.statusCode).toBe(403);
       expect(assignmentQuestionFindAll).not.toHaveBeenCalled();
+    });
+
+    it('lets an enrolled student read an assignment after its schedule is reached', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({
+        id: 9,
+        course_id: 3,
+        kind: 'assignment',
+        is_locked: true,
+        publish_at: '2000-01-01T00:00:00Z',
+      });
+      requireInstructorOrAdmin.mockResolvedValueOnce(false);
+      courseEnrollmentFindOne.mockResolvedValueOnce({ id: 14, role: 'student' });
+      assignmentQuestionFindAll.mockResolvedValueOnce([]);
+
+      const handlers = getRouteHandlers(assignmentsRouter, '/:id', 'get');
+      const req = { params: { id: '9' }, query: {}, user: { id: 7, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.assignment.is_locked).toBe(false);
     });
 
     it('hides a locked assignment\'s questions from an enrolled student', async () => {

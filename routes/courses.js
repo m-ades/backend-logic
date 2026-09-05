@@ -22,6 +22,7 @@ import { isSystemAdmin } from '../utils/authorization.js';
 import { requireEnrollmentForCourse } from '../utils/enrollment.js';
 import { DEFAULT_LOGIC_SYSTEM, normalizeLogicSystem } from '../lib/logicSystems.js';
 import { requireInstructorOrAdmin } from './instructor.js';
+import { isAssignmentLocked } from '../utils/publicationPolicy.js';
 
 function formatPolicyDates(policy) {
   if (!policy) return null;
@@ -109,6 +110,7 @@ router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (r
         a.late_penalty_percent,
         a.total_points,
         a.is_locked,
+        a.publish_at,
         a.group_questions_by_type,
         a.created_at,
         COALESCE(stats.question_count, 0) AS question_count,
@@ -133,7 +135,9 @@ router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (r
         type: QueryTypes.SELECT,
       }
     );
-    const visibleRows = canSeeLocked ? rows : rows.filter((row) => !row.is_locked);
+    const visibleRows = canSeeLocked
+      ? rows
+      : rows.filter((row) => !isAssignmentLocked(row));
     const accommodation = userId
       ? await Accommodation.findOne({
         where: { course_id: courseId, user_id: userId },
@@ -191,7 +195,8 @@ router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (r
         late_window_days: row.late_window_days,
         late_penalty_percent: row.late_penalty_percent,
         total_points: question_count * 100,
-        is_locked: row.is_locked,
+        is_locked: isAssignmentLocked(row),
+        publish_at: row.publish_at != null ? formatDueDateEastern(row.publish_at) : null,
         group_questions_by_type: row.group_questions_by_type,
         created_at: row.created_at,
         question_count,
