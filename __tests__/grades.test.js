@@ -25,7 +25,10 @@ jest.unstable_mockModule('../config/sequelize.js', () => ({
   sequelize: { query: sequelizeQuery },
 }));
 
-const { recomputeAssignmentGrade } = await import('../utils/grades.js');
+const {
+  ensureZeroGradesForUnlocked,
+  recomputeAssignmentGrade,
+} = await import('../utils/grades.js');
 
 describe('assignment grade recomputation', () => {
   const assignment = {
@@ -167,5 +170,15 @@ describe('assignment grade recomputation', () => {
       where: { assignment_id: 9, user_id: 7 },
     });
     expect(sequelizeQuery).not.toHaveBeenCalled();
+  });
+
+  it('treats a reached publish_at as unlocked when creating zero grades', async () => {
+    sequelizeQuery.mockResolvedValueOnce([]);
+
+    await ensureZeroGradesForUnlocked({ userId: 7 });
+
+    const [query] = sequelizeQuery.mock.calls[0];
+    expect(query).toContain('a.publish_at IS NULL AND a.is_locked = false');
+    expect(query).toContain('OR a.publish_at <= NOW()');
   });
 });
