@@ -326,21 +326,11 @@ router.get(
   }
 });
 
-/**
- * computes the mean student percentage for published past due assignments
- * missing grades count as zero and two lowest scores drop when three or more exist
- * returns null when no eligible assignment or student exists
- */
+// class average over each student's past-cutoff work, missing counts as zero, two lowest drop
 export async function computeClassAvgWithDrop(courseId, rows) {
   const now = new Date();
   const unlocked = (rows || []).filter((row) => !isAssignmentLocked(row));
-  const unlockedPastDue = unlocked.filter((r) => {
-    const d = parseDueDate(r.due_at ?? r.due_date);
-    return d && now >= d;
-  });
-  const pool = unlockedPastDue;
-  const poolIds = pool.map((r) => r.id);
-  if (poolIds.length === 0) return null;
+  if (unlocked.length === 0) return null;
 
   const enrollments = await CourseEnrollment.findAll({
     where: { course_id: courseId, role: 'student' },
@@ -349,13 +339,21 @@ export async function computeClassAvgWithDrop(courseId, rows) {
   const studentIds = enrollments.map((e) => e.user_id);
   if (studentIds.length === 0) return null;
 
-  const grades = await AssignmentGrade.findAll({
-    where: {
-      assignment_id: poolIds,
-      user_id: studentIds,
-    },
-    attributes: ['user_id', 'assignment_id', 'final_score', 'max_score'],
-  });
+  const assignmentIds = unlocked.map((row) => row.id);
+  const [grades, extensions, accommodations] = await Promise.all([
+    AssignmentGrade.findAll({
+      where: { assignment_id: assignmentIds, user_id: studentIds },
+      attributes: ['user_id', 'assignment_id', 'final_score', 'max_score'],
+    }),
+    AssignmentExtension.findAll({
+      where: { assignment_id: assignmentIds, user_id: studentIds },
+      attributes: ['assignment_id', 'user_id', 'extended_due_date'],
+    }),
+    Accommodation.findAll({
+      where: { course_id: courseId, user_id: studentIds },
+      attributes: ['user_id', 'extra_late_days'],
+    }),
+  ]);
 
   const gradeByKey = new Map(
     grades.map((g) => [
@@ -363,22 +361,37 @@ export async function computeClassAvgWithDrop(courseId, rows) {
       g.max_score > 0 ? (g.final_score / g.max_score) * 100 : 0,
     ])
   );
+  const extensionByKey = new Map(
+    extensions.map((e) => [`${e.assignment_id}-${e.user_id}`, e])
+  );
+  const accommodationByUser = new Map(
+    accommodations.map((a) => [a.user_id, a])
+  );
 
   let sum = 0;
   let count = 0;
-  for (const e of enrollments) {
-    const uid = e.user_id;
-    const percents = poolIds.map(
-      (aid) => gradeByKey.get(`${uid}-${aid}`) ?? 0
-    );
-    // percents only from past-due unlocked pool (same ids as poolIds)
+  for (const enrollment of enrollments) {
+    const userId = enrollment.user_id;
+    const accommodation = accommodationByUser.get(userId) ?? null;
+    const percents = [];
+
+    for (const assignment of unlocked) {
+      const policy = computeDeadlinePolicy({
+        assignment: {
+          due_date: assignment.due_at ?? assignment.due_date,
+          late_window_days: assignment.late_window_days,
+        },
+        extension: extensionByKey.get(`${assignment.id}-${userId}`) ?? null,
+        accommodation,
+      });
+      if (!policy.cutoff_at || now <= policy.cutoff_at) continue;
+      percents.push(gradeByKey.get(`${userId}-${assignment.id}`) ?? 0);
+    }
+
+    if (percents.length === 0) continue;
     const sorted = percents.slice().sort((a, b) => a - b);
-    const afterDrop = poolIds.length >= 3 ? sorted.slice(2) : sorted;
-    const studentAvg =
-      afterDrop.length > 0
-        ? afterDrop.reduce((s, p) => s + p, 0) / afterDrop.length
-        : 0;
-    sum += studentAvg;
+    const afterDrop = sorted.length >= 3 ? sorted.slice(2) : sorted;
+    sum += afterDrop.reduce((s, p) => s + p, 0) / afterDrop.length;
     count += 1;
   }
   return count > 0 ? sum / count : null;
@@ -418,14 +431,13 @@ router.get('/gradebook-summary', [courseIdParam, handleValidationResult], async 
   }
 });
 
-/**
- * returns stored grades plus temporary zero grades after each effective due date
- * respects extensions and accommodations without database writes
- */
+// stored grades plus in-memory zeros past each student's own cutoff, no db writes
 export async function effectiveGradesForGradebook(assignments, enrollments, grades, courseId) {
   const assignmentIds = assignments.map((a) => a.id);
   const userIds = enrollments.map((e) => e.user_id);
-  if (!assignmentIds.length || !userIds.length) return grades;
+  if (!assignmentIds.length || !userIds.length) {
+    return { grades, eligibleGradeKeys: new Set() };
+  }
 
   const hasGrade = new Set(
     grades.map((g) => `${g.user_id}-${g.assignment_id}`)
@@ -454,26 +466,29 @@ export async function effectiveGradesForGradebook(assignments, enrollments, grad
 
   const now = new Date();
   const synthetic = [];
+  const eligibleGradeKeys = new Set();
 
   for (const enrollment of enrollments) {
     const userId = enrollment.user_id;
     const accommodation = accommodationByUser.get(userId) ?? null;
 
     for (const assignment of assignments) {
-      if (hasGrade.has(`${userId}-${assignment.id}`)) continue;
+      if (!assignment.due_date || isAssignmentLocked(assignment)) continue;
 
-      let includeAsZero = false;
-      if (assignment.due_date) {
-        const extension = extensionByKey.get(`${assignment.id}-${userId}`) ?? null;
-        const policy = computeDeadlinePolicy({
-          assignment: { due_date: assignment.due_date, late_window_days: assignment.late_window_days },
-          extension,
-          accommodation,
-        });
-        includeAsZero = policy.due_at != null && now >= policy.due_at;
-      }
+      const gradeKey = `${userId}-${assignment.id}`;
+      const extension = extensionByKey.get(`${assignment.id}-${userId}`) ?? null;
+      const policy = computeDeadlinePolicy({
+        assignment: {
+          due_date: assignment.due_date,
+          late_window_days: assignment.late_window_days,
+        },
+        extension,
+        accommodation,
+      });
+      if (!policy.cutoff_at || now <= policy.cutoff_at) continue;
 
-      if (!includeAsZero) continue;
+      eligibleGradeKeys.add(gradeKey);
+      if (hasGrade.has(gradeKey)) continue;
 
       synthetic.push({
         user_id: userId,
@@ -484,7 +499,10 @@ export async function effectiveGradesForGradebook(assignments, enrollments, grad
     }
   }
 
-  return [...grades, ...synthetic];
+  return {
+    grades: [...grades, ...synthetic],
+    eligibleGradeKeys,
+  };
 }
 
 async function buildGradebookStudents(assignments, enrollments, dropLowestN, courseId) {
@@ -498,7 +516,7 @@ async function buildGradebookStudents(assignments, enrollments, dropLowestN, cou
         })
       : [];
 
-  const grades = await effectiveGradesForGradebook(
+  const { grades, eligibleGradeKeys } = await effectiveGradesForGradebook(
     assignments,
     enrollments,
     gradesFromDb,
@@ -511,7 +529,7 @@ async function buildGradebookStudents(assignments, enrollments, dropLowestN, cou
     enrollments,
     grades,
     dropLowestN,
-    submissionCounts
+    { submissionCounts, eligibleGradeKeys }
   );
 }
 
@@ -602,16 +620,18 @@ function buildAssignmentMeta(assignments) {
   }));
 }
 
-/**
- * builds gradebook rows while limiting averages to published past due assignments
- */
+// every assignment stays visible but rollups only count eligible past-cutoff work
 export function computeGradebookStudents(
   assignments,
   enrollments,
   grades,
   dropLowestN,
-  submissionCounts = new Map()
+  options = {}
 ) {
+  const {
+    submissionCounts = new Map(),
+    eligibleGradeKeys = new Set(),
+  } = options ?? {};
   const gradeMap = new Map();
   grades.forEach((grade) => {
     if (!gradeMap.has(grade.user_id)) {
@@ -647,18 +667,9 @@ export function computeGradebookStudents(
         has_late_submission: Number(grade?.penalty_percent ?? 0) > 0,
       };
     });
-    const now = new Date();
-    const averageItems = perAssignment.filter((item, index) => {
-      if (item.is_locked) return false;
-      const assignment = assignments[index];
-      const rawDueDate =
-        assignment.due_date ??
-        assignment.get?.('due_date') ??
-        assignment.due_at ??
-        assignment.get?.('due_at');
-      const dueDate = parseDueDate(rawDueDate);
-      return dueDate != null && now >= dueDate;
-    });
+    const averageItems = perAssignment.filter((item) => (
+      !item.is_locked && eligibleGradeKeys.has(`${user.id}-${item.assignment_id}`)
+    ));
 
     const totalScore = averageItems.reduce((sum, item) => sum + item.final_score, 0);
     const totalPoints = averageItems.reduce((sum, item) => sum + item.max_score, 0);

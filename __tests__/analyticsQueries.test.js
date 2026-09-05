@@ -44,6 +44,22 @@ describe('analytics queries', () => {
 
     await fetchAssignmentGradeSummary(sequelize, 1);
 
-    expect(capturedSql).toMatch(/AVG\\(COALESCE\\(ag\\.final_score/i);
+    expect(capturedSql).toMatch(/AVG\(COALESCE\(ss\.final_score/i);
+    expect(capturedSql).toMatch(/ss\.max_score IS NULL AND ss\.is_past_due/i);
+  });
+
+  it('fetchAssignmentGradeSummary leaves work that is not yet due out of the averages', async () => {
+    let capturedSql = '';
+    const sequelize = {
+      query: jest.fn().mockImplementation(async (sql) => {
+        capturedSql = sql;
+        return [[]];
+      }),
+    };
+
+    await fetchAssignmentGradeSummary(sequelize, 1);
+
+    expect(capturedSql).toContain('COALESCE(ext.extended_due_date, a.due_date)');
+    expect(capturedSql).toContain('COALESCE(a.late_window_days, 0) + COALESCE(acc.extra_late_days, 0)');
   });
 });

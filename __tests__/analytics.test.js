@@ -1,5 +1,19 @@
 import { computeGradebookStudents } from '../routes/analytics.js';
 
+// stands in for effectiveGradesForGradebook: every past-due pair is eligible
+const eligibleFor = (assignments, enrollments) => {
+  const keys = new Set();
+  const now = Date.now();
+  enrollments.forEach((enrollment) => {
+    assignments.forEach((assignment) => {
+      if (!assignment.due_date) return;
+      if (new Date(assignment.due_date).getTime() > now) return;
+      keys.add(`${enrollment.user_id}-${assignment.id}`);
+    });
+  });
+  return keys;
+};
+
 describe('computeGradebookStudents', () => {
   it('drops the lowest assignment by percent', () => {
     const past = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -17,7 +31,9 @@ describe('computeGradebookStudents', () => {
       { user_id: 1, assignment_id: 3, final_score: 90, max_score: 100 },
     ];
 
-    const [student] = computeGradebookStudents(assignments, enrollments, grades, 1);
+    const [student] = computeGradebookStudents(assignments, enrollments, grades, 1, {
+      eligibleGradeKeys: eligibleFor(assignments, enrollments),
+    });
 
     expect(student.totals.average_percent).toBeCloseTo(0.7166667, 6);
     expect(student.dropped.average_percent).toBeCloseTo(0.825, 6);
@@ -52,7 +68,9 @@ describe('computeGradebookStudents', () => {
       { user_id: 1, assignment_id: 2, final_score: 0, max_score: 100 },
     ];
 
-    const [student] = computeGradebookStudents(assignments, enrollments, grades, 0);
+    const [student] = computeGradebookStudents(assignments, enrollments, grades, 0, {
+      eligibleGradeKeys: eligibleFor(assignments, enrollments),
+    });
 
     expect(student.assignments.map((assignment) => assignment.is_locked))
       .toEqual([false, true]);
@@ -76,7 +94,9 @@ describe('computeGradebookStudents', () => {
       { user_id: 1, assignment_id: 3, final_score: 0, max_score: 100 },
     ];
 
-    const [student] = computeGradebookStudents(assignments, enrollments, grades, 1);
+    const [student] = computeGradebookStudents(assignments, enrollments, grades, 1, {
+      eligibleGradeKeys: eligibleFor(assignments, enrollments),
+    });
 
     expect(student.totals.average_percent).toBeCloseTo(0.9, 6);
     expect(student.dropped.average_percent).toBeCloseTo(0.9, 6);
@@ -96,7 +116,9 @@ describe('computeGradebookStudents', () => {
       { user_id: 1, assignment_id: 1, final_score: 100, max_score: 100 },
     ];
 
-    const [student] = computeGradebookStudents(assignments, enrollments, grades, 1);
+    const [student] = computeGradebookStudents(assignments, enrollments, grades, 1, {
+      eligibleGradeKeys: eligibleFor(assignments, enrollments),
+    });
 
     expect(student.totals.average_percent).toBeNull();
     expect(student.dropped.average_percent).toBeNull();
@@ -113,7 +135,9 @@ describe('computeGradebookStudents', () => {
     ];
     const grades = [];
 
-    const [student] = computeGradebookStudents(assignments, enrollments, grades, 0);
+    const [student] = computeGradebookStudents(assignments, enrollments, grades, 0, {
+      eligibleGradeKeys: eligibleFor(assignments, enrollments),
+    });
 
     expect(student.totals.average_percent).toBe(0);
     expect(student.dropped.average_percent).toBe(0);
@@ -130,7 +154,9 @@ describe('computeGradebookStudents', () => {
       { user_id: 1, assignment_id: 1, final_score: 100, max_score: 100 },
     ];
 
-    const [student] = computeGradebookStudents(assignments, enrollments, grades, 0);
+    const [student] = computeGradebookStudents(assignments, enrollments, grades, 0, {
+      eligibleGradeKeys: eligibleFor(assignments, enrollments),
+    });
 
     expect(student.totals.average_percent).toBeNull();
     expect(student.dropped.average_percent).toBeNull();

@@ -43,7 +43,6 @@ jest.unstable_mockModule('../routes/instructor.js', () => ({
 
 jest.unstable_mockModule('../utils/grades.js', () => ({
   ensureZeroGradesForPastDue: jest.fn(),
-  ensureZeroGradesForUnlocked: jest.fn(),
   recomputeAssignmentGrade,
 }));
 

@@ -13,7 +13,7 @@ import {
 import { validateLogicPenguin } from '../validators/logicpenguin.js';
 import { LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '../lib/logicSystems.js';
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
-import { recomputeAssignmentGrade, ensureZeroGradesForPastDue, ensureZeroGradesForUnlocked } from '../utils/grades.js';
+import { recomputeAssignmentGrade, ensureZeroGradesForPastDue } from '../utils/grades.js';
 import { handleValidationResult } from '../middleware/validation.js';
 import { ensureSelfOrAdmin } from '../utils/authorization.js';
 import { isAssignmentLocked } from '../utils/publicationPolicy.js';
@@ -165,11 +165,8 @@ router.post(
 
     await recomputeAssignmentGrade({ assignmentId: assignment.id, userId: user_id });
 
-    // backfill zeros for past-due and unlocked. not on GET.
-    Promise.all([
-      ensureZeroGradesForPastDue({ userId: user_id }),
-      ensureZeroGradesForUnlocked({ userId: user_id }),
-    ]).catch((err) => {
+    // backfill zeros for past-due work. not on GET.
+    ensureZeroGradesForPastDue({ userId: user_id }).catch((err) => {
       console.warn('Post-submission ensureZeroGrades failed:', err?.message || err);
     });
 
