@@ -1,3 +1,5 @@
+import { EFFECTIVELY_PUBLISHED_SQL } from '../utils/publicationPolicy.js';
+
 /**
  * fetch assignment analytics with submission stats.
  * @param {import('sequelize').Sequelize} sequelize - db instance
@@ -399,6 +401,7 @@ export async function fetchAssignmentGradeSummary(sequelize, courseId) {
           ag.final_score,
           (
             a.due_date IS NOT NULL
+            AND ${EFFECTIVELY_PUBLISHED_SQL}
             AND NOW() > (
               COALESCE(ext.extended_due_date, a.due_date)
               + (COALESCE(a.late_window_days, 0) + COALESCE(acc.extra_late_days, 0))

@@ -62,4 +62,19 @@ describe('analytics queries', () => {
     expect(capturedSql).toContain('COALESCE(ext.extended_due_date, a.due_date)');
     expect(capturedSql).toContain('COALESCE(a.late_window_days, 0) + COALESCE(acc.extra_late_days, 0)');
   });
+
+  it('fetchAssignmentGradeSummary treats unpublished work as not past due', async () => {
+    let capturedSql = '';
+    const sequelize = {
+      query: jest.fn().mockImplementation(async (sql) => {
+        capturedSql = sql;
+        return [[]];
+      }),
+    };
+
+    await fetchAssignmentGradeSummary(sequelize, 1);
+
+    expect(capturedSql).toContain('a.publish_at IS NULL AND a.is_locked = false');
+    expect(capturedSql).toContain('OR a.publish_at <= NOW()');
+  });
 });

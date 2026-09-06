@@ -8,17 +8,9 @@ import {
 } from '../models/index.js';
 import { sequelize } from '../config/sequelize.js';
 import { computeDeadlinePolicy } from './assignmentPolicy.js';
-import { isAssignmentLocked } from './publicationPolicy.js';
+import { EFFECTIVELY_PUBLISHED_SQL, isAssignmentLocked } from './publicationPolicy.js';
 
 const toNumber = (value) => (value === null || value === undefined ? 0 : Number(value));
-
-// sql equivalent of the effective publication policy
-const EFFECTIVELY_PUBLISHED_SQL = `
-  (
-    (a.publish_at IS NULL AND a.is_locked = false)
-    OR a.publish_at <= NOW()
-  )
-`;
 
 // recomputes one persisted grade from the remaining questions and submissions
 // returns null only when the assignment or its questions no longer exist
