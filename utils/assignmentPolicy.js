@@ -1,3 +1,14 @@
+/* 
+sql equivalent of computeDeadlinePolicy's cutoff, for queries that cannot call it
+*/
+export const PAST_CUTOFF_SQL = `
+  (
+    COALESCE(ext.extended_due_date, a.due_date)
+    + COALESCE(acc.extra_late_days, 0) * INTERVAL '1 day'
+    + COALESCE(a.late_window_days, 0) * INTERVAL '1 day'
+  )
+`;
+
 // returns a new date that's days later
 export function addDays(date, days) {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
@@ -26,10 +37,9 @@ export function computeDeadlinePolicy({
     : new Date(assignment.due_date);
   const lateWindowDays = assignment?.late_window_days ?? 0;
   const extraLateDays = accommodation?.extra_late_days ?? 0;
-  const hasExtension = Boolean(extension?.extended_due_date);
-  // treat accommodation extra_late_days as extra full-credit days (shift due date),
-  // not as additional late-window days. do not stack with extensions.
-  const effectiveDue = !hasExtension && extraLateDays
+  // extra_late_days are full-credit days that shift the due date, and they stack
+  // on top of an extension rather than being cancelled out by one
+  const effectiveDue = extraLateDays
     ? addDays(baseDue, extraLateDays)
     : baseDue;
   const cutoff = addDays(effectiveDue, lateWindowDays);

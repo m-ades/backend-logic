@@ -7,7 +7,7 @@ import {
   AssignmentQuestion,
 } from '../models/index.js';
 import { sequelize } from '../config/sequelize.js';
-import { computeDeadlinePolicy } from './assignmentPolicy.js';
+import { PAST_CUTOFF_SQL, computeDeadlinePolicy } from './assignmentPolicy.js';
 import { EFFECTIVELY_PUBLISHED_SQL, isAssignmentLocked } from './publicationPolicy.js';
 
 const toNumber = (value) => (value === null || value === undefined ? 0 : Number(value));
@@ -238,11 +238,7 @@ export async function ensureZeroGradesForPastDue({ userId }) {
         AND ${EFFECTIVELY_PUBLISHED_SQL}
         AND ag.assignment_id IS NULL
         AND sa.assignment_id IS NULL
-        AND NOW() > (
-          COALESCE(ext.extended_due_date, a.due_date)
-          + (COALESCE(a.late_window_days, 0) + COALESCE(acc.extra_late_days, 0))
-            * INTERVAL '1 day'
-        )
+        AND NOW() > ${PAST_CUTOFF_SQL}
       ON CONFLICT (assignment_id, user_id) DO NOTHING
     `,
     {
