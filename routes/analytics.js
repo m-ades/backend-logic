@@ -172,20 +172,53 @@ router.get(
       })
       .slice(0, 4);
 
-    const assignmentGrades = assignments.map((a) => ({
-      assignment_id: a.id,
-      final_score: a.final_score ?? 0,
-      max_score: a.max_score ?? a.total_points ?? 0,
-      raw_score: a.final_score ?? 0,
-      graded_at: a.graded_at,
-      Assignment: {
-        id: a.id,
-        title: a.title,
-        is_locked: a.is_locked,
-        due_at: a.due_at ?? a.due_date,
-        due_date: a.due_date,
-      },
-    }));
+    const dashAssignmentIds = assignments.map((a) => a.id);
+    const [dashExtensions, dashAccommodations] = await Promise.all([
+      dashAssignmentIds.length
+        ? AssignmentExtension.findAll({
+            where: { assignment_id: dashAssignmentIds, user_id: userId },
+            attributes: ['assignment_id', 'extended_due_date'],
+          })
+        : [],
+      Accommodation.findAll({
+        where: { user_id: userId },
+        attributes: ['course_id', 'extra_late_days'],
+      }),
+    ]);
+    const extensionByAssignment = new Map(
+      dashExtensions.map((e) => [e.assignment_id, e])
+    );
+    const accommodationByCourse = new Map(
+      dashAccommodations.map((a) => [a.course_id, a])
+    );
+
+    const assignmentGrades = assignments.map((a) => {
+      const policy = computeDeadlinePolicy({
+        assignment: {
+          due_date: a.due_at ?? a.due_date,
+          late_window_days: a.late_window_days,
+        },
+        extension: extensionByAssignment.get(a.id) ?? null,
+        accommodation: accommodationByCourse.get(a.course_id) ?? null,
+      });
+      return {
+        assignment_id: a.id,
+        final_score: a.final_score ?? 0,
+        max_score: a.max_score ?? a.total_points ?? 0,
+        raw_score: a.final_score ?? 0,
+        graded_at: a.graded_at,
+        Assignment: {
+          id: a.id,
+          title: a.title,
+          is_locked: a.is_locked,
+          due_at: a.due_at ?? a.due_date,
+          due_date: a.due_date,
+          late_window_days: a.late_window_days ?? null,
+          // computed server side so clients never reimplement the cutoff
+          cutoff_at: policy.cutoff_at ?? null,
+        },
+      };
+    });
 
     const safeTime = {
       avg_minutes_per_question: null,
@@ -376,6 +409,8 @@ export async function computeClassAvgWithDrop(courseId, rows) {
     const percents = [];
 
     for (const assignment of unlocked) {
+      // an assignment with no questions has nothing to score against
+      if (!(Number(assignment.total_points) > 0)) continue;
       const policy = computeDeadlinePolicy({
         assignment: {
           due_date: assignment.due_at ?? assignment.due_date,

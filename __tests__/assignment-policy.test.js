@@ -33,6 +33,16 @@ describe('assignment deadline policy', () => {
     expect(at(policy.cutoff_at)).toBe(at('2026-03-13T00:00:00Z'));
   });
 
+  it('ignores an extension that falls before the assignment due date', () => {
+    // the due date can move later after an extension is granted; that must not shorten it
+    const policy = computeDeadlinePolicy({
+      assignment,
+      extension: { extended_due_date: '2026-02-20T00:00:00Z' },
+    });
+    expect(at(policy.due_at)).toBe(at('2026-03-01T00:00:00Z'));
+    expect(at(policy.cutoff_at)).toBe(at('2026-03-04T00:00:00Z'));
+  });
+
   it('stacks extra_late_days on top of an extension', () => {
     const policy = computeDeadlinePolicy({
       assignment,

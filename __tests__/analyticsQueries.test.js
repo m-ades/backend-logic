@@ -60,7 +60,7 @@ describe('analytics queries', () => {
     await fetchAssignmentGradeSummary(sequelize, 1);
 
     // extra_late_days stack on top of an extension, then the late window is added
-    expect(capturedSql).toContain('COALESCE(ext.extended_due_date, a.due_date)');
+    expect(capturedSql).toContain('GREATEST(ext.extended_due_date, a.due_date)');
     expect(capturedSql).toContain("COALESCE(acc.extra_late_days, 0) * INTERVAL '1 day'");
     expect(capturedSql).toContain("COALESCE(a.late_window_days, 0) * INTERVAL '1 day'");
   });

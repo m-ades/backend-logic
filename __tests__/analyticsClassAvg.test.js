@@ -40,9 +40,9 @@ describe('analytics helpers', () => {
     // class avg should include students with all missing past due work as zero
     const past = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const rows = [
-      { id: 1, is_locked: false, due_date: past, avg_percent: 1 },
-      { id: 2, is_locked: false, due_date: past, avg_percent: 1 },
-      { id: 3, is_locked: false, due_date: past, avg_percent: 1 },
+      { id: 1, is_locked: false, due_date: past, avg_percent: 1, total_points: 100 },
+      { id: 2, is_locked: false, due_date: past, avg_percent: 1, total_points: 100 },
+      { id: 3, is_locked: false, due_date: past, avg_percent: 1, total_points: 100 },
     ];
 
     CourseEnrollment.findAll.mockResolvedValueOnce([
@@ -92,13 +92,13 @@ describe('analytics helpers', () => {
   });
 
   it('synthesizes a zero after the effective due date', async () => {
-    // synthetic zero appears only after due date
+    // the extension is the operative deadline, so the zero waits for it rather than the due date
+    const longPast = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
     const past = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const assignments = [
       {
         id: 1,
-        due_date: future,
+        due_date: longPast,
         total_points: 100,
         late_window_days: 0,
       },
@@ -150,10 +150,26 @@ describe('analytics helpers', () => {
     expect(result.eligibleGradeKeys.size).toBe(0);
   });
 
+  it('ignores assignments with no questions in the class average', async () => {
+    const past = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const rows = [
+      { id: 1, is_locked: false, due_date: past, late_window_days: 0, total_points: 100 },
+      { id: 2, is_locked: false, due_date: past, late_window_days: 0, total_points: 0 },
+    ];
+
+    CourseEnrollment.findAll.mockResolvedValueOnce([{ user_id: 1 }]);
+    AssignmentGrade.findAll.mockResolvedValueOnce([
+      { user_id: 1, assignment_id: 1, final_score: 100, max_score: 100 },
+    ]);
+
+    // the questionless assignment must not drag the student to 50
+    expect(await computeClassAvgWithDrop(1, rows)).toBeCloseTo(100, 6);
+  });
+
   it('leaves an extended student out of the class average', async () => {
     const past = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    const rows = [{ id: 1, is_locked: false, due_date: past, late_window_days: 0 }];
+    const rows = [{ id: 1, is_locked: false, due_date: past, late_window_days: 0, total_points: 100 }];
 
     CourseEnrollment.findAll.mockResolvedValueOnce([{ user_id: 1 }, { user_id: 2 }]);
     AssignmentGrade.findAll.mockResolvedValueOnce([
