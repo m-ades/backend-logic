@@ -1,11 +1,11 @@
-/* 
-sql equivalent of computeDeadlinePolicy's cutoff, for queries that cannot call it
+/*
+sql equivalent of the adjusted due date for grading queries
+averages begin at this date and the late window determines the submission cutoff
 */
-export const PAST_CUTOFF_SQL = `
+export const EFFECTIVE_DUE_SQL = `
   (
     GREATEST(ext.extended_due_date, a.due_date)
     + COALESCE(acc.extra_late_days, 0) * INTERVAL '1 day'
-    + COALESCE(a.late_window_days, 0) * INTERVAL '1 day'
   )
 `;
 

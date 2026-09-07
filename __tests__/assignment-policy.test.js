@@ -1,6 +1,6 @@
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 
-// the sql in PAST_CUTOFF_SQL mirrors these rules; changing one without the other is a bug
+// the grading query must match the adjusted due date
 describe('assignment deadline policy', () => {
   const assignment = {
     due_date: '2026-03-01T00:00:00Z',

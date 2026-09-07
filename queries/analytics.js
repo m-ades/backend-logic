@@ -1,4 +1,4 @@
-import { PAST_CUTOFF_SQL } from '../utils/assignmentPolicy.js';
+import { EFFECTIVE_DUE_SQL } from '../utils/assignmentPolicy.js';
 import { EFFECTIVELY_PUBLISHED_SQL } from '../utils/publicationPolicy.js';
 
 /**
@@ -400,7 +400,7 @@ export async function fetchAssignmentGradeSummary(sequelize, courseId) {
           (
             a.due_date IS NOT NULL
             AND ${EFFECTIVELY_PUBLISHED_SQL}
-            AND NOW() > ${PAST_CUTOFF_SQL}
+            AND NOW() > ${EFFECTIVE_DUE_SQL}
           ) AS is_past_due
         FROM assignments a
         CROSS JOIN students s

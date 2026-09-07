@@ -224,8 +224,8 @@ router.get(
           due_at: a.due_at ?? a.due_date,
           due_date: a.due_date,
           late_window_days: a.late_window_days ?? null,
-          // computed server side so clients never reimplement the cutoff
-          cutoff_at: policy.cutoff_at ?? null,
+          // computed server side so clients never reimplement the deadline
+          effective_due_at: policy.due_at ?? null,
         },
       };
     });
@@ -370,7 +370,7 @@ router.get(
   }
 });
 
-// class average over each student's past-cutoff work, missing counts as zero, two lowest drop
+// class average after each adjusted due date with missing work zeroed and two lowest dropped
 export async function computeClassAvgWithDrop(courseId, rows) {
   const now = new Date();
   const unlocked = (rows || []).filter((row) => !isAssignmentLocked(row));
@@ -430,7 +430,7 @@ export async function computeClassAvgWithDrop(courseId, rows) {
         extension: extensionByKey.get(`${assignment.id}-${userId}`) ?? null,
         accommodation,
       });
-      if (!policy.cutoff_at || now <= policy.cutoff_at) continue;
+      if (!policy.due_at || now <= policy.due_at) continue;
       percents.push(gradeByKey.get(`${userId}-${assignment.id}`) ?? 0);
     }
 
@@ -477,7 +477,7 @@ router.get('/gradebook-summary', [courseIdParam, handleValidationResult], async 
   }
 });
 
-// stored grades plus in memory zeros and eligibility for nonempty past cutoff work
+// stored grades plus in memory zeros and eligibility after each adjusted due date
 export async function effectiveGradesForGradebook(assignments, enrollments, grades, courseId) {
   const assignmentIds = assignments.map((a) => a.id);
   const userIds = enrollments.map((e) => e.user_id);
@@ -532,7 +532,7 @@ export async function effectiveGradesForGradebook(assignments, enrollments, grad
         extension,
         accommodation,
       });
-      if (!policy.cutoff_at || now <= policy.cutoff_at) continue;
+      if (!policy.due_at || now <= policy.due_at) continue;
 
       eligibleGradeKeys.add(gradeKey);
       if (hasGrade.has(gradeKey)) continue;
@@ -672,7 +672,7 @@ function buildAssignmentMeta(assignments) {
   }));
 }
 
-// every assignment stays visible but rollups only count eligible work with possible points
+// keeps all assignments visible and averages eligible assignment percentages after drops or returns null
 export function computeGradebookStudents(
   assignments,
   enrollments,
@@ -724,18 +724,12 @@ export function computeGradebookStudents(
       eligibleGradeKeys.has(`${user.id}-${item.assignment_id}`)
     ));
 
-    const totalScore = averageItems.reduce((sum, item) => sum + item.final_score, 0);
-    const totalPoints = averageItems.reduce((sum, item) => sum + item.max_score, 0);
-    const averagePercent = totalPoints > 0 ? totalScore / totalPoints : null;
-
-    const dropCount =
-      averageItems.length >= 3 ? Math.min(dropLowestN, averageItems.length - 1) : 0;
+    const dropCount = averageItems.length >= 3
+      ? Math.min(dropLowestN, averageItems.length - 1)
+      : 0;
     const remaining = averageItems
-      .slice()
       .sort((a, b) => a.percent - b.percent || a.assignment_id - b.assignment_id)
       .slice(dropCount);
-    const droppedTotalScore = remaining.reduce((sum, item) => sum + item.final_score, 0);
-    const droppedTotalPoints = remaining.reduce((sum, item) => sum + item.max_score, 0);
     const droppedAveragePercent = remaining.length > 0
       ? remaining.reduce((sum, item) => sum + item.percent, 0) / remaining.length
       : null;
@@ -746,15 +740,7 @@ export function computeGradebookStudents(
       user_id: user.id,
       username: user.username,
       role,
-      totals: {
-        total_score: totalScore,
-        total_points: totalPoints,
-        average_percent: averagePercent,
-      },
       dropped: {
-        drop_lowest_n: dropCount,
-        total_score: droppedTotalScore,
-        total_points: droppedTotalPoints,
         average_percent: droppedAveragePercent,
       },
       assignments: perAssignment,

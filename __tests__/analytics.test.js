@@ -15,11 +15,11 @@ const eligibleFor = (assignments, enrollments) => {
 };
 
 describe('computeGradebookStudents', () => {
-  it('drops the lowest assignment by percent', () => {
+  it('drops the lowest percentage and weights the remaining assignments equally', () => {
     const past = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const assignments = [
       { id: 1, title: 'A1', total_points: 100, due_date: past },
-      { id: 2, title: 'A2', total_points: 100, due_date: past },
+      { id: 2, title: 'A2', total_points: 1000, due_date: past },
       { id: 3, title: 'A3', total_points: 100, due_date: past },
     ];
     const enrollments = [
@@ -27,7 +27,7 @@ describe('computeGradebookStudents', () => {
     ];
     const grades = [
       { user_id: 1, assignment_id: 1, final_score: 50, max_score: 100 },
-      { user_id: 1, assignment_id: 2, final_score: 75, max_score: 100 },
+      { user_id: 1, assignment_id: 2, final_score: 750, max_score: 1000 },
       { user_id: 1, assignment_id: 3, final_score: 90, max_score: 100 },
     ];
 
@@ -35,9 +35,7 @@ describe('computeGradebookStudents', () => {
       eligibleGradeKeys: eligibleFor(assignments, enrollments),
     });
 
-    expect(student.totals.average_percent).toBeCloseTo(0.7166667, 6);
     expect(student.dropped.average_percent).toBeCloseTo(0.825, 6);
-    expect(student.dropped.drop_lowest_n).toBe(1);
   });
 
   it('uses the effective schedule when computing the published average', () => {
@@ -77,7 +75,7 @@ describe('computeGradebookStudents', () => {
     expect(student.dropped.average_percent).toBe(0.8);
   });
 
-  it('only includes past-due assignments in totals and drop logic', () => {
+  it('only includes past-due assignments in averages and drop logic', () => {
     const past = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const assignments = [
@@ -98,9 +96,7 @@ describe('computeGradebookStudents', () => {
       eligibleGradeKeys: eligibleFor(assignments, enrollments),
     });
 
-    expect(student.totals.average_percent).toBeCloseTo(0.9, 6);
     expect(student.dropped.average_percent).toBeCloseTo(0.9, 6);
-    expect(student.dropped.drop_lowest_n).toBe(0);
   });
 
   it('returns null averages when there are no past-due assignments', () => {
@@ -120,11 +116,10 @@ describe('computeGradebookStudents', () => {
       eligibleGradeKeys: eligibleFor(assignments, enrollments),
     });
 
-    expect(student.totals.average_percent).toBeNull();
     expect(student.dropped.average_percent).toBeNull();
   });
 
-  it('treats missing past-due grades as zero in totals', () => {
+  it('treats missing past-due grades as zero in averages', () => {
     const past = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const assignments = [
       { id: 1, title: 'Past A1', total_points: 100, due_date: past },
@@ -139,11 +134,10 @@ describe('computeGradebookStudents', () => {
       eligibleGradeKeys: eligibleFor(assignments, enrollments),
     });
 
-    expect(student.totals.average_percent).toBe(0);
     expect(student.dropped.average_percent).toBe(0);
   });
 
-  it('ignores assignments without due dates for past-due totals', () => {
+  it('ignores assignments without due dates for past-due averages', () => {
     const assignments = [
       { id: 1, title: 'No Due A1', total_points: 100, due_date: null },
     ];
@@ -158,7 +152,6 @@ describe('computeGradebookStudents', () => {
       eligibleGradeKeys: eligibleFor(assignments, enrollments),
     });
 
-    expect(student.totals.average_percent).toBeNull();
     expect(student.dropped.average_percent).toBeNull();
   });
 });
