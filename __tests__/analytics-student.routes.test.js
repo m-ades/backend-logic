@@ -83,6 +83,7 @@ describe('student dashboard completion', () => {
     expect(result.assignments.upcoming).toBe(completed ? 0 : 1);
     expect(result.assignments.upcomingList[0].status)
       .toBe(completed ? 'completed' : 'upcoming');
+    expect(result.assignmentGrades[0].Assignment.total_points).toBe(questionCount * 100);
   });
 
   it('keeps partially attempted past due work overdue despite a stored grade', async () => {

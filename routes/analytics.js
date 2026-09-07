@@ -77,6 +77,7 @@ router.get('/assignments', [courseIdOptionalParam, handleValidationResult], asyn
 student dashboard analytics for a course or all courses when omitted
 completion requires a submission to every current question regardless of score
 empty and unpublished assignments do not count as completed
+assignment metadata includes possible points derived from current questions
 access failures reject the request and database failures pass to error handling
 */
 router.get(
@@ -218,6 +219,7 @@ router.get(
         Assignment: {
           id: a.id,
           title: a.title,
+          total_points: a.total_points ?? 0,
           is_locked: a.is_locked,
           due_at: a.due_at ?? a.due_date,
           due_date: a.due_date,
@@ -475,7 +477,7 @@ router.get('/gradebook-summary', [courseIdParam, handleValidationResult], async 
   }
 });
 
-// stored grades plus in-memory zeros past each student's own cutoff, no db writes
+// stored grades plus in memory zeros and eligibility for nonempty past cutoff work
 export async function effectiveGradesForGradebook(assignments, enrollments, grades, courseId) {
   const assignmentIds = assignments.map((a) => a.id);
   const userIds = enrollments.map((e) => e.user_id);
@@ -517,6 +519,7 @@ export async function effectiveGradesForGradebook(assignments, enrollments, grad
     const accommodation = accommodationByUser.get(userId) ?? null;
 
     for (const assignment of assignments) {
+      if (!(Number(assignment.total_points) > 0)) continue;
       if (!assignment.due_date || isAssignmentLocked(assignment)) continue;
 
       const gradeKey = `${userId}-${assignment.id}`;
@@ -669,7 +672,7 @@ function buildAssignmentMeta(assignments) {
   }));
 }
 
-// every assignment stays visible but rollups only count eligible past-cutoff work
+// every assignment stays visible but rollups only count eligible work with possible points
 export function computeGradebookStudents(
   assignments,
   enrollments,
@@ -717,7 +720,8 @@ export function computeGradebookStudents(
       };
     });
     const averageItems = perAssignment.filter((item) => (
-      !item.is_locked && eligibleGradeKeys.has(`${user.id}-${item.assignment_id}`)
+      item.max_score > 0 && !item.is_locked &&
+      eligibleGradeKeys.has(`${user.id}-${item.assignment_id}`)
     ));
 
     const totalScore = averageItems.reduce((sum, item) => sum + item.final_score, 0);

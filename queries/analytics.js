@@ -374,12 +374,11 @@ export async function fetchInstructorAssignmentStats(sequelize, courseId) {
   }
 }
 
-/**
- * fetch per-assignment average + median percent for a course.
- * @param {import('sequelize').Sequelize} sequelize - db instance
- * @param {number} courseId - course id
- * @returns {Promise<Array>} assignment summary rows
- */
+/*
+fetch assignment averages and medians for a course
+assignments without current questions stay visible with null averages and medians
+database failures throw contextual errors
+*/
 export async function fetchAssignmentGradeSummary(sequelize, courseId) {
   try {
     const summaryQuery = `
@@ -434,7 +433,8 @@ export async function fetchAssignmentGradeSummary(sequelize, courseId) {
         ) AS median_percent
       FROM assignments a
       LEFT JOIN question_counts qc ON qc.assignment_id = a.id
-      LEFT JOIN student_scores ss ON ss.assignment_id = a.id
+      LEFT JOIN student_scores ss
+        ON ss.assignment_id = a.id AND qc.question_count > 0
       WHERE a.course_id = :courseId
         AND a.kind = 'assignment'
       GROUP BY a.id, qc.question_count

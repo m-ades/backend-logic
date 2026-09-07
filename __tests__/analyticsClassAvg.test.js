@@ -166,6 +166,66 @@ describe('analytics helpers', () => {
     expect(await computeClassAvgWithDrop(1, rows)).toBeCloseTo(100, 6);
   });
 
+  it.each([
+    ['no stored grade', []],
+    ['a stored zero grade', [{ user_id: 1, assignment_id: 1, final_score: 0, max_score: 0 }]],
+    ['a grade from deleted questions', [{ user_id: 1, assignment_id: 1, final_score: 100, max_score: 100 }]],
+  ])('returns null averages for empty work with %s', async (_name, grades) => {
+    const assignments = [{
+      id: 1, is_locked: false, total_points: 0, question_count: 0,
+      due_date: new Date(Date.now() - 86400000),
+    }];
+    const enrollments = [{ user_id: 1, User: { id: 1, username: 'student' } }];
+    CourseEnrollment.findAll.mockResolvedValue(enrollments);
+    AssignmentGrade.findAll.mockResolvedValue(grades);
+
+    const effective = await effectiveGradesForGradebook(assignments, enrollments, grades, 1);
+    const [student] = computeGradebookStudents(assignments, enrollments, effective.grades, 2, {
+      eligibleGradeKeys: effective.eligibleGradeKeys,
+    });
+
+    expect(effective.grades).toEqual(grades);
+    expect(effective.eligibleGradeKeys.size).toBe(0);
+    expect(student.assignments).toHaveLength(1);
+    expect(student.totals.average_percent).toBeNull();
+    expect(student.dropped.average_percent).toBeNull();
+    expect(student.dropped.drop_lowest_n).toBe(0);
+    expect(await computeClassAvgWithDrop(1, assignments)).toBeNull();
+  });
+
+  it.each([
+    ['preserves an earned zero', [0], 0, 0],
+    ['preserves a missing past due zero', [null], 0, 0],
+    ['does not trigger dropping with only two scored assignments', [40, 100], 0.7, 0],
+    ['does not consume a dropped grade', [20, 40, 90], 0.9, 2],
+  ])('%s when an empty assignment is present', async (_name, scores, average, dropped) => {
+    const past = new Date(Date.now() - 86400000);
+    const assignments = [
+      ...scores.map((_score, index) => ({
+        id: index + 1, is_locked: false, total_points: 100, due_date: past,
+      })),
+      { id: 99, is_locked: false, total_points: 0, due_date: past },
+    ];
+    const enrollments = [{ user_id: 1, User: { id: 1, username: 'student' } }];
+    const grades = scores.flatMap((score, index) => score == null ? [] : [{
+      user_id: 1, assignment_id: index + 1, final_score: score, max_score: 100,
+    }]);
+    CourseEnrollment.findAll.mockResolvedValue(enrollments);
+    AssignmentGrade.findAll.mockResolvedValue(grades);
+
+    const effective = await effectiveGradesForGradebook(assignments, enrollments, grades, 1);
+    const [student] = computeGradebookStudents(assignments, enrollments, effective.grades, 2, {
+      eligibleGradeKeys: effective.eligibleGradeKeys,
+    });
+
+    expect(effective.eligibleGradeKeys).not.toContain('1-99');
+    expect(effective.grades.some((grade) => grade.assignment_id === 99)).toBe(false);
+    expect(student.assignments).toHaveLength(assignments.length);
+    expect(student.dropped.drop_lowest_n).toBe(dropped);
+    expect(student.dropped.average_percent).toBeCloseTo(average, 6);
+    expect(await computeClassAvgWithDrop(1, assignments)).toBeCloseTo(average * 100, 6);
+  });
+
   it('leaves an extended student out of the class average', async () => {
     const past = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
