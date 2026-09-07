@@ -73,12 +73,12 @@ router.get('/assignments', [courseIdOptionalParam, handleValidationResult], asyn
   }
 });
 
-/**
- * Student dashboard analytics for a course (or all enrolled courses if courseId omitted):
- * assignment status counts, per-assignment grade rows, submission performance, time-on-task
- * (avg / median / p75 / cohort median), and submission counts.
- * Query: userId (required), courseId (optional).
- */
+/*
+student dashboard analytics for a course or all courses when omitted
+completion requires a submission to every current question regardless of score
+empty and unpublished assignments do not count as completed
+access failures reject the request and database failures pass to error handling
+*/
 router.get(
   ['/student', '/student-dashboard'],
   [userIdParam, courseIdOptionalParam, handleValidationResult],
@@ -113,6 +113,27 @@ router.get(
       ));
     }
 
+    const dashAssignmentIds = assignments.map((a) => a.id);
+    const [dashExtensions, dashAccommodations, submissionCounts] = await Promise.all([
+      dashAssignmentIds.length
+        ? AssignmentExtension.findAll({
+            where: { assignment_id: dashAssignmentIds, user_id: userId },
+            attributes: ['assignment_id', 'extended_due_date'],
+          })
+        : [],
+      Accommodation.findAll({
+        where: { user_id: userId },
+        attributes: ['course_id', 'extra_late_days'],
+      }),
+      fetchAssignmentSubmissionCounts(dashAssignmentIds, [userId]),
+    ]);
+    const completedAssignmentIds = new Set(assignments
+      .filter((assignment) => (
+        !assignment.is_locked && Number(assignment.question_count) > 0 &&
+        submissionCounts.get(`${userId}:${assignment.id}`) === Number(assignment.question_count)
+      ))
+      .map((assignment) => assignment.id));
+
     const now = new Date();
     let upcoming = 0;
     let pending = 0;
@@ -124,7 +145,7 @@ router.get(
       .map((assignment) => {
         const dueAtValue = assignment.due_at ?? assignment.due_date ?? null;
         const dueDate = parseDueDate(dueAtValue);
-        const isComplete = Boolean(assignment.grade_id);
+        const isComplete = completedAssignmentIds.has(assignment.id);
         const lateWindow = assignment.late_window_days || 0;
         const graceEnd = dueDate ? new Date(dueDate.getTime() + lateWindow * 24 * 60 * 60 * 1000) : null;
 
@@ -172,19 +193,6 @@ router.get(
       })
       .slice(0, 4);
 
-    const dashAssignmentIds = assignments.map((a) => a.id);
-    const [dashExtensions, dashAccommodations] = await Promise.all([
-      dashAssignmentIds.length
-        ? AssignmentExtension.findAll({
-            where: { assignment_id: dashAssignmentIds, user_id: userId },
-            attributes: ['assignment_id', 'extended_due_date'],
-          })
-        : [],
-      Accommodation.findAll({
-        where: { user_id: userId },
-        attributes: ['course_id', 'extra_late_days'],
-      }),
-    ]);
     const extensionByAssignment = new Map(
       dashExtensions.map((e) => [e.assignment_id, e])
     );
@@ -230,6 +238,7 @@ router.get(
 
     res.json({
       assignments: {
+        completed: completedAssignmentIds.size,
         upcoming,
         pending,
         overdue,
@@ -557,7 +566,7 @@ async function buildGradebookStudents(assignments, enrollments, dropLowestN, cou
     gradesFromDb,
     courseId
   );
-  const submissionCounts = await fetchGradebookSubmissionCounts(assignmentIds, userIds);
+  const submissionCounts = await fetchAssignmentSubmissionCounts(assignmentIds, userIds);
 
   return computeGradebookStudents(
     assignments,
@@ -568,7 +577,12 @@ async function buildGradebookStudents(assignments, enrollments, dropLowestN, cou
   );
 }
 
-async function fetchGradebookSubmissionCounts(assignmentIds, userIds) {
+/*
+count distinct submitted questions for each user and assignment pair
+repeated attempts count once and missing pairs have no entry
+empty inputs return an empty map and database errors propagate
+*/
+async function fetchAssignmentSubmissionCounts(assignmentIds, userIds) {
   if (!assignmentIds.length || !userIds.length) return new Map();
   const rows = await Submission.findAll({
     include: [

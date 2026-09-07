@@ -40,13 +40,10 @@ export async function fetchAssignmentAnalytics(sequelize, courseId) {
   }
 }
 
-/**
- * fetch assignment list and grades for a student.
- * @param {import('sequelize').Sequelize} sequelize - db instance
- * @param {number} userId - student id
- * @param {number|null} courseId - filter by course (null for all)
- * @returns {Promise<Array>} assignment rows with grade columns
- */
+/*
+fetch assignment rows with stored grades and current question counts for a student
+an omitted course includes all courses and database failures throw contextual errors
+*/
 export async function fetchStudentAssignments(sequelize, userId, courseId) {
   try {
     const assignmentsQuery = `
@@ -63,6 +60,7 @@ export async function fetchStudentAssignments(sequelize, userId, courseId) {
         a.due_date,
         a.due_date AS due_at,
         a.late_window_days,
+        COALESCE(qc.question_count, 0) AS question_count,
         COALESCE(qc.question_count, 0) * 100 AS total_points,
         a.is_locked,
         a.publish_at,
