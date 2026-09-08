@@ -1,5 +1,7 @@
 import { EFFECTIVE_DUE_SQL } from '../utils/assignmentPolicy.js';
 import { EFFECTIVELY_PUBLISHED_SQL } from '../utils/publicationPolicy.js';
+import { RECENT_TIME_WINDOW_DAYS } from '../utils/analyticsTimeWindow.js';
+import { getCohortMedianMinutesPerQuestion } from '../utils/cohortMedianCache.js';
 
 /**
  * fetch assignment analytics with submission stats.
@@ -190,6 +192,9 @@ export async function fetchStudentSubmittedAssignments(sequelize, userId, course
 
 /**
  * fetch time-on-task stats for a student, plus cohort median.
+ * the cohort median is the same value for every student in a course, so it is
+ * computed and cached separately instead of being re-scanned per request -
+ * see utils/cohortMedianCache.js.
  * @param {import('sequelize').Sequelize} sequelize - db instance
  * @param {number} userId - student id
  * @param {number|null} courseId - optional course filter
@@ -210,19 +215,7 @@ export async function fetchStudentTime(sequelize, userId, courseId) {
           AND ce.role = 'student'
         WHERE qs.ended_at IS NOT NULL
           AND qs.user_id = :userId
-          AND (:courseId::int IS NULL OR a.course_id = :courseId::int)
-      ),
-      cohort_durations AS (
-        SELECT
-          EXTRACT(EPOCH FROM (qs.ended_at - qs.started_at)) / 60.0 AS minutes
-        FROM question_sessions qs
-        JOIN assignment_questions aq ON aq.id = qs.assignment_question_id
-        JOIN assignments a ON a.id = aq.assignment_id
-        JOIN course_enrollments ce
-          ON ce.user_id = qs.user_id
-          AND ce.course_id = a.course_id
-          AND ce.role = 'student'
-        WHERE qs.ended_at IS NOT NULL
+          AND qs.started_at >= NOW() - make_interval(days => :recentWindowDays)
           AND (:courseId::int IS NULL OR a.course_id = :courseId::int)
       )
       SELECT
@@ -230,15 +223,14 @@ export async function fetchStudentTime(sequelize, userId, courseId) {
         (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY minutes)
            FROM student_durations) AS median_minutes_per_question,
         (SELECT percentile_cont(0.75) WITHIN GROUP (ORDER BY minutes)
-           FROM student_durations) AS p75_minutes_per_question,
-        (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY minutes)
-           FROM cohort_durations) AS cohort_median_minutes_per_question;
+           FROM student_durations) AS p75_minutes_per_question;
     `;
 
     const [[time]] = await sequelize.query(timeQuery, {
-      replacements: { userId, courseId: courseId ?? null },
+      replacements: { userId, courseId: courseId ?? null, recentWindowDays: RECENT_TIME_WINDOW_DAYS },
     });
-    return time;
+    const cohortMedian = await getCohortMedianMinutesPerQuestion(sequelize, courseId ?? null);
+    return { ...time, cohort_median_minutes_per_question: cohortMedian };
   } catch (error) {
     throw new Error(`failed to fetch time stats for user ${userId}: ${error.message}`);
   }

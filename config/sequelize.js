@@ -24,5 +24,16 @@ export const sequelize = new Sequelize(
     dialectOptions: sslEnabled
       ? { ssl: { require: true, rejectUnauthorized: sslRejectUnauthorized } }
       : {},
+    /*
+    sequelize defaults to max: 5 for the whole process, which one dashboard
+    load (5 parallel queries) can occupy by itself. raised for concurrent
+    classroom traffic; tune via env if the DB plan's connection limit differs.
+    */
+    pool: {
+      max: Number(process.env.DB_POOL_MAX) || 20,
+      min: Number(process.env.DB_POOL_MIN) || 0,
+      idle: Number(process.env.DB_POOL_IDLE_MS) || 10000,
+      acquire: Number(process.env.DB_POOL_ACQUIRE_MS) || 30000,
+    },
   }
 );
