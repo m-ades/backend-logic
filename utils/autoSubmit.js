@@ -71,7 +71,9 @@ export async function autoSubmitIfPastDeadline(assignment, userId) {
     const questionSnapshot = question.question_snapshot || {};
     const options = {
       logicSystem,
-      partialcredit: questionSnapshot.partialCredit || false,
+      partialcredit: questionSnapshot.partialCredit
+        ?? questionSnapshot.partialcredit
+        ?? questionSnapshot.partial_credit,
     };
 
     let validation;

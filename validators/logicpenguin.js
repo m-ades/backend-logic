@@ -138,6 +138,10 @@ function normalizeTruthTablePayload(payload) {
   return normalized;
 }
 
+/*
+normalizes saved tables and row selections without mutating drafts
+explicit row highlights take precedence invalid row indices select nothing
+*/
 function normalizeTableState(state) {
   if (!isPlainObject(state)) return null;
   if (!Array.isArray(state.tables) || state.tables.length === 0) return null;
@@ -150,7 +154,9 @@ function normalizeTableState(state) {
   const payload = {
     lefts: tables.slice(0, -1),
     right: tables[tables.length - 1],
-    rowhls: Array.isArray(state.rowhls) ? state.rowhls : [],
+    rowhls: Array.isArray(state.rowhls)
+      ? state.rowhls
+      : tables[0].rows.map((_, index) => Number.isInteger(state.witnessRow) && index === state.witnessRow),
   };
   if ('mcans' in state) payload.mcans = state.mcans;
   if ('taut' in state) payload.taut = state.taut;
