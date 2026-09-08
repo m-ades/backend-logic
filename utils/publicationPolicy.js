@@ -3,6 +3,14 @@ import { toTemporalInstant } from './easternDate.js';
 
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 
+// sql equivalent of the effective publication policy, for queries that cannot call isAssignmentLocked
+export const EFFECTIVELY_PUBLISHED_SQL = `
+  (
+    (a.publish_at IS NULL AND a.is_locked = false)
+    OR a.publish_at <= NOW()
+  )
+`;
+
 // resolves publish times with legacy lock fallback and fails closed on invalid timestamps
 export function isAssignmentLocked(assignment, now = new Date()) {
   if (!assignment) return true;

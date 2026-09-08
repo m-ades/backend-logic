@@ -73,12 +73,13 @@ router.get('/assignments', [courseIdOptionalParam, handleValidationResult], asyn
   }
 });
 
-/**
- * Student dashboard analytics for a course (or all enrolled courses if courseId omitted):
- * assignment status counts, per-assignment grade rows, submission performance, time-on-task
- * (avg / median / p75 / cohort median), and submission counts.
- * Query: userId (required), courseId (optional).
- */
+/*
+student dashboard analytics for a course or all courses when omitted
+completion requires a submission to every current question regardless of score
+empty and unpublished assignments do not count as completed
+assignment metadata includes possible points derived from current questions
+access failures reject the request and database failures pass to error handling
+*/
 router.get(
   ['/student', '/student-dashboard'],
   [userIdParam, courseIdOptionalParam, handleValidationResult],
@@ -113,6 +114,27 @@ router.get(
       ));
     }
 
+    const dashAssignmentIds = assignments.map((a) => a.id);
+    const [dashExtensions, dashAccommodations, submissionCounts] = await Promise.all([
+      dashAssignmentIds.length
+        ? AssignmentExtension.findAll({
+            where: { assignment_id: dashAssignmentIds, user_id: userId },
+            attributes: ['assignment_id', 'extended_due_date'],
+          })
+        : [],
+      Accommodation.findAll({
+        where: { user_id: userId },
+        attributes: ['course_id', 'extra_late_days'],
+      }),
+      fetchAssignmentSubmissionCounts(dashAssignmentIds, [userId]),
+    ]);
+    const completedAssignmentIds = new Set(assignments
+      .filter((assignment) => (
+        !assignment.is_locked && Number(assignment.question_count) > 0 &&
+        submissionCounts.get(`${userId}:${assignment.id}`) === Number(assignment.question_count)
+      ))
+      .map((assignment) => assignment.id));
+
     const now = new Date();
     let upcoming = 0;
     let pending = 0;
@@ -124,7 +146,7 @@ router.get(
       .map((assignment) => {
         const dueAtValue = assignment.due_at ?? assignment.due_date ?? null;
         const dueDate = parseDueDate(dueAtValue);
-        const isComplete = Boolean(assignment.grade_id);
+        const isComplete = completedAssignmentIds.has(assignment.id);
         const lateWindow = assignment.late_window_days || 0;
         const graceEnd = dueDate ? new Date(dueDate.getTime() + lateWindow * 24 * 60 * 60 * 1000) : null;
 
@@ -172,20 +194,41 @@ router.get(
       })
       .slice(0, 4);
 
-    const assignmentGrades = assignments.map((a) => ({
-      assignment_id: a.id,
-      final_score: a.final_score ?? 0,
-      max_score: a.max_score ?? a.total_points ?? 0,
-      raw_score: a.final_score ?? 0,
-      graded_at: a.graded_at,
-      Assignment: {
-        id: a.id,
-        title: a.title,
-        is_locked: a.is_locked,
-        due_at: a.due_at ?? a.due_date,
-        due_date: a.due_date,
-      },
-    }));
+    const extensionByAssignment = new Map(
+      dashExtensions.map((e) => [e.assignment_id, e])
+    );
+    const accommodationByCourse = new Map(
+      dashAccommodations.map((a) => [a.course_id, a])
+    );
+
+    const assignmentGrades = assignments.map((a) => {
+      const policy = computeDeadlinePolicy({
+        assignment: {
+          due_date: a.due_at ?? a.due_date,
+          late_window_days: a.late_window_days,
+        },
+        extension: extensionByAssignment.get(a.id) ?? null,
+        accommodation: accommodationByCourse.get(a.course_id) ?? null,
+      });
+      return {
+        assignment_id: a.id,
+        final_score: a.final_score ?? 0,
+        max_score: a.max_score ?? a.total_points ?? 0,
+        raw_score: a.final_score ?? 0,
+        graded_at: a.graded_at,
+        Assignment: {
+          id: a.id,
+          title: a.title,
+          total_points: a.total_points ?? 0,
+          is_locked: a.is_locked,
+          due_at: a.due_at ?? a.due_date,
+          due_date: a.due_date,
+          late_window_days: a.late_window_days ?? null,
+          // computed server side so clients never reimplement the deadline
+          effective_due_at: policy.due_at ?? null,
+        },
+      };
+    });
 
     const safeTime = {
       avg_minutes_per_question: null,
@@ -197,6 +240,7 @@ router.get(
 
     res.json({
       assignments: {
+        completed: completedAssignmentIds.size,
         upcoming,
         pending,
         overdue,
@@ -326,20 +370,11 @@ router.get(
   }
 });
 
-// same policy as your grade: unlocked only, drop two lowest when three or more (not when two)
-async function computeClassAvgWithDrop(courseId, rows) {
+// class average after each adjusted due date with missing work zeroed and two lowest dropped
+export async function computeClassAvgWithDrop(courseId, rows) {
+  const now = new Date();
   const unlocked = (rows || []).filter((row) => !isAssignmentLocked(row));
-  const unlockedIds = unlocked.map((r) => r.id);
-  if (unlockedIds.length === 0) return null;
-
-  // with 1 or 2 unlocked there is no drop: use assignment-level avg_percent (same as before)
-  if (unlocked.length < 3) {
-    const vals = unlocked
-      .map((r) => r.avg_percent)
-      .filter((v) => v != null && v !== undefined);
-    if (vals.length === 0) return null;
-    return (vals.reduce((s, v) => s + v, 0) / vals.length) * 100;
-  }
+  if (unlocked.length === 0) return null;
 
   const enrollments = await CourseEnrollment.findAll({
     where: { course_id: courseId, role: 'student' },
@@ -348,13 +383,21 @@ async function computeClassAvgWithDrop(courseId, rows) {
   const studentIds = enrollments.map((e) => e.user_id);
   if (studentIds.length === 0) return null;
 
-  const grades = await AssignmentGrade.findAll({
-    where: {
-      assignment_id: unlockedIds,
-      user_id: studentIds,
-    },
-    attributes: ['user_id', 'assignment_id', 'final_score', 'max_score'],
-  });
+  const assignmentIds = unlocked.map((row) => row.id);
+  const [grades, extensions, accommodations] = await Promise.all([
+    AssignmentGrade.findAll({
+      where: { assignment_id: assignmentIds, user_id: studentIds },
+      attributes: ['user_id', 'assignment_id', 'final_score', 'max_score'],
+    }),
+    AssignmentExtension.findAll({
+      where: { assignment_id: assignmentIds, user_id: studentIds },
+      attributes: ['assignment_id', 'user_id', 'extended_due_date'],
+    }),
+    Accommodation.findAll({
+      where: { course_id: courseId, user_id: studentIds },
+      attributes: ['user_id', 'extra_late_days'],
+    }),
+  ]);
 
   const gradeByKey = new Map(
     grades.map((g) => [
@@ -362,24 +405,39 @@ async function computeClassAvgWithDrop(courseId, rows) {
       g.max_score > 0 ? (g.final_score / g.max_score) * 100 : 0,
     ])
   );
+  const extensionByKey = new Map(
+    extensions.map((e) => [`${e.assignment_id}-${e.user_id}`, e])
+  );
+  const accommodationByUser = new Map(
+    accommodations.map((a) => [a.user_id, a])
+  );
 
   let sum = 0;
   let count = 0;
-  for (const e of enrollments) {
-    const uid = e.user_id;
-    const percents = unlockedIds.map(
-      (aid) => gradeByKey.get(`${uid}-${aid}`) ?? 0
-    );
-    const hasAnyGrade = percents.some((p) => p > 0);
-    if (!hasAnyGrade) continue;
-    // percents only from unlocked assignments, dropped ones are always unlocked
+  for (const enrollment of enrollments) {
+    const userId = enrollment.user_id;
+    const accommodation = accommodationByUser.get(userId) ?? null;
+    const percents = [];
+
+    for (const assignment of unlocked) {
+      // an assignment with no questions has nothing to score against
+      if (!(Number(assignment.total_points) > 0)) continue;
+      const policy = computeDeadlinePolicy({
+        assignment: {
+          due_date: assignment.due_at ?? assignment.due_date,
+          late_window_days: assignment.late_window_days,
+        },
+        extension: extensionByKey.get(`${assignment.id}-${userId}`) ?? null,
+        accommodation,
+      });
+      if (!policy.due_at || now <= policy.due_at) continue;
+      percents.push(gradeByKey.get(`${userId}-${assignment.id}`) ?? 0);
+    }
+
+    if (percents.length === 0) continue;
     const sorted = percents.slice().sort((a, b) => a - b);
-    const afterDrop = sorted.slice(2);
-    const studentAvg =
-      afterDrop.length > 0
-        ? afterDrop.reduce((s, p) => s + p, 0) / afterDrop.length
-        : 0;
-    sum += studentAvg;
+    const afterDrop = sorted.length >= 3 ? sorted.slice(2) : sorted;
+    sum += afterDrop.reduce((s, p) => s + p, 0) / afterDrop.length;
     count += 1;
   }
   return count > 0 ? sum / count : null;
@@ -419,15 +477,13 @@ router.get('/gradebook-summary', [courseIdParam, handleValidationResult], async 
   }
 });
 
-/**
- * Returns grades from DB plus synthetic 0 grades for (user, assignment) where
- * the student has no grade and either the assignment is unlocked or past cutoff.
- * No DB writes.
- */
-async function effectiveGradesForGradebook(assignments, enrollments, grades, courseId) {
+// stored grades plus in memory zeros and eligibility after each adjusted due date
+export async function effectiveGradesForGradebook(assignments, enrollments, grades, courseId) {
   const assignmentIds = assignments.map((a) => a.id);
   const userIds = enrollments.map((e) => e.user_id);
-  if (!assignmentIds.length || !userIds.length) return grades;
+  if (!assignmentIds.length || !userIds.length) {
+    return { grades, eligibleGradeKeys: new Set() };
+  }
 
   const hasGrade = new Set(
     grades.map((g) => `${g.user_id}-${g.assignment_id}`)
@@ -456,28 +512,30 @@ async function effectiveGradesForGradebook(assignments, enrollments, grades, cou
 
   const now = new Date();
   const synthetic = [];
+  const eligibleGradeKeys = new Set();
 
   for (const enrollment of enrollments) {
     const userId = enrollment.user_id;
     const accommodation = accommodationByUser.get(userId) ?? null;
 
     for (const assignment of assignments) {
-      if (hasGrade.has(`${userId}-${assignment.id}`)) continue;
+      if (!(Number(assignment.total_points) > 0)) continue;
+      if (!assignment.due_date || isAssignmentLocked(assignment)) continue;
 
-      const isUnlocked = !isAssignmentLocked(assignment);
-      let includeAsZero = isUnlocked;
+      const gradeKey = `${userId}-${assignment.id}`;
+      const extension = extensionByKey.get(`${assignment.id}-${userId}`) ?? null;
+      const policy = computeDeadlinePolicy({
+        assignment: {
+          due_date: assignment.due_date,
+          late_window_days: assignment.late_window_days,
+        },
+        extension,
+        accommodation,
+      });
+      if (!policy.due_at || now <= policy.due_at) continue;
 
-      if (!includeAsZero && assignment.due_date) {
-        const extension = extensionByKey.get(`${assignment.id}-${userId}`) ?? null;
-        const policy = computeDeadlinePolicy({
-          assignment: { due_date: assignment.due_date, late_window_days: assignment.late_window_days },
-          extension,
-          accommodation,
-        });
-        includeAsZero = policy.cutoff_at != null && now > policy.cutoff_at;
-      }
-
-      if (!includeAsZero) continue;
+      eligibleGradeKeys.add(gradeKey);
+      if (hasGrade.has(gradeKey)) continue;
 
       synthetic.push({
         user_id: userId,
@@ -488,7 +546,10 @@ async function effectiveGradesForGradebook(assignments, enrollments, grades, cou
     }
   }
 
-  return [...grades, ...synthetic];
+  return {
+    grades: [...grades, ...synthetic],
+    eligibleGradeKeys,
+  };
 }
 
 async function buildGradebookStudents(assignments, enrollments, dropLowestN, courseId) {
@@ -502,24 +563,29 @@ async function buildGradebookStudents(assignments, enrollments, dropLowestN, cou
         })
       : [];
 
-  const grades = await effectiveGradesForGradebook(
+  const { grades, eligibleGradeKeys } = await effectiveGradesForGradebook(
     assignments,
     enrollments,
     gradesFromDb,
     courseId
   );
-  const submissionCounts = await fetchGradebookSubmissionCounts(assignmentIds, userIds);
+  const submissionCounts = await fetchAssignmentSubmissionCounts(assignmentIds, userIds);
 
   return computeGradebookStudents(
     assignments,
     enrollments,
     grades,
     dropLowestN,
-    submissionCounts
+    { submissionCounts, eligibleGradeKeys }
   );
 }
 
-async function fetchGradebookSubmissionCounts(assignmentIds, userIds) {
+/*
+count distinct submitted questions for each user and assignment pair
+repeated attempts count once and missing pairs have no entry
+empty inputs return an empty map and database errors propagate
+*/
+async function fetchAssignmentSubmissionCounts(assignmentIds, userIds) {
   if (!assignmentIds.length || !userIds.length) return new Map();
   const rows = await Submission.findAll({
     include: [
@@ -606,13 +672,18 @@ function buildAssignmentMeta(assignments) {
   }));
 }
 
+// keeps all assignments visible and averages eligible assignment percentages after drops or returns null
 export function computeGradebookStudents(
   assignments,
   enrollments,
   grades,
   dropLowestN,
-  submissionCounts = new Map()
+  options = {}
 ) {
+  const {
+    submissionCounts = new Map(),
+    eligibleGradeKeys = new Set(),
+  } = options ?? {};
   const gradeMap = new Map();
   grades.forEach((grade) => {
     if (!gradeMap.has(grade.user_id)) {
@@ -648,20 +719,17 @@ export function computeGradebookStudents(
         has_late_submission: Number(grade?.penalty_percent ?? 0) > 0,
       };
     });
+    const averageItems = perAssignment.filter((item) => (
+      item.max_score > 0 && !item.is_locked &&
+      eligibleGradeKeys.has(`${user.id}-${item.assignment_id}`)
+    ));
 
-    const totalScore = perAssignment.reduce((sum, item) => sum + item.final_score, 0);
-    const totalPoints = perAssignment.reduce((sum, item) => sum + item.max_score, 0);
-    const averagePercent = totalPoints > 0 ? totalScore / totalPoints : null;
-
-    const averageItems = perAssignment.filter((item) => !item.is_locked);
-    const dropCount =
-      averageItems.length >= 3 ? Math.min(dropLowestN, averageItems.length - 1) : 0;
+    const dropCount = averageItems.length >= 3
+      ? Math.min(dropLowestN, averageItems.length - 1)
+      : 0;
     const remaining = averageItems
-      .slice()
       .sort((a, b) => a.percent - b.percent || a.assignment_id - b.assignment_id)
       .slice(dropCount);
-    const droppedTotalScore = remaining.reduce((sum, item) => sum + item.final_score, 0);
-    const droppedTotalPoints = remaining.reduce((sum, item) => sum + item.max_score, 0);
     const droppedAveragePercent = remaining.length > 0
       ? remaining.reduce((sum, item) => sum + item.percent, 0) / remaining.length
       : null;
@@ -672,15 +740,7 @@ export function computeGradebookStudents(
       user_id: user.id,
       username: user.username,
       role,
-      totals: {
-        total_score: totalScore,
-        total_points: totalPoints,
-        average_percent: averagePercent,
-      },
       dropped: {
-        drop_lowest_n: dropCount,
-        total_score: droppedTotalScore,
-        total_points: droppedTotalPoints,
         average_percent: droppedAveragePercent,
       },
       assignments: perAssignment,

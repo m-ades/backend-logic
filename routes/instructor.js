@@ -607,7 +607,7 @@ router.get('/assignments/:id/grades', assignmentAccessValidators, async (req, re
         extension,
         accommodation,
       });
-      if (!policy.cutoff_at || now <= policy.cutoff_at) continue;
+      if (!policy.due_at || now <= policy.due_at) continue;
       synthetic.push({
         user_id: enrollment.user_id,
         assignment_id: Number(assignmentId),

@@ -1,3 +1,14 @@
+/*
+sql equivalent of the adjusted due date for grading queries
+averages begin at this date and the late window determines the submission cutoff
+*/
+export const EFFECTIVE_DUE_SQL = `
+  (
+    GREATEST(ext.extended_due_date, a.due_date)
+    + COALESCE(acc.extra_late_days, 0) * INTERVAL '1 day'
+  )
+`;
+
 // returns a new date that's days later
 export function addDays(date, days) {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
@@ -21,15 +32,20 @@ export function computeDeadlinePolicy({
     };
   }
 
-  const baseDue = extension?.extended_due_date
-    ? new Date(extension.extended_due_date)
+  // an extension can only push a deadline later; it must never pull one earlier than
+  // the assignment's own due date, which can happen if the due date moves after it was granted
+  const dueAt = new Date(assignment.due_date).getTime();
+  const extensionAt = extension?.extended_due_date
+    ? new Date(extension.extended_due_date).getTime()
+    : NaN;
+  const baseDue = Number.isFinite(extensionAt)
+    ? new Date(Number.isFinite(dueAt) ? Math.max(extensionAt, dueAt) : extensionAt)
     : new Date(assignment.due_date);
   const lateWindowDays = assignment?.late_window_days ?? 0;
   const extraLateDays = accommodation?.extra_late_days ?? 0;
-  const hasExtension = Boolean(extension?.extended_due_date);
-  // treat accommodation extra_late_days as extra full-credit days (shift due date),
-  // not as additional late-window days. do not stack with extensions.
-  const effectiveDue = !hasExtension && extraLateDays
+  // extra_late_days are full-credit days that shift the due date, and they stack
+  // on top of an extension rather than being cancelled out by one
+  const effectiveDue = extraLateDays
     ? addDays(baseDue, extraLateDays)
     : baseDue;
   const cutoff = addDays(effectiveDue, lateWindowDays);

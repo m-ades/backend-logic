@@ -1,3 +1,6 @@
+import { EFFECTIVE_DUE_SQL } from '../utils/assignmentPolicy.js';
+import { EFFECTIVELY_PUBLISHED_SQL } from '../utils/publicationPolicy.js';
+
 /**
  * fetch assignment analytics with submission stats.
  * @param {import('sequelize').Sequelize} sequelize - db instance
@@ -37,13 +40,10 @@ export async function fetchAssignmentAnalytics(sequelize, courseId) {
   }
 }
 
-/**
- * fetch assignment list and grades for a student.
- * @param {import('sequelize').Sequelize} sequelize - db instance
- * @param {number} userId - student id
- * @param {number|null} courseId - filter by course (null for all)
- * @returns {Promise<Array>} assignment rows with grade columns
- */
+/*
+fetch assignment rows with stored grades and current question counts for a student
+an omitted course includes all courses and database failures throw contextual errors
+*/
 export async function fetchStudentAssignments(sequelize, userId, courseId) {
   try {
     const assignmentsQuery = `
@@ -60,6 +60,7 @@ export async function fetchStudentAssignments(sequelize, userId, courseId) {
         a.due_date,
         a.due_date AS due_at,
         a.late_window_days,
+        COALESCE(qc.question_count, 0) AS question_count,
         COALESCE(qc.question_count, 0) * 100 AS total_points,
         a.is_locked,
         a.publish_at,
@@ -373,12 +374,11 @@ export async function fetchInstructorAssignmentStats(sequelize, courseId) {
   }
 }
 
-/**
- * fetch per-assignment average + median percent for a course.
- * @param {import('sequelize').Sequelize} sequelize - db instance
- * @param {number} courseId - course id
- * @returns {Promise<Array>} assignment summary rows
- */
+/*
+fetch assignment averages and medians for a course
+assignments without current questions stay visible with null averages and medians
+database failures throw contextual errors
+*/
 export async function fetchAssignmentGradeSummary(sequelize, courseId) {
   try {
     const summaryQuery = `
@@ -386,30 +386,57 @@ export async function fetchAssignmentGradeSummary(sequelize, courseId) {
         SELECT assignment_id, COUNT(*)::int AS question_count
         FROM assignment_questions
         GROUP BY assignment_id
+      ),
+      students AS (
+        SELECT user_id
+        FROM course_enrollments
+        WHERE course_id = :courseId AND role = 'student'
+      ),
+      student_scores AS (
+        SELECT
+          a.id AS assignment_id,
+          ag.max_score,
+          ag.final_score,
+          (
+            a.due_date IS NOT NULL
+            AND ${EFFECTIVELY_PUBLISHED_SQL}
+            AND NOW() > ${EFFECTIVE_DUE_SQL}
+          ) AS is_past_due
+        FROM assignments a
+        CROSS JOIN students s
+        LEFT JOIN assignment_grades ag
+          ON ag.assignment_id = a.id AND ag.user_id = s.user_id
+        LEFT JOIN assignment_extensions ext
+          ON ext.assignment_id = a.id AND ext.user_id = s.user_id
+        LEFT JOIN accommodations acc
+          ON acc.course_id = a.course_id AND acc.user_id = s.user_id
+        WHERE a.course_id = :courseId
+          AND a.kind = 'assignment'
       )
       SELECT
         a.id,
         a.title,
         a.due_date,
         a.due_date AS due_at,
+        a.late_window_days,
         a.is_locked,
         a.publish_at,
         COALESCE(qc.question_count, 0) * 100 AS total_points,
-        AVG(ag.final_score::float / NULLIF(ag.max_score, 0))
-          FILTER (WHERE ag.max_score > 0) AS avg_percent,
+        AVG(COALESCE(ss.final_score::float / NULLIF(ss.max_score, 0), 0))
+          FILTER (
+            WHERE ss.max_score > 0 OR (ss.max_score IS NULL AND ss.is_past_due)
+          ) AS avg_percent,
         percentile_cont(0.5) WITHIN GROUP (
-          ORDER BY ag.final_score::float / NULLIF(ag.max_score, 0)
-        ) FILTER (WHERE ag.max_score > 0) AS median_percent
+          ORDER BY COALESCE(ss.final_score::float / NULLIF(ss.max_score, 0), 0)
+        ) FILTER (
+          WHERE ss.max_score > 0 OR (ss.max_score IS NULL AND ss.is_past_due)
+        ) AS median_percent
       FROM assignments a
       LEFT JOIN question_counts qc ON qc.assignment_id = a.id
-      LEFT JOIN assignment_grades ag ON ag.assignment_id = a.id
-      LEFT JOIN course_enrollments ce
-        ON ce.user_id = ag.user_id
-        AND ce.course_id = a.course_id
-        AND ce.role = 'student'
+      LEFT JOIN student_scores ss
+        ON ss.assignment_id = a.id AND qc.question_count > 0
       WHERE a.course_id = :courseId
         AND a.kind = 'assignment'
-        AND (ce.id IS NOT NULL OR ag.id IS NULL)
       GROUP BY a.id, qc.question_count
       ORDER BY a.due_date NULLS LAST, a.id;
     `;
