@@ -10,7 +10,7 @@ import {
   CourseEnrollment,
   Submission,
 } from '../models/index.js';
-import { validateLogicPenguin } from '../validators/logicpenguin.js';
+import { validateLogicPenguin, resolveSnapshotPartialCredit } from '../validators/logicpenguin.js';
 import { LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '../lib/logicSystems.js';
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { recomputeAssignmentGrade, ensureZeroGradesForPastDue } from '../utils/grades.js';
@@ -124,23 +124,9 @@ router.post(
       assignmentQuestion.Assignment?.Course?.logic_system,
       LEGACY_LOGIC_SYSTEM
     );
-    const snapshotPartial =
-      questionSnapshot.partialCredit ??
-      questionSnapshot.partialcredit ??
-      questionSnapshot.partial_credit ??
-      questionSnapshot.options?.partialCredit ??
-      questionSnapshot.options?.partialcredit ??
-      questionSnapshot.options?.partial_credit ??
-      questionSnapshot.truthTable?.options?.partialCredit ??
-      questionSnapshot.truthTable?.options?.partialcredit ??
-      questionSnapshot.truthTable?.options?.partial_credit ??
-      questionSnapshot.truth_table?.options?.partialCredit ??
-      questionSnapshot.truth_table?.options?.partialcredit ??
-      questionSnapshot.truth_table?.options?.partial_credit ??
-      false;
     const options = {
       logicSystem,
-      partialcredit: Boolean(snapshotPartial),
+      partialcredit: resolveSnapshotPartialCredit(questionSnapshot),
     };
 
     // run the autograder to score the submission

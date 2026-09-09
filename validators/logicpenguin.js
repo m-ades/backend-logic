@@ -128,7 +128,9 @@ function normalizeTruthTablePayload(payload) {
   const normalized = {
     lefts,
     right,
-    rowhls: Array.isArray(payload.rowhls) ? payload.rowhls : [],
+    rowhls: Array.isArray(payload.rowhls)
+      ? payload.rowhls
+      : right.rows.map((_, index) => index === payload.witnessRow),
   };
   if ('mcans' in payload) normalized.mcans = payload.mcans;
   if ('taut' in payload) normalized.taut = payload.taut;
@@ -493,6 +495,27 @@ function computeAnswer(question, options) {
   }
 
   return pickDefined(question?.answer, null);
+}
+
+// resolves whether a question snapshot grants partial credit, checking every
+// casing/nesting variant callers have historically written it under
+export function resolveSnapshotPartialCredit(questionSnapshot) {
+  const snapshot = questionSnapshot || {};
+  return Boolean(
+    snapshot.partialCredit ??
+    snapshot.partialcredit ??
+    snapshot.partial_credit ??
+    snapshot.options?.partialCredit ??
+    snapshot.options?.partialcredit ??
+    snapshot.options?.partial_credit ??
+    snapshot.truthTable?.options?.partialCredit ??
+    snapshot.truthTable?.options?.partialcredit ??
+    snapshot.truthTable?.options?.partial_credit ??
+    snapshot.truth_table?.options?.partialCredit ??
+    snapshot.truth_table?.options?.partialcredit ??
+    snapshot.truth_table?.options?.partial_credit ??
+    false
+  );
 }
 
 export async function validateLogicPenguin({
