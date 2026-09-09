@@ -2,11 +2,12 @@ import { jest } from '@jest/globals';
 import errorHandler from '../middleware/error-handler.js';
 
 const create = jest.fn();
+const findByPk = jest.fn();
 const assignmentQuestionFindByPk = jest.fn();
 const courseEnrollmentFindOne = jest.fn();
 
 jest.unstable_mockModule('../models/index.js', () => ({
-  QuestionSession: { create },
+  QuestionSession: { create, findByPk },
   AssignmentQuestion: { findByPk: assignmentQuestionFindByPk },
   Assignment: {},
   CourseEnrollment: { findOne: courseEnrollmentFindOne },
@@ -76,6 +77,7 @@ const runHandlers = async (handlers, req, res) => {
 describe('question sessions routes', () => {
   beforeEach(() => {
     create.mockReset();
+    findByPk.mockReset();
     assignmentQuestionFindByPk.mockReset();
     courseEnrollmentFindOne.mockReset().mockResolvedValue({ id: 1 });
   });
@@ -154,6 +156,66 @@ describe('question sessions routes', () => {
 
       expect(res.statusCode).toBe(403);
       expect(create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('POST /:id/close', () => {
+    it('marks an open session ended for its owner', async () => {
+      const update = jest.fn().mockResolvedValue();
+      findByPk.mockResolvedValueOnce({ id: 5, user_id: 42, ended_at: null, update });
+
+      const handlers = getRouteHandlers('/:id/close', 'post');
+      const req = { params: { id: '5' }, user: { id: 42, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(204);
+      expect(update).toHaveBeenCalledWith({ ended_at: expect.any(Date) });
+    });
+
+    it('is idempotent - does not re-update an already-ended session', async () => {
+      const update = jest.fn();
+      findByPk.mockResolvedValueOnce({ id: 5, user_id: 42, ended_at: new Date('2026-01-01'), update });
+
+      const handlers = getRouteHandlers('/:id/close', 'post');
+      const req = { params: { id: '5' }, user: { id: 42, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(204);
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it('treats an already-gone session as success, since a beacon call has no way to retry', async () => {
+      findByPk.mockResolvedValueOnce(null);
+
+      const handlers = getRouteHandlers('/:id/close', 'post');
+      const req = { params: { id: '999' }, user: { id: 42, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(204);
+    });
+
+    it("rejects closing another user's session", async () => {
+      const update = jest.fn();
+      findByPk.mockResolvedValueOnce({ id: 5, user_id: 7, ended_at: null, update });
+
+      const handlers = getRouteHandlers('/:id/close', 'post');
+      const req = { params: { id: '5' }, user: { id: 42, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(403);
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it('allows system admins to close any session', async () => {
+      const update = jest.fn().mockResolvedValue();
+      findByPk.mockResolvedValueOnce({ id: 5, user_id: 7, ended_at: null, update });
+
+      const handlers = getRouteHandlers('/:id/close', 'post');
+      const req = { params: { id: '5' }, user: { id: 1, is_system_admin: true } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(204);
+      expect(update).toHaveBeenCalledWith({ ended_at: expect.any(Date) });
     });
   });
 });
