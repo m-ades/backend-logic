@@ -1,4 +1,5 @@
 import { validateLogicPenguin } from '../validators/logicpenguin.js';
+import { assertValidQuestionSnapshot } from '../validators/question-snapshot.js';
 
 const cases = [
   {
@@ -121,4 +122,40 @@ describe.each(cases)('$kind witness row validation', ({ truthTable, tables, witn
       result: { successstatus: 'incorrect', componentScores: [0, 0, 0] },
     });
   });
+});
+
+describe.each([
+  { kind: 'formula', statement: 'P • ~P' },
+  { kind: 'argument', lefts: ['P'], right: 'P' },
+  { kind: 'equivalence', statements: ['P', '~P'] },
+])('impossible $kind witness requirements', (truthTable) => {
+  it.each(['truthTable', 'truth_table'])('rejects impossible witnesses in %s snapshots before grading', async (key) => {
+    const question = {
+      type: 'truth-table',
+      [key]: { ...truthTable, options: { highlightWitnessRow: true } },
+    };
+    const before = structuredClone(question);
+
+    await expect(assertValidQuestionSnapshot(question)).rejects.toMatchObject({
+      code: 'INVALID_QUESTION', status: 422,
+    });
+    await expect(validateLogicPenguin({ question, submission: {}, points: 100 }))
+      .rejects.toMatchObject({ code: 'INVALID_QUESTION', status: 422 });
+    expect(question).toEqual(before);
+  });
+
+  it('permits the question when the witness requirement is disabled', async () => {
+    await expect(assertValidQuestionSnapshot({
+      type: 'truth-table',
+      options: { highlightWitnessRow: true },
+      truthTable: { ...truthTable, options: { highlightWitnessRow: false } },
+    })).resolves.toBeUndefined();
+  });
+});
+
+it('uses the course notation when checking witness availability during authoring', async () => {
+  await expect(assertValidQuestionSnapshot({
+    type: 'truth-table',
+    truthTable: { kind: 'formula', statement: 'P ∧ ¬P', options: { highlightWitnessRow: true } },
+  }, { logicSystem: 'fitch' })).rejects.toMatchObject({ code: 'INVALID_QUESTION', status: 422 });
 });

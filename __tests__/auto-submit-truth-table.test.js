@@ -63,4 +63,35 @@ describe('automatic truth table submission', () => {
     }));
     expect(recomputeAssignmentGrade).toHaveBeenCalledWith({ assignmentId: 2, userId: 5 });
   });
+
+  it('skips impossible witness questions without recording a score or blocking valid drafts', async () => {
+    const question = (id, truthTable) => ({
+      id,
+      question_snapshot: {
+        type: 'truth-table',
+        truthTable: { ...truthTable, options: { highlightWitnessRow: true } },
+      },
+    });
+    findQuestions.mockResolvedValue([
+      question(4, { kind: 'formula', statement: 'P • ~P' }),
+      question(5, { kind: 'argument', lefts: ['P'], right: 'P' }),
+      question(6, { kind: 'equivalence', statements: ['P', '~P'] }),
+      question(7, { kind: 'formula', statement: 'P' }),
+    ]);
+    findDraft.mockResolvedValue({
+      draft_data: { tables: [{ rows: [['T'], ['F']] }], witnessRow: 0 },
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const result = await autoSubmitIfPastDeadline(assignment, 5);
+      expect(result.created).toHaveLength(1);
+      expect(createSubmission).toHaveBeenCalledTimes(1);
+      expect(createSubmission).toHaveBeenCalledWith(expect.objectContaining({
+        assignment_question_id: 7, score: 100, is_correct: true,
+      }));
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });

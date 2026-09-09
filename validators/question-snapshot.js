@@ -1,5 +1,7 @@
 import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
 import proofArgumentExtraction from '../lib/logicpenguin/checkers/proof-argument-extraction.js';
+import { allTrueAtRow } from '../lib/logicpenguin/checkers/truth-tables.js';
+import { computeTruthTableAnswer } from '../lib/truthTableAnswer.js';
 import { getLogicSystem, LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '../lib/logicSystems.js';
 import {
   getAssumptionRuleRequirements,
@@ -7,15 +9,13 @@ import {
   parseAssumptionScopes,
 } from '../lib/proofArgumentExtractionScopes.js';
 
-/** 
- * signals that persisted question data violates its problem type contract.
- * these errors are safe to return as 422 responses: they describe author-owned. 
- * configuration, not student correctness, and must never consume an attempt.
- */
-
+/*
+signals invalid author owned question data with status code 422
+must not consume an attempt or create an automatic submission
+*/
 export class InvalidQuestionError extends Error {
   constructor(message) {
-    super(`Invalid proof and argument extraction question: ${message}`);
+    super(`Invalid question: ${message}`);
     this.name = 'InvalidQuestionError';
     this.code = 'INVALID_QUESTION';
     this.status = 422;
@@ -74,21 +74,41 @@ function getCitationError(result, lineNumber) {
   return '';
 }
 
-/** 
- * validates the persisted contract for supported question snapshots
-
- * formulas, scope ranges, and nonblank provided citations are
- * author owned and must be valid. blank citations remain student owned and are
- * intentionally allowed. the function does not mutate the snapshot. it resolves
- * when valid and throws InvalidQuestionError when invalid; unrelated problem
- * types pass through unchanged.s
- * 
- */
+/*
+validates author owned proof data and required truth table witnesses
+leaves snapshots unchanged and permits blank student owned citations
+rejects invalid questions before saving or grading with an invalid question error
+unrelated question types pass through unchanged
+*/
 export async function assertValidQuestionSnapshot(question, options = {}) {
-  if (getQuestionType(question) !== 'proof-argument-extraction') return;
+  const type = getQuestionType(question);
+  if (type !== 'proof-argument-extraction' && type !== 'truth-table') return;
 
   const logicSystem = normalizeLogicSystem(options.logicSystem, LEGACY_LOGIC_SYSTEM);
   const notation = options.notation || getLogicSystem(logicSystem, LEGACY_LOGIC_SYSTEM).derivationSystem;
+  if (type === 'truth-table') {
+    const mergedOptions = {
+      ...options,
+      ...question.options,
+      ...question.truthTable?.options,
+      ...question.truth_table?.options,
+    };
+    if (!mergedOptions.highlightWitnessRow) return;
+
+    const truthTable = question.truthTable || question.truth_table || {};
+    const kind = truthTable.kind || 'formula';
+    const answer = computeTruthTableAnswer(question, { notation });
+    const hasWitness = kind === 'formula'
+      ? answer?.contra === false
+      : kind === 'argument'
+        ? answer?.valid === false
+        : answer?.tables?.[0]?.rows.some((_, index) => allTrueAtRow(answer.tables, index));
+    if (!hasWitness) {
+      throw new InvalidQuestionError('No witness row exists. Disable the witness requirement or change the formulas.');
+    }
+    return;
+  }
+
   const Formula = getFormulaClass(notation);
   const premises = question?.prems;
   const lines = question?.lines;

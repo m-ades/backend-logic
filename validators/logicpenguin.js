@@ -15,7 +15,8 @@ import indirectTruthTable from '../lib/logicpenguin/checkers/indirect-truth-tabl
 import partialTruthTable from '../lib/logicpenguin/checkers/partial-truth-table.js';
 import nonclassicalTruthTable from '../lib/logicpenguin/checkers/nonclassical-truth-table.js';
 import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
-import { formulaTable, equivTablesMany, argumentTables, libtf } from '../lib/logicpenguin/symbolic/libsemantics.js';
+import { libtf } from '../lib/logicpenguin/symbolic/libsemantics.js';
+import { computeTruthTableAnswer } from '../lib/truthTableAnswer.js';
 import { getDerivationProblemType, getLogicSystem } from '../lib/logicSystems.js';
 import { assertValidQuestionSnapshot } from './question-snapshot.js';
 
@@ -381,34 +382,6 @@ function buildDerivationFromLines(proof) {
   return { parts };
 }
 
-function computeTruthAnswer(question, options) {
-  const notation = options?.notation || 'hurley';
-  const Formula = getFormulaClass(notation);
-  const truthTable = question.truthTable || question.truth_table || {};
-  const kind = truthTable.kind || 'formula';
-
-  if (kind === 'formula') {
-    const f = Formula.from(truthTable.statement || question.statement);
-    return formulaTable(f, notation);
-  }
-
-  if (kind === 'equivalence') {
-    const statements = Array.isArray(truthTable.statements)
-      ? truthTable.statements
-      : [truthTable.left, truthTable.right];
-    const wffs = statements.map((statement) => Formula.from(statement));
-    return equivTablesMany(wffs, notation);
-  }
-
-  if (kind === 'argument') {
-    const prems = (truthTable.lefts || []).map((prem) => Formula.from(prem));
-    const conc = Formula.from(truthTable.right);
-    return argumentTables(prems, conc, notation);
-  }
-
-  return undefined;
-}
-
 function computeEvaluateTruthAnswer(question, options) {
   const notation = options?.notation || 'hurley';
   const Formula = getFormulaClass(notation);
@@ -437,7 +410,7 @@ function computeAnswer(question, options) {
   const type = normalizeType(question);
 
   if (type === 'truth-table') {
-    return computeTruthAnswer(question, options);
+    return computeTruthTableAnswer(question, options);
   }
 
   if (type === 'evaluate-truth') {

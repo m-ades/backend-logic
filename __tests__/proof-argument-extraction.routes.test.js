@@ -112,7 +112,19 @@ const validQuestion = {
   justifications: ['∧E 1'],
 };
 
-describe('proof argument extraction question boundaries', () => {
+const invalidQuestions = [
+  { question: invalidScopeQuestion, message: 'must end before the conclusion' },
+  ...[
+    { kind: 'formula', statement: 'P ∧ ¬P' },
+    { kind: 'argument', lefts: ['P'], right: 'P' },
+    { kind: 'equivalence', statements: ['P', '¬P'] },
+  ].map((truthTable) => ({
+    question: { type: 'truth-table', truthTable: { ...truthTable, options: { highlightWitnessRow: true } } },
+    message: 'No witness row exists',
+  })),
+];
+
+describe('question snapshot boundaries', () => {
   let consoleErrorSpy;
 
   beforeEach(() => {
@@ -125,7 +137,7 @@ describe('proof argument extraction question boundaries', () => {
     consoleErrorSpy.mockRestore();
   });
 
-  it('rejects invalid question data before create', async () => {
+  it.each(invalidQuestions)('rejects invalid question data before create %#', async ({ question, message }) => {
     assignmentFindByPk.mockResolvedValue(assignment);
     const handlers = getRouteHandlers(getCrudRouter(assignmentQuestionsRouter), '/', 'post');
     const req = {
@@ -133,7 +145,7 @@ describe('proof argument extraction question boundaries', () => {
         assignment_id: assignment.id,
         order_index: 0,
         points_value: 100,
-        question_snapshot: invalidScopeQuestion,
+        question_snapshot: question,
       },
       user: { id: 7 },
     };
@@ -141,8 +153,52 @@ describe('proof argument extraction question boundaries', () => {
     const res = await runHandlers(handlers, req, createRes());
 
     expect(res.statusCode).toBe(422);
-    expect(res.body.message).toContain('must end before the conclusion');
+    expect(res.body.message).toContain(message);
     expect(assignmentQuestionCreate).not.toHaveBeenCalled();
+  });
+
+  it('rejects a bulk save containing an impossible witness question', async () => {
+    assignmentFindByPk.mockResolvedValue(assignment);
+    const handlers = getRouteHandlers(assignmentQuestionsRouter, '/bulk', 'post');
+    const req = {
+      body: {
+        assignment_id: assignment.id,
+        questions: [
+          { question_snapshot: validQuestion, order_index: 0 },
+          { question_snapshot: invalidQuestions[2].question, order_index: 1 },
+        ],
+      },
+      user: { id: 7 },
+    };
+
+    const res = await runHandlers(handlers, req, createRes());
+
+    expect(res.statusCode).toBe(422);
+    expect(assignmentQuestionBulkCreate).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects enabling a witness requirement on a valid argument during update', async () => {
+    const update = jest.fn();
+    assignmentQuestionFindByPk.mockResolvedValue({
+      id: 21,
+      assignment_id: assignment.id,
+      question_snapshot: { type: 'truth-table', truthTable: { kind: 'argument', lefts: ['P'], right: 'P' } },
+      update,
+    });
+    assignmentFindByPk.mockResolvedValue(assignment);
+    const handlers = getRouteHandlers(getCrudRouter(assignmentQuestionsRouter), '/:id', 'put');
+    const req = {
+      params: { id: '21' },
+      body: { question_snapshot: { truthTable: { options: { highlightWitnessRow: true } } } },
+      user: { id: 7 },
+    };
+
+    const res = await runHandlers(handlers, req, createRes());
+
+    expect(res.statusCode).toBe(422);
+    expect(res.body.message).toContain('No witness row exists');
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('normalizes nonpositive attempt limits when creating questions', async () => {
@@ -224,11 +280,11 @@ describe('proof argument extraction question boundaries', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  it('does not record an attempt for legacy invalid question data', async () => {
+  it.each(invalidQuestions)('does not record an attempt for legacy invalid question data %#', async ({ question, message }) => {
     assignmentQuestionFindByPk.mockResolvedValue({
       id: 21,
       attempt_limit: 3,
-      question_snapshot: invalidScopeQuestion,
+      question_snapshot: question,
       Assignment: {
         ...assignment,
         is_locked: false,
@@ -256,7 +312,7 @@ describe('proof argument extraction question boundaries', () => {
     const res = await runHandlers(handlers, req, createRes());
 
     expect(res.statusCode).toBe(422);
-    expect(res.body.message).toContain('must end before the conclusion');
+    expect(res.body.message).toContain(message);
     expect(submissionCreate).not.toHaveBeenCalled();
   });
 
