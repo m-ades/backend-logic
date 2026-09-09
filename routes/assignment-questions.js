@@ -43,7 +43,7 @@ async function assertValidSnapshotForAssignment(questionSnapshot, assignmentOrId
   const type = questionSnapshot?.type
     || questionSnapshot?.problemType
     || questionSnapshot?.logic_problem_type;
-  if (type !== 'proof-argument-extraction') return;
+  if (type !== 'proof-argument-extraction' && type !== 'truth-table') return;
 
   const assignment = typeof assignmentOrId === 'object'
     ? assignmentOrId

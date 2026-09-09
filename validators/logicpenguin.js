@@ -15,7 +15,8 @@ import indirectTruthTable from '../lib/logicpenguin/checkers/indirect-truth-tabl
 import partialTruthTable from '../lib/logicpenguin/checkers/partial-truth-table.js';
 import nonclassicalTruthTable from '../lib/logicpenguin/checkers/nonclassical-truth-table.js';
 import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
-import { formulaTable, equivTablesMany, argumentTables, libtf } from '../lib/logicpenguin/symbolic/libsemantics.js';
+import { libtf } from '../lib/logicpenguin/symbolic/libsemantics.js';
+import { computeTruthTableAnswer } from '../lib/truthTableAnswer.js';
 import { getDerivationProblemType, getLogicSystem } from '../lib/logicSystems.js';
 import { assertValidQuestionSnapshot } from './question-snapshot.js';
 
@@ -128,7 +129,9 @@ function normalizeTruthTablePayload(payload) {
   const normalized = {
     lefts,
     right,
-    rowhls: Array.isArray(payload.rowhls) ? payload.rowhls : [],
+    rowhls: Array.isArray(payload.rowhls)
+      ? payload.rowhls
+      : right.rows.map((_, index) => index === payload.witnessRow),
   };
   if ('mcans' in payload) normalized.mcans = payload.mcans;
   if ('taut' in payload) normalized.taut = payload.taut;
@@ -138,6 +141,10 @@ function normalizeTruthTablePayload(payload) {
   return normalized;
 }
 
+/*
+normalizes saved tables and row selections without mutating drafts
+explicit row highlights take precedence invalid row indices select nothing
+*/
 function normalizeTableState(state) {
   if (!isPlainObject(state)) return null;
   if (!Array.isArray(state.tables) || state.tables.length === 0) return null;
@@ -150,7 +157,9 @@ function normalizeTableState(state) {
   const payload = {
     lefts: tables.slice(0, -1),
     right: tables[tables.length - 1],
-    rowhls: Array.isArray(state.rowhls) ? state.rowhls : [],
+    rowhls: Array.isArray(state.rowhls)
+      ? state.rowhls
+      : tables[0].rows.map((_, index) => Number.isInteger(state.witnessRow) && index === state.witnessRow),
   };
   if ('mcans' in state) payload.mcans = state.mcans;
   if ('taut' in state) payload.taut = state.taut;
@@ -373,34 +382,6 @@ function buildDerivationFromLines(proof) {
   return { parts };
 }
 
-function computeTruthAnswer(question, options) {
-  const notation = options?.notation || 'hurley';
-  const Formula = getFormulaClass(notation);
-  const truthTable = question.truthTable || question.truth_table || {};
-  const kind = truthTable.kind || 'formula';
-
-  if (kind === 'formula') {
-    const f = Formula.from(truthTable.statement || question.statement);
-    return formulaTable(f, notation);
-  }
-
-  if (kind === 'equivalence') {
-    const statements = Array.isArray(truthTable.statements)
-      ? truthTable.statements
-      : [truthTable.left, truthTable.right];
-    const wffs = statements.map((statement) => Formula.from(statement));
-    return equivTablesMany(wffs, notation);
-  }
-
-  if (kind === 'argument') {
-    const prems = (truthTable.lefts || []).map((prem) => Formula.from(prem));
-    const conc = Formula.from(truthTable.right);
-    return argumentTables(prems, conc, notation);
-  }
-
-  return undefined;
-}
-
 function computeEvaluateTruthAnswer(question, options) {
   const notation = options?.notation || 'hurley';
   const Formula = getFormulaClass(notation);
@@ -429,7 +410,7 @@ function computeAnswer(question, options) {
   const type = normalizeType(question);
 
   if (type === 'truth-table') {
-    return computeTruthAnswer(question, options);
+    return computeTruthTableAnswer(question, options);
   }
 
   if (type === 'evaluate-truth') {
@@ -487,6 +468,27 @@ function computeAnswer(question, options) {
   }
 
   return pickDefined(question?.answer, null);
+}
+
+/* resolves whether a question snapshot grants partial credit, checking every
+casing/nesting variant callers have historically written it under */
+export function resolveSnapshotPartialCredit(questionSnapshot) {
+  const snapshot = questionSnapshot || {};
+  return Boolean(
+    snapshot.partialCredit ??
+    snapshot.partialcredit ??
+    snapshot.partial_credit ??
+    snapshot.options?.partialCredit ??
+    snapshot.options?.partialcredit ??
+    snapshot.options?.partial_credit ??
+    snapshot.truthTable?.options?.partialCredit ??
+    snapshot.truthTable?.options?.partialcredit ??
+    snapshot.truthTable?.options?.partial_credit ??
+    snapshot.truth_table?.options?.partialCredit ??
+    snapshot.truth_table?.options?.partialcredit ??
+    snapshot.truth_table?.options?.partial_credit ??
+    false
+  );
 }
 
 export async function validateLogicPenguin({

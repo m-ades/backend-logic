@@ -7,7 +7,7 @@ import {
   CourseEnrollment,
   Submission,
 } from '../models/index.js';
-import { validateLogicPenguin } from '../validators/logicpenguin.js';
+import { validateLogicPenguin, resolveSnapshotPartialCredit } from '../validators/logicpenguin.js';
 import { isInvalidQuestionError } from '../validators/question-snapshot.js';
 import { LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '../lib/logicSystems.js';
 import { computeDeadlinePolicy } from './assignmentPolicy.js';
@@ -71,7 +71,7 @@ export async function autoSubmitIfPastDeadline(assignment, userId) {
     const questionSnapshot = question.question_snapshot || {};
     const options = {
       logicSystem,
-      partialcredit: questionSnapshot.partialCredit || false,
+      partialcredit: resolveSnapshotPartialCredit(questionSnapshot),
     };
 
     let validation;
