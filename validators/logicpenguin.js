@@ -470,8 +470,8 @@ function computeAnswer(question, options) {
   return pickDefined(question?.answer, null);
 }
 
-// resolves whether a question snapshot grants partial credit, checking every
-// casing/nesting variant callers have historically written it under
+/* resolves whether a question snapshot grants partial credit, checking every
+casing/nesting variant callers have historically written it under */
 export function resolveSnapshotPartialCredit(questionSnapshot) {
   const snapshot = questionSnapshot || {};
   return Boolean(

@@ -60,8 +60,8 @@ describe('formula truth table witness row highlight', () => {
 });
 
 describe('argument truth table witness row highlight', () => {
-  // one premise P, conclusion Q; row 1 (P true, Q false) is the only
-  // witness that the argument is invalid
+  /* one premise P, conclusion Q; row 1 (P true, Q false) is the only
+  witness that the argument is invalid */
   const answer = {
     valid: false,
     prems: [{ opspot: 0, rows: [[true], [true], [false], [false]] }],
@@ -118,8 +118,8 @@ describe('argument truth table witness row highlight', () => {
 });
 
 describe('equivalence truth table witness row highlight', () => {
-  // two statements A, B; row 0 (both true) is the only witness that the
-  // set is jointly satisfiable
+  /* two statements A, B; row 0 (both true) is the only witness that the
+  set is jointly satisfiable */
   const answer = {
     equiv: false,
     tables: [
