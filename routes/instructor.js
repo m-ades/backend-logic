@@ -359,7 +359,7 @@ router.get('/assignments/:id/extensions', assignmentAccessValidators, async (req
       return res.status(404).json({ message: 'Assignment not found' });
     }
 
-    if (!(await requireInstructor(assignment.course_id, userId))) {
+    if (!(await requireInstructorOrAdmin(assignment.course_id, userId))) {
       return res.status(403).json({ message: 'Instructor access required' });
     }
 
@@ -385,7 +385,7 @@ router.post('/assignments/:id/extensions', assignmentAccessValidators, async (re
       return res.status(404).json({ message: 'Assignment not found' });
     }
 
-    if (!(await requireInstructor(assignment.course_id, userId))) {
+    if (!(await requireInstructorOrAdmin(assignment.course_id, userId))) {
       return res.status(403).json({ message: 'Instructor access required' });
     }
 
@@ -703,7 +703,7 @@ router.get(
       const userId = req.user.id;
       const studentId = req.params.studentId;
 
-      if (!(await requireInstructor(courseId, userId))) {
+      if (!(await requireInstructorOrAdmin(courseId, userId))) {
         return res.status(403).json({ message: 'Instructor access required' });
       }
 
