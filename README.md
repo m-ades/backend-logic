@@ -26,8 +26,3 @@ npm run dev
 - `GET /health` - Health check endpoint
 - `GET /api/test-db` - Test database connection
 
-## Database
-
-This project uses PostgreSQL. Make sure PostgreSQL is running and the database specified in `.env` exists.
-
-
