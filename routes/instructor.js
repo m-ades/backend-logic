@@ -25,6 +25,7 @@ import { handleValidationResult } from '../middleware/validation.js';
 import {
   assignmentIdParam,
   courseIdParam,
+  userIdOptionalQuery,
 } from '../validators/common.js';
 
 const router = express.Router();
@@ -358,7 +359,7 @@ router.get('/assignments/:id/extensions', assignmentAccessValidators, async (req
       return res.status(404).json({ message: 'Assignment not found' });
     }
 
-    if (!(await requireInstructor(assignment.course_id, userId))) {
+    if (!(await requireInstructorOrAdmin(assignment.course_id, userId))) {
       return res.status(403).json({ message: 'Instructor access required' });
     }
 
@@ -384,7 +385,7 @@ router.post('/assignments/:id/extensions', assignmentAccessValidators, async (re
       return res.status(404).json({ message: 'Assignment not found' });
     }
 
-    if (!(await requireInstructor(assignment.course_id, userId))) {
+    if (!(await requireInstructorOrAdmin(assignment.course_id, userId))) {
       return res.status(403).json({ message: 'Instructor access required' });
     }
 
@@ -513,7 +514,8 @@ router.post('/assignments/:id/extensions/classwide', assignmentAccessValidators,
   }
 });
 
-router.get('/assignments/:id/submissions', assignmentAccessValidators, async (req, res, next) => {
+// returns saved attempts to instructors/admins, optionally filtered to one student
+router.get('/assignments/:id/submissions', [assignmentIdParam, userIdOptionalQuery, handleValidationResult], async (req, res, next) => {
   try {
     const assignmentId = req.params.id;
     const userId = req.user.id;
@@ -523,11 +525,12 @@ router.get('/assignments/:id/submissions', assignmentAccessValidators, async (re
       return res.status(404).json({ message: 'Assignment not found' });
     }
 
-    if (!(await requireInstructor(assignment.course_id, userId))) {
+    if (!(await requireInstructorOrAdmin(assignment.course_id, userId))) {
       return res.status(403).json({ message: 'Instructor access required' });
     }
 
     const submissions = await Submission.findAll({
+      ...(req.query.userId ? { where: { user_id: req.query.userId } } : {}),
       include: [
         {
           model: AssignmentQuestion,
@@ -700,7 +703,7 @@ router.get(
       const userId = req.user.id;
       const studentId = req.params.studentId;
 
-      if (!(await requireInstructor(courseId, userId))) {
+      if (!(await requireInstructorOrAdmin(courseId, userId))) {
         return res.status(403).json({ message: 'Instructor access required' });
       }
 

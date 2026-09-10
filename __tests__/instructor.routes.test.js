@@ -18,6 +18,7 @@ const assignmentQuestionFindByPk = jest.fn();
 const overrideFindOne = jest.fn();
 const overrideCreate = jest.fn();
 const recomputeAssignmentGrade = jest.fn();
+const submissionFindAll = jest.fn();
 
 jest.unstable_mockModule('../models/index.js', () => ({
   Assignment: { findByPk: assignmentFindByPk, findAll: assignmentFindAll },
@@ -26,7 +27,7 @@ jest.unstable_mockModule('../models/index.js', () => ({
   AssignmentGrade: {},
   AssignmentQuestion: { findByPk: assignmentQuestionFindByPk },
   AssignmentQuestionOverride: { findOne: overrideFindOne, create: overrideCreate },
-  Submission: {},
+  Submission: { findAll: submissionFindAll },
   CourseEnrollment: { findOne, findAll, create: createEnrollment },
   User: { findByPk, findOne: userFindOne, create: userCreate },
 }));
@@ -121,11 +122,70 @@ describe('instructor routes', () => {
     overrideFindOne.mockReset();
     overrideCreate.mockReset();
     recomputeAssignmentGrade.mockReset().mockResolvedValue(undefined);
+    submissionFindAll.mockReset();
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
     consoleErrorSpy?.mockRestore();
+  });
+
+  describe('GET /assignments/:id/submissions', () => {
+    const request = (query = {}) => ({ params: { id: '4' }, query, user: { id: 2 } });
+    const handlers = getRouteHandlers('/assignments/:id/submissions', 'get');
+
+    it('scopes selected student attempts to the assignment', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({ id: 4, course_id: 8 });
+      findOne.mockResolvedValueOnce({ role: 'instructor' });
+      const submissions = [{ id: 12, user_id: 9, assignment_question_id: 3 }];
+      submissionFindAll.mockResolvedValueOnce(submissions);
+
+      const res = await runHandlers(handlers, request({ userId: '9' }), createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toEqual(submissions);
+      expect(findOne).toHaveBeenCalledWith({ where: { course_id: 8, user_id: 2 } });
+      expect(submissionFindAll).toHaveBeenCalledWith(expect.objectContaining({
+        where: { user_id: 9 },
+        include: expect.arrayContaining([expect.objectContaining({ where: { assignment_id: 4 } })]),
+        order: [['submitted_at', 'DESC']],
+      }));
+    });
+
+    it('preserves the whole assignment view when no student is selected', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({ id: 4, course_id: 8 });
+      findOne.mockResolvedValueOnce({ role: 'instructor' });
+      submissionFindAll.mockResolvedValueOnce([]);
+
+      const res = await runHandlers(handlers, request(), createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(submissionFindAll.mock.calls[0][0]).not.toHaveProperty('where');
+    });
+
+    it.each(['0', '-1', 'invalid', '1.5'])('rejects invalid student id %s', async (userId) => {
+      const res = await runHandlers(handlers, request({ userId }), createRes());
+
+      expect(res.statusCode).toBe(400);
+      expect(submissionFindAll).not.toHaveBeenCalled();
+    });
+
+    it.each(['student', 'ta', null])('rejects access without course instructor enrollment %s', async (role) => {
+      assignmentFindByPk.mockResolvedValueOnce({ id: 4, course_id: 8 });
+      findOne.mockResolvedValueOnce(role ? { role } : null);
+
+      const res = await runHandlers(handlers, request({ userId: '9' }), createRes());
+
+      expect(res.statusCode).toBe(403);
+      expect(submissionFindAll).not.toHaveBeenCalled();
+    });
+
+    it('returns not found for a missing assignment', async () => {
+      assignmentFindByPk.mockResolvedValueOnce(null);
+      const res = await runHandlers(handlers, request({ userId: '9' }), createRes());
+      expect(res.statusCode).toBe(404);
+      expect(submissionFindAll).not.toHaveBeenCalled();
+    });
   });
 
   describe('GET /courses/:id/roster', () => {
