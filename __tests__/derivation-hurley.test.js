@@ -1,4 +1,5 @@
 import checkDerivation from '../lib/logicpenguin/checkers/derivation-hurley.js';
+import { getDerivationCheckerForLogicSystem } from '../lib/logicpenguin/checkers/derivation-by-logic-system.js';
 import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
 import { validateLogicPenguin } from '../validators/logicpenguin.js';
 
@@ -42,6 +43,27 @@ function collectMessages(errors = {}) {
   }
   return messages;
 }
+
+describe('derivation-hurley missing submissions', () => {
+  const question = { prems: ['A'], conc: 'A' };
+  const answer = { parts: [{ n: '1', s: 'A', j: 'Pr' }] };
+  const checker = getDerivationCheckerForLogicSystem('hurley');
+
+  it.each([null, undefined])('rejects %s even when a correct answer key exists', async (submission) => {
+    const result = await checker(question, answer, submission, false, 100, false, {});
+
+    expect(result.successstatus).toBe('incorrect');
+    expect(result.points).toBe(0);
+    expect(result.errors?.['??']?.justification?.high?.['no proof data']).toBe(1);
+  });
+
+  it('awards full credit when the correct proof is actually submitted', async () => {
+    const result = await checker(question, null, answer, false, 100, false, {});
+
+    expect(result.successstatus).toBe('correct');
+    expect(result.points).toBe(100);
+  });
+});
 
 describe('derivation-hurley ACP/AIP completion', () => {
   it('preserves explicit derivation-hurley snapshots when the course logic system is fitch', async () => {
