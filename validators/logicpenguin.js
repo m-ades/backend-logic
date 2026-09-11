@@ -9,7 +9,6 @@ import proofArgumentExtraction from '../lib/logicpenguin/checkers/proof-argument
 import symbolicTranslation from '../lib/logicpenguin/checkers/symbolic-translation.js';
 import multipleChoice from '../lib/logicpenguin/checkers/multiple-choice.js';
 import evaluateTruth from '../lib/logicpenguin/checkers/evaluate-truth.js';
-// import validCorrectSound from '../lib/logicpenguin/checkers/valid-correct-sound.js';
 import singleRowTruthTable from '../lib/logicpenguin/checkers/single-row-truth-table.js';
 import indirectTruthTable from '../lib/logicpenguin/checkers/indirect-truth-table.js';
 import partialTruthTable from '../lib/logicpenguin/checkers/partial-truth-table.js';
@@ -36,7 +35,6 @@ const CHECKERS = {
   'nonclassical-truth-table': nonclassicalTruthTable,
   'partial-truth-table': partialTruthTable,
   'evaluate-truth': evaluateTruth,
-  // 'valid-correct-sound': validCorrectSound,
   'single-row-truth-table': singleRowTruthTable,
 };
 
@@ -454,10 +452,6 @@ function computeAnswer(question, options) {
   if (type === 'symbolic-translation') {
     return pickDefined(question?.answer, question?.translationAnswer);
   }
-
-  // if (type === 'valid-correct-sound') {
-  //   return pickDefined(question?.answer, question?.validCorrectSoundAnswer);
-  // }
 
   if (type === 'combo-translation-truth-table') {
     return question?.answer;
