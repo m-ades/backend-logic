@@ -32,6 +32,28 @@ function buildNestedProof({ conclusion, parts, premises = [] }) {
 }
 
 describe('derivation-calgary checker', () => {
+  it.each([
+    ['DS 2,3', 'correct'],
+    ['DS 1,2,3', 'incorrect'],
+  ])('keeps fitch ds bidirectional when checking %s', async (justification, expectedStatus) => {
+    const question = { prems: ['R', 'P ∨ Q', '¬Q'], conc: 'P' };
+    const proof = buildProof({
+      premises: question.prems,
+      conclusion: question.conc,
+      lines: [
+        ...question.prems.map((formula) => ({ formula, justification: 'Pr' })),
+        { formula: 'P', justification },
+      ],
+    });
+    const result = await checkDerivation(question, null, proof, false, 1, false, { notation: 'calgary' });
+
+    expect(result.successstatus).toBe(expectedStatus);
+    expect(result.errors?.['4']?.rule?.high?.['DS eliminates only the left disjunct']).toBeUndefined();
+    if (expectedStatus === 'incorrect') {
+      expect(result.errors?.['4']?.justification?.low?.['cites the wrong number of lines for the rule specified']).toBe(1);
+    }
+  });
+
   it('checks a basic calgary proof', async () => {
     const proof = buildProof({
       premises: ['P', 'P → Q'],

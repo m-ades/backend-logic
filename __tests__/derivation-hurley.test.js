@@ -276,3 +276,42 @@ describe('derivation-hurley quantifier constant restrictions', () => {
     );
   });
 });
+
+describe('derivation-hurley directional rule corrections', () => {
+  it('flags Simp deriving the right conjunct with a specific correction', async () => {
+    const result = await runDerivation({
+      premises: ['A•B'],
+      conclusion: 'B',
+      lines: [
+        { formula: 'A•B', justification: 'Pr' },
+        { formula: 'B', justification: '1 Simp' },
+      ],
+    });
+
+    expect(result.successstatus).toBe('incorrect');
+    expect(collectMessages(result.errors)).toEqual(
+      expect.arrayContaining([
+        'Simplification derives only the left conjunct',
+      ])
+    );
+  });
+
+  it('flags DS eliminating the right disjunct with a specific correction', async () => {
+    const result = await runDerivation({
+      premises: ['A∨B', '~B'],
+      conclusion: 'A',
+      lines: [
+        { formula: 'A∨B', justification: 'Pr' },
+        { formula: '~B', justification: 'Pr' },
+        { formula: 'A', justification: '1,2 DS' },
+      ],
+    });
+
+    expect(result.successstatus).toBe('incorrect');
+    expect(collectMessages(result.errors)).toEqual(
+      expect.arrayContaining([
+        'DS eliminates only the left disjunct',
+      ])
+    );
+  });
+});
