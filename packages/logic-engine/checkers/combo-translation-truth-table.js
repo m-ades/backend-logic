@@ -7,6 +7,7 @@
 ////////////////////////////////////////////////////////////////////////
 
 import tr from '../translate.js';
+import { gradeComponents } from './component-grading.js';
 import checkArgumentTT from './argument-truth-table.js';
 import getFormulaClass from '../symbolic/formula.js';
 import { equivtest } from '../symbolic/libequivalence.js';
@@ -26,16 +27,14 @@ export default async function(
         notation = options.notation;
     }
     const Formula = getFormulaClass(notation);
-    //
-    let correct = true;
     const messages = [];
     let offcells = false;
     let qright = null;
     let rowdiff = 0;
-    let ttTtl = 4;
+    const ttTtl = 4;
     let ttEarned = 0;
     let transptsearned = 0;
-    let transptsttl = 2;
+    const transptsttl = 2;
 
     const parseArgumentLine = (line) => {
         if (!line || typeof line !== 'string') return { error: tr('Enter the argument as a single line.') };
@@ -72,14 +71,12 @@ export default async function(
 
     const expected = resolveExpected();
     if (expected.error) {
-        correct = false;
         messages.push(expected.error);
     }
 
     const givenLine = givenans?.argumentLine ?? givenans?.argument ?? '';
     const given = parseArgumentLine(givenLine);
     if (given.error) {
-        correct = false;
         messages.push(given.error);
     } else if (!expected.error) {
         const compareFormulas = (expStr, givenStr, indexLabel) => {
@@ -119,19 +116,17 @@ export default async function(
             const conclusionOk = premisesOk && expected.premises.length === given.premises.length &&
                 compareFormulas(expected.conclusion, given.conclusion, tr('conclusion')).ok;
             if (!conclusionOk) {
-                correct = false;
                 messages.push(tr('The argument line does not match the expected translation.'));
             } else {
                 transptsearned = transptsttl;
             }
         } catch {
-            correct = false;
             messages.push(tr('The argument line contains an invalid formula.'));
         }
     }
     // check tables: use the user's argument (given) so we validate their table
     // and classification for their statement, not the expected one
-    if (givenans.tableAns && !given.error) {
+    if (givenans?.tableAns && !given.error) {
         const premises = given.premises;
         const conclusion = given.conclusion;
         const pwffs = premises.map((p)=> Formula.from(p));
@@ -153,7 +148,6 @@ export default async function(
         if (tableCheck.successstatus == 'correct') {
             qright = true;
         } else {
-            correct = false;
             messages.push(tr('There are errors with the truth ' +
                 'table or answer given there.'));
             if (tableCheck.offcells) {
@@ -166,29 +160,14 @@ export default async function(
             }
         }
     }
-    let earned = 0;
-    if (partialcredit) {
-        if (correct) {
-            earned = points;
-        } else {
-            const allpts = ttEarned + transptsearned;
-            const avail = ttTtl + transptsttl;
-            earned = Math.floor(
-                points * (allpts/avail)
-            );
-        }
-    } else {
-        // all or nothing
-        earned = correct ? points : 0;
+    if (!givenans?.tableAns) {
+        messages.push(tr('Enter the truth table.'));
     }
     const translationScore = transptsttl > 0 ? (transptsearned / transptsttl) : 0;
     const tableScore = ttTtl > 0 ? (ttEarned / ttTtl) : 0;
-    const successstatus = correct ? "correct" : (partialcredit && earned > 0 ? "partial" : "incorrect");
-    const rv = {
-        successstatus,
-        points: earned,
-        componentScores: [translationScore, tableScore],
-    }
+    const rv = gradeComponents(
+        [translationScore, tableScore], partialcredit, points, [transptsttl, ttTtl]
+    );
     if (cheat) {
         if (offcells) {
             rv.offcells = offcells;

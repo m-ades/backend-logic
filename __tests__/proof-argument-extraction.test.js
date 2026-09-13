@@ -1,4 +1,4 @@
-import { validateLogicPenguin } from '../validators/logicpenguin.js';
+import { validateLogicProblem } from '../validators/logic-engine.js';
 
 const question = {
   type: 'proof-argument-extraction',
@@ -15,7 +15,7 @@ const correctJustifications = [
 
 describe('proof argument extraction', () => {
   it('checks the citations and extracted argument with the course proof system', async () => {
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question,
       submission: {
         argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
@@ -30,7 +30,7 @@ describe('proof argument extraction', () => {
   });
 
   it('rejects slash separators in the extracted argument', async () => {
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question,
       submission: {
         argumentLine: 'P ∧ S / S → R // R ∨ E',
@@ -45,7 +45,7 @@ describe('proof argument extraction', () => {
   });
 
   it('rejects a correct proof paired with the wrong argument', async () => {
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question,
       submission: {
         argumentLine: 'S → R, P ∧ S ∴ R ∨ E',
@@ -60,7 +60,7 @@ describe('proof argument extraction', () => {
   });
 
   it('rejects bad citations', async () => {
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question,
       submission: {
         argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
@@ -75,7 +75,7 @@ describe('proof argument extraction', () => {
   });
 
   it('uses provided justifications and does not let the submission replace them', async () => {
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question: {
         ...question,
         justifications: ['∧E 1', '', '', '∨I 5'],
@@ -93,7 +93,7 @@ describe('proof argument extraction', () => {
   });
 
   it('accepts an argument-only submission when every justification is provided', async () => {
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question: {
         ...question,
         justifications: correctJustifications,
@@ -110,7 +110,7 @@ describe('proof argument extraction', () => {
   });
 
   it('checks an assumption scope that begins after a top-level proof line', async () => {
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question: {
         type: 'proof-argument-extraction',
         prems: ['J → ¬J'],
@@ -130,7 +130,7 @@ describe('proof argument extraction', () => {
   });
 
   it('requires AS on the first line of each assumption scope', async () => {
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question: {
         type: 'proof-argument-extraction',
         prems: ['P ∧ D'],
@@ -151,7 +151,7 @@ describe('proof argument extraction', () => {
   });
 
   it('rejects an assumption scope containing the conclusion', async () => {
-    await expect(validateLogicPenguin({
+    await expect(validateLogicProblem({
       question: {
         type: 'proof-argument-extraction',
         prems: ['P ∧ D'],
@@ -172,7 +172,7 @@ describe('proof argument extraction', () => {
   });
 
   it('supports nested assumption scopes', async () => {
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question: {
         type: 'proof-argument-extraction',
         prems: ['R'],
@@ -195,7 +195,7 @@ describe('proof argument extraction', () => {
   });
 
   it('rejects crossing assumption scopes as invalid question data', async () => {
-    await expect(validateLogicPenguin({
+    await expect(validateLogicProblem({
       question: {
         ...question,
         lines: [...question.lines, 'R ∨ E'],
@@ -218,7 +218,7 @@ describe('proof argument extraction', () => {
   });
 
   it('uses the formulas from the question instead of the submitted proof', async () => {
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question,
       submission: {
         argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
@@ -240,7 +240,7 @@ describe('proof argument extraction', () => {
   });
 
   it('uses the hurley notation and derivation rules when the course does', async () => {
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question: {
         type: 'proof-argument-extraction',
         prems: ['P • S', 'P ⊃ R'],
@@ -259,7 +259,7 @@ describe('proof argument extraction', () => {
   });
 
   it('checks a declared Hurley ACP/CP scope by default', async () => {
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question: {
         type: 'proof-argument-extraction',
         prems: ['A • C'],
@@ -278,7 +278,7 @@ describe('proof argument extraction', () => {
   });
 
   it('checks a declared Hurley AIP/IP scope', async () => {
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question: {
         type: 'proof-argument-extraction',
         prems: ['A • ~A'],
@@ -298,7 +298,7 @@ describe('proof argument extraction', () => {
   });
 
   it('requires Hurley CP/IP on the line immediately after the declared scope', async () => {
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question: {
         type: 'proof-argument-extraction',
         prems: ['A • C'],
@@ -322,7 +322,7 @@ describe('proof argument extraction', () => {
     ['adjacent scopes', [{ start: 0, end: 1 }, { start: 2, end: 3 }]],
     ['scopes sharing an end', [{ start: 0, end: 3 }, { start: 1, end: 3 }]],
   ])('rejects Hurley %s that require two structural rules on one line', async (_name, assumptionScopes) => {
-    await expect(validateLogicPenguin({
+    await expect(validateLogicProblem({
       question: {
         type: 'proof-argument-extraction',
         prems: ['A'],
@@ -343,7 +343,7 @@ describe('proof argument extraction', () => {
   });
 
   it('rejects an invalid instructor-provided citation as question data', async () => {
-    await expect(validateLogicPenguin({
+    await expect(validateLogicProblem({
       question: {
         ...question,
         justifications: ['∧E 2', '', '', '∨I 5'],

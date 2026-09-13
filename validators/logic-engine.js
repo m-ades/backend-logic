@@ -1,42 +1,10 @@
-import derivationHurley from '../lib/logicpenguin/checkers/derivation-hurley.js';
-import derivationCalgary from '../lib/logicpenguin/checkers/derivation-calgary.js';
-import formulaTruthTable from '../lib/logicpenguin/checkers/formula-truth-table.js';
-import equivalenceTruthTable from '../lib/logicpenguin/checkers/equivalence-truth-table.js';
-import argumentTruthTable from '../lib/logicpenguin/checkers/argument-truth-table.js';
-import comboTranslationTruthTable from '../lib/logicpenguin/checkers/combo-translation-truth-table.js';
-import comboTranslationDerivation from '../lib/logicpenguin/checkers/combo-translation-derivation.js';
-import proofArgumentExtraction from '../lib/logicpenguin/checkers/proof-argument-extraction.js';
-import symbolicTranslation from '../lib/logicpenguin/checkers/symbolic-translation.js';
-import multipleChoice from '../lib/logicpenguin/checkers/multiple-choice.js';
-import evaluateTruth from '../lib/logicpenguin/checkers/evaluate-truth.js';
-import singleRowTruthTable from '../lib/logicpenguin/checkers/single-row-truth-table.js';
-import indirectTruthTable from '../lib/logicpenguin/checkers/indirect-truth-table.js';
-import partialTruthTable from '../lib/logicpenguin/checkers/partial-truth-table.js';
-import nonclassicalTruthTable from '../lib/logicpenguin/checkers/nonclassical-truth-table.js';
-import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
-import { libtf } from '../lib/logicpenguin/symbolic/libsemantics.js';
-import { computeTruthTableAnswer } from '../lib/truthTableAnswer.js';
-import { getDerivationProblemType, getLogicSystem } from '../lib/logicSystems.js';
+import { componentScorePercent } from '@logic-app/logic-engine/checkers/component-grading.js';
+import { checkers as CHECKERS } from '@logic-app/logic-engine/checkers.js';
+import getFormulaClass from '@logic-app/logic-engine/symbolic/formula.js';
+import { libtf } from '@logic-app/logic-engine/symbolic/libsemantics.js';
+import { computeTruthTableAnswer } from '@logic-app/logic-engine/truthTableAnswer.js';
+import { getDerivationProblemType, getLogicSystem } from '@logic-app/logic-engine/logicSystems.js';
 import { assertValidQuestionSnapshot } from './question-snapshot.js';
-
-const CHECKERS = {
-  derivation: derivationHurley,
-  'derivation-hurley': derivationHurley,
-  'derivation-calgary': derivationCalgary,
-  'formula-truth-table': formulaTruthTable,
-  'equivalence-truth-table': equivalenceTruthTable,
-  'argument-truth-table': argumentTruthTable,
-  'combo-translation-truth-table': comboTranslationTruthTable,
-  'combo-translation-derivation': comboTranslationDerivation,
-  'proof-argument-extraction': proofArgumentExtraction,
-  'symbolic-translation': symbolicTranslation,
-  'multiple-choice': multipleChoice,
-  'indirect-truth-table': indirectTruthTable,
-  'nonclassical-truth-table': nonclassicalTruthTable,
-  'partial-truth-table': partialTruthTable,
-  'evaluate-truth': evaluateTruth,
-  'single-row-truth-table': singleRowTruthTable,
-};
 
 function normalizeComponentCount(question) {
   const components = question?.components;
@@ -485,7 +453,7 @@ export function resolveSnapshotPartialCredit(questionSnapshot) {
   );
 }
 
-export async function validateLogicPenguin({
+export async function validateLogicProblem({
   question,
   submission,
   points,
@@ -564,9 +532,7 @@ export async function validateLogicPenguin({
   const normalizedScores = componentScores
     ? componentScores
     : Array(effectiveComponentCount).fill(clampFraction(rawScore / points));
-  const score = Math.round(
-    (normalizedScores.reduce((sum, value) => sum + value, 0) / effectiveComponentCount) * 100
-  );
+  const score = componentScorePercent(normalizedScores, checkResult.componentWeights) ?? 0;
   return {
     isCorrect,
     score,

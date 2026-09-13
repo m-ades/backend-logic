@@ -9,21 +9,15 @@
 
 // composite multiple choice uses equal component credit when enabled
 
+import { getSingleSelectAnswerIndex, isMultiSelectSubquestion } from '../multiple-choice-utils.js';
 import { gradeComponents } from './component-grading.js';
 
 function normalizeIndex(value) {
-    if (value === null || value === undefined) {
+    if (value === null || value === undefined || value === '') {
         return null;
     }
     const num = Number(value);
     return Number.isFinite(num) ? num : null;
-}
-
-function trueFalseAnswerIndex(value) {
-    if (value === true || value === 'true' || value === 'T' || value === 't') return 0;
-    if (value === false || value === 'false' || value === 'F' || value === 'f') return 1;
-    const index = normalizeIndex(value);
-    return index === 0 || index === 1 ? index : null;
 }
 
 function normalizeSet(values) {
@@ -42,42 +36,26 @@ function sameSet(a, b) {
     return true;
 }
 
-function isMultiSelect(subq) {
-    return (Array.isArray(subq?.answerIndices) && subq.answerIndices.length > 0) || subq?.type === 'multi-select' || subq?.multiSelect;
-}
-
-function isTrueFalse(subq) {
-    return subq?.type === 'true-false';
-}
-
-function getSingleSelectAnswerIndex(subq) {
-    if (isTrueFalse(subq)) {
-        return trueFalseAnswerIndex(subq.answerIndex ?? subq.answer);
-    }
-    return normalizeIndex(subq.answerIndex ?? subq.answer);
-}
-
+// accepts either composite field name and treats missing selections as incorrect
 export default async function(
     question, answer, givenans, partialcredit, points, cheat, options
 ) {
-    if (Array.isArray(question?.subquestions)) {
-        const answers = Array.isArray(givenans?.answers) ? givenans.answers : [];
+    const subquestions = question?.subquestions ?? question?.questions;
+    if (Array.isArray(subquestions)) {
+        const raw = givenans?.answers ?? givenans?.ans ?? givenans;
+        const answers = Array.isArray(raw) ? raw : raw != null ? [raw] : [];
         const componentScores = [];
-        for (let i = 0; i < question.subquestions.length; i++) {
-            const subq = question.subquestions[i];
+        for (let i = 0; i < subquestions.length; i++) {
+            const subq = subquestions[i];
             const actual = answers[i];
             let isCorrect = false;
 
-            if (isTrueFalse(subq)) {
-                const expected = getSingleSelectAnswerIndex(subq);
-                const actualIndex = normalizeIndex(actual);
-                isCorrect = expected !== null && actualIndex !== null && expected === actualIndex;
-            } else if (isMultiSelect(subq)) {
+            if (subq?.type !== 'true-false' && isMultiSelectSubquestion(subq)) {
                 const expected = normalizeSet(subq.answerIndices || []);
                 const actualSet = normalizeSet(actual);
                 isCorrect = sameSet(expected, actualSet);
             } else {
-                const expected = normalizeIndex(subq.answerIndex ?? subq.answer);
+                const expected = getSingleSelectAnswerIndex(subq);
                 const actualIndex = normalizeIndex(actual);
                 isCorrect = expected !== null && actualIndex !== null && expected === actualIndex;
             }
@@ -88,6 +66,9 @@ export default async function(
         return gradeComponents(componentScores, partialcredit, points);
     }
 
+    answer = answer?.answers ?? answer?.ans ?? answer
+        ?? question?.answerIndices ?? question?.answerIndex ?? question?.answer;
+    givenans = givenans?.answers ?? givenans?.ans ?? givenans;
     let correct = false;
     if (Array.isArray(answer)) {
         const expected = normalizeSet(answer);

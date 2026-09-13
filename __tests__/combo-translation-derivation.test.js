@@ -1,4 +1,4 @@
-import { validateLogicPenguin } from '../validators/logicpenguin.js';
+import { validateLogicProblem } from '../validators/logic-engine.js';
 
 function buildFlatProof({ conclusion, lines, premises = [] }) {
   return {
@@ -48,7 +48,7 @@ describe('combo-translation-derivation logic systems', () => {
       ],
     });
 
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question: {
         type: 'combo-translation-derivation',
         answer: {
@@ -80,7 +80,7 @@ describe('combo-translation-derivation logic systems', () => {
       ],
     });
 
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question: {
         type: 'combo-translation-derivation',
         answer: {

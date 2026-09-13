@@ -1,5 +1,5 @@
-import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
-import checkTranslation from '../lib/logicpenguin/checkers/symbolic-translation.js';
+import getFormulaClass from '@logic-app/logic-engine/symbolic/formula.js';
+import checkTranslation from '@logic-app/logic-engine/checkers/symbolic-translation.js';
 
 describe('symbolfix strips Unicode variation selectors', () => {
   const Formula = getFormulaClass('calgary');

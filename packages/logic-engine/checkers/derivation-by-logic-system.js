@@ -1,4 +1,4 @@
-import { getDerivationProblemType } from '../../logicSystems.js';
+import { getDerivationProblemType } from '../logicSystems.js';
 import derivationCalgary from './derivation-calgary.js';
 import derivationHurley from './derivation-hurley.js';
 

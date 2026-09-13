@@ -22,7 +22,7 @@ if ((typeof window != 'undefined') && !window?.equivDB) {
 
 const useMemory = ((typeof process === 'undefined') ||
     !process?.appsettings ||
-    !process?.lpfs);
+    !process?.logicEngineFiles);
 
 /// FUNCTIONS ///
 
@@ -432,7 +432,7 @@ export function loadEquivalents(wffstr, notationname) {
     // if using file database, try to load file
     const equivdir = process.appsettings.datadir + '/equivalents/' + notationname;
     const fn = equivdir + '/' + wffstr + '.json';
-    let equivs = process.lpfs.loadjson(fn);
+    let equivs = process.logicEngineFiles.loadjson(fn);
     // if no file, then start afresh
     if (!equivs) { equivs = []; }
     if (equivs.length == 0) {
@@ -470,14 +470,14 @@ export function saveEquivalents(wffstr, equivs, notationname) {
     if ((typeof process == 'undefined') ||
         (!("appsettings" in process)) ||
         (!("datadir" in process.appsettings)) ||
-        (!("lpfs" in process)) ||
-        (!("savejson" in process.lpfs))) { return false; }
+        (!("logicEngineFiles" in process)) ||
+        (!("savejson" in process.logicEngineFiles))) { return false; }
     // determine location to save
     const dirname = process.appsettings.datadir + '/equivalents/' +
         notationname;
     const fn =  dirname + '/' + wffstr + '.json';
     // ensure directory exists before saving
-    process.lpfs.ensuredir(dirname);
-    return process.lpfs.savejson(fn, equivs);
+    process.logicEngineFiles.ensuredir(dirname);
+    return process.logicEngineFiles.savejson(fn, equivs);
 }
 

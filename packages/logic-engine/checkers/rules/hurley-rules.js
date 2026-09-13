@@ -1,5 +1,5 @@
 const hurleyRules = {
-    // Logicpenguin system rules
+    // structural rules
     "Pr"  : { premiserule: true },
     "Ass" : { assumptionrule: true, hidden: true },
     "ACP" : { assumptionrule: true, opens: true },

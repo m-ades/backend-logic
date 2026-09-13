@@ -1,6 +1,6 @@
-import formulaTruthTable from '../lib/logicpenguin/checkers/formula-truth-table.js';
-import argumentTruthTable from '../lib/logicpenguin/checkers/argument-truth-table.js';
-import equivalenceTruthTable from '../lib/logicpenguin/checkers/equivalence-truth-table.js';
+import formulaTruthTable from '@logic-app/logic-engine/checkers/formula-truth-table.js';
+import argumentTruthTable from '@logic-app/logic-engine/checkers/argument-truth-table.js';
+import equivalenceTruthTable from '@logic-app/logic-engine/checkers/equivalence-truth-table.js';
 
 describe('formula truth table witness row highlight', () => {
   // contingent formula: row 0 is false, row 1 is true (opspot 1)

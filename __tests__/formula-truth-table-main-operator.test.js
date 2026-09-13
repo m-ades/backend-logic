@@ -1,4 +1,4 @@
-import formulaTruthTable from '../lib/logicpenguin/checkers/formula-truth-table.js';
+import formulaTruthTable from '@logic-app/logic-engine/checkers/formula-truth-table.js';
 
 const answer = {
   rows: [[true, false], [false, true]],

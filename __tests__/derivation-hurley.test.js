@@ -1,7 +1,7 @@
-import checkDerivation from '../lib/logicpenguin/checkers/derivation-hurley.js';
-import { getDerivationCheckerForLogicSystem } from '../lib/logicpenguin/checkers/derivation-by-logic-system.js';
-import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
-import { validateLogicPenguin } from '../validators/logicpenguin.js';
+import checkDerivation from '@logic-app/logic-engine/checkers/derivation-hurley.js';
+import { getDerivationCheckerForLogicSystem } from '@logic-app/logic-engine/checkers/derivation-by-logic-system.js';
+import getFormulaClass from '@logic-app/logic-engine/symbolic/formula.js';
+import { validateLogicProblem } from '../validators/logic-engine.js';
 
 function buildProof({ conclusion, lines, premises = [] }) {
   return {
@@ -78,7 +78,7 @@ describe('derivation-hurley ACP/AIP completion', () => {
       ],
     });
 
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question: {
         type: 'derivation-hurley',
         prems: ['A'],

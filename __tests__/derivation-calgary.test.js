@@ -1,5 +1,5 @@
-import checkDerivation from '../lib/logicpenguin/checkers/derivation-calgary.js';
-import { validateLogicPenguin } from '../validators/logicpenguin.js';
+import checkDerivation from '@logic-app/logic-engine/checkers/derivation-calgary.js';
+import { validateLogicProblem } from '../validators/logic-engine.js';
 
 function buildProof({ conclusion, lines, premises = [] }) {
   return {
@@ -308,7 +308,7 @@ describe('derivation-calgary checker', () => {
       ],
     });
 
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question: {
         type: 'derivation-calgary',
         prems: ['P'],
@@ -339,7 +339,7 @@ describe('derivation-calgary checker', () => {
       ],
     });
 
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question: {
         type: 'derivation-calgary',
         prems: ['J → ¬J'],
@@ -365,7 +365,7 @@ describe('derivation-calgary checker', () => {
       ],
     });
 
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question: {
         type: 'derivation',
         prems: ['P', 'P → Q'],

@@ -1,6 +1,6 @@
-import checkTranslation from '../lib/logicpenguin/checkers/symbolic-translation.js';
-import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
-import { formulaTable } from '../lib/logicpenguin/symbolic/libsemantics.js';
+import checkTranslation from '@logic-app/logic-engine/checkers/symbolic-translation.js';
+import getFormulaClass from '@logic-app/logic-engine/symbolic/formula.js';
+import { formulaTable } from '@logic-app/logic-engine/symbolic/libsemantics.js';
 
 const options = { pred: false, notation: 'calgary', hints: true };
 

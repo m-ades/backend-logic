@@ -4,8 +4,8 @@ import {
     getAssumptionRuleRequirements,
     getJustificationRule,
     parseAssumptionScopes,
-} from '../../proofArgumentExtractionScopes.js';
-import { parseExtractionArgument } from '../../proofArgumentExtractionArgument.js';
+} from '../proofArgumentExtractionScopes.js';
+import { parseExtractionArgument } from '../proofArgumentExtractionArgument.js';
 
 function flattenProofLines(parts = []) {
     const lines = [];

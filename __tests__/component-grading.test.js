@@ -1,9 +1,43 @@
-import { gradeComponents } from '../lib/logicpenguin/checkers/component-grading.js';
-import multipleChoice from '../lib/logicpenguin/checkers/multiple-choice.js';
-import singleRowTruthTable from '../lib/logicpenguin/checkers/single-row-truth-table.js';
-import { validateLogicPenguin } from '../validators/logicpenguin.js';
+import { gradeComponents, componentScorePercent } from '@logic-app/logic-engine/checkers/component-grading.js';
+import { computeTruthTableAnswer } from '@logic-app/logic-engine/truthTableAnswer.js';
+import multipleChoice from '@logic-app/logic-engine/checkers/multiple-choice.js';
+import singleRowTruthTable from '@logic-app/logic-engine/checkers/single-row-truth-table.js';
+import { validateLogicProblem } from '../validators/logic-engine.js';
 
 describe('component grading', () => {
+  it('uses the same weights for points and percentages', () => {
+    const result = gradeComponents([0, 1], true, 1, [2, 4]);
+    expect(result.points).toBeCloseTo(2 / 3);
+    expect(componentScorePercent(result.componentScores, result.componentWeights)).toBe(67);
+    expect(componentScorePercent([1, 0])).toBe(50);
+    expect(componentScorePercent([])).toBeNull();
+    expect(() => gradeComponents([1, 0], true, 100, [1])).toThrow(RangeError);
+    expect(() => componentScorePercent([1, 0], [1, 0])).toThrow(RangeError);
+  });
+
+  it.each([true, false])('stores weighted combo percentages with partial credit set to %s', async (partialcredit) => {
+    const answer = { premises: ['A'], conclusion: 'B' };
+    const ownAnswer = computeTruthTableAnswer({ truthTable: { kind: 'argument', statements: ['A', 'A'] } });
+    const expectedAnswer = computeTruthTableAnswer({ truthTable: { kind: 'argument', statements: ['A', 'B'] } });
+    const table = (semantic, valid) => ({ lefts: semantic.prems, right: semantic.conc, valid });
+    for (const [submission, percentage] of [
+      [{ argumentLine: '' }, 0],
+      [{ argumentLine: 'A // B' }, 33],
+      [{ argumentLine: 'A // A', tableAns: table(ownAnswer, true) }, 67],
+      [{ argumentLine: 'A // B', tableAns: table(expectedAnswer, true) }, 67],
+      [{ argumentLine: 'A // B', tableAns: table(expectedAnswer, false) }, 100],
+    ]) {
+      const result = await validateLogicProblem({
+        question: { type: 'combo-translation-truth-table', answer },
+        submission,
+        points: 1,
+        options: { partialcredit, notation: 'hurley' },
+      });
+      expect(result.score).toBe(partialcredit || percentage === 100 ? percentage : 0);
+      expect(result.score).toBe(Math.round(result.result.points * 100));
+    }
+  });
+
   it('gives every component an equal share without flooring', () => {
     const result = gradeComponents([1, 0, 0], true, 1);
 
@@ -54,7 +88,7 @@ describe('component grading', () => {
   });
 
   it('grades the operator cell in a single row conditional', async () => {
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question: {
         type: 'single-row-truth-table',
         statement: 'A-->B',
@@ -106,7 +140,7 @@ describe('component grading', () => {
         { type: 'multi-select', answerIndices: [0, 2] },
       ],
     };
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question,
       submission: { answers: [0, 0, [0, 2]] },
       points: 100,
