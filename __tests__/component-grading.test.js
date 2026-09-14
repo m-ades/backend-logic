@@ -5,6 +5,34 @@ import singleRowTruthTable from '@logic-app/logic-engine/checkers/single-row-tru
 import { validateLogicProblem } from '../validators/logic-engine.js';
 
 describe('component grading', () => {
+  it('grades standalone choices when composite fields are empty', async () => {
+    for (const fields of [{}, { subquestions: [] }, { questions: [] }, { subquestions: [], questions: [] }]) {
+      for (const [answer, correct, incorrect] of [[{ answerIndex: 1 }, 1, 0], [{ answerIndices: [0, 2] }, [2, 0], [0]]]) {
+        const question = { type: 'multiple-choice', choices: ['a', 'b', 'c'], ...answer, ...fields };
+        for (const [selection, score] of [[correct, 100], [incorrect, 0]]) {
+          for (const submission of [selection, { ans: selection }]) {
+            const result = await validateLogicProblem({ question, submission, points: 100 });
+            expect(result.score).toBe(score);
+            expect(result.isCorrect).toBe(score === 100);
+          }
+        }
+      }
+    }
+  });
+
+  it('retains composite partial credit and finds populated legacy subquestions', async () => {
+    const subquestions = [{ answerIndex: 1 }, { answerIndex: 0 }];
+    for (const fields of [{ subquestions }, { questions: subquestions }, { subquestions: [], questions: subquestions }]) {
+      for (const [submission, score] of [[{ answers: [1, 0] }, 100], [{ answers: [1, 1] }, 50]]) {
+        const result = await validateLogicProblem({
+          question: { type: 'multiple-choice', ...fields }, submission, points: 100, options: { partialcredit: true },
+        });
+        expect(result.score).toBe(score);
+        expect(result.result.successstatus).toBe(score === 100 ? 'correct' : 'partial');
+      }
+    }
+  });
+
   it('uses the same weights for points and percentages', () => {
     const result = gradeComponents([0, 1], true, 1, [2, 4]);
     expect(result.points).toBeCloseTo(2 / 3);

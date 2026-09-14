@@ -1,3 +1,15 @@
+/*
+returns the first populated subquestion array from current or legacy fields
+preserves order without mutation and returns an empty array for standalone questions
+missing or nonarray fields are ignored
+*/
+export function getCompositeSubquestions(question) {
+  for (const subquestions of [question?.subquestions, question?.questions]) {
+    if (Array.isArray(subquestions) && subquestions.length > 0) return subquestions
+  }
+  return []
+}
+
 export const hasNonEmptyAnswerIndices = (subq) => (
   Array.isArray(subq?.answerIndices) && subq.answerIndices.length > 0
 )

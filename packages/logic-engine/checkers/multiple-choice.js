@@ -9,7 +9,7 @@
 
 // composite multiple choice uses equal component credit when enabled
 
-import { getSingleSelectAnswerIndex, isMultiSelectSubquestion } from '../multiple-choice-utils.js';
+import { getCompositeSubquestions, getSingleSelectAnswerIndex, isMultiSelectSubquestion } from '../multiple-choice-utils.js';
 import { gradeComponents } from './component-grading.js';
 
 function normalizeIndex(value) {
@@ -40,8 +40,8 @@ function sameSet(a, b) {
 export default async function(
     question, answer, givenans, partialcredit, points, cheat, options
 ) {
-    const subquestions = question?.subquestions ?? question?.questions;
-    if (Array.isArray(subquestions)) {
+    const subquestions = getCompositeSubquestions(question);
+    if (subquestions.length > 0) {
         const raw = givenans?.answers ?? givenans?.ans ?? givenans;
         const answers = Array.isArray(raw) ? raw : raw != null ? [raw] : [];
         const componentScores = [];

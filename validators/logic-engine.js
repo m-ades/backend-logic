@@ -1,4 +1,5 @@
 import { componentScorePercent } from '@logic-app/logic-engine/checkers/component-grading.js';
+import { getCompositeSubquestions } from '@logic-app/logic-engine/multiple-choice-utils.js';
 import { checkers as CHECKERS } from '@logic-app/logic-engine/checkers.js';
 import getFormulaClass from '@logic-app/logic-engine/symbolic/formula.js';
 import { libtf } from '@logic-app/logic-engine/symbolic/libsemantics.js';
@@ -204,8 +205,7 @@ function normalizeProofArgumentExtraction(submission) {
 }
 
 function normalizeMultipleChoiceSubmission(submission, question) {
-  const hasSubquestions = Array.isArray(question?.subquestions);
-  if (hasSubquestions) {
+  if (getCompositeSubquestions(question).length > 0) {
     const answers = Array.isArray(submission?.answers)
       ? submission.answers
       : Array.isArray(submission?.ans)
@@ -392,8 +392,9 @@ function computeAnswer(question, options) {
   }
 
   if (type === 'multiple-choice') {
-    if (Array.isArray(question?.subquestions)) {
-      return question.subquestions;
+    const subquestions = getCompositeSubquestions(question);
+    if (subquestions.length > 0) {
+      return subquestions;
     }
     return pickDefined(
       question?.multipleChoice?.answerIndices,
