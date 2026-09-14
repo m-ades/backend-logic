@@ -176,3 +176,80 @@ describe('equivalence truth table witness row highlight', () => {
     expect(result.score).toBe(50);
   });
 });
+
+describe('witness row highlight when no witness exists', () => {
+  it('formula: awards full credit for a self-contradiction with no row highlighted', async () => {
+    // P ∧ ¬P is false at every row: no witness
+    const answer = { rows: [[true, false], [false, false]], opspot: 1, taut: false, contra: true };
+    const submission = (rowhls) => ({ right: { rows: answer.rows }, rowhls });
+
+    const noneSelected = await formulaTruthTable(
+      {}, answer, submission([]), false, false, { highlightWitnessRow: true }
+    );
+    expect(noneSelected.successstatus).toBe('correct');
+    expect(noneSelected.score).toBe(100);
+
+    for (const row of [0, 1]) {
+      const rowSelected = await formulaTruthTable(
+        {}, answer, submission(answer.rows.map((_, i) => i === row)), false, false, { highlightWitnessRow: true }
+      );
+      expect(rowSelected.successstatus).toBe('incorrect');
+    }
+  });
+
+  it('argument: awards full credit for a valid argument with no row highlighted', async () => {
+    // P therefore P is valid: no invalidity witness
+    const answer = {
+      valid: true,
+      prems: [{ opspot: 0, rows: [[true], [false]] }],
+      conc: { opspot: 0, rows: [[true], [false]] },
+    };
+    const submission = (rowhls) => ({
+      lefts: [{ rows: answer.prems[0].rows }],
+      right: { rows: answer.conc.rows },
+      rowhls,
+    });
+
+    const noneSelected = await argumentTruthTable(
+      {}, answer, submission([]), false, false, { highlightWitnessRow: true }
+    );
+    expect(noneSelected.successstatus).toBe('correct');
+    expect(noneSelected.score).toBe(100);
+
+    for (const row of [0, 1]) {
+      const rowSelected = await argumentTruthTable(
+        {}, answer, submission(answer.conc.rows.map((_, i) => i === row)), false, false, { highlightWitnessRow: true }
+      );
+      expect(rowSelected.successstatus).toBe('incorrect');
+    }
+  });
+
+  it('equivalence: awards full credit for an inconsistent set with no row highlighted', async () => {
+    // P and ¬P are never jointly true: no witness
+    const answer = {
+      equiv: false,
+      tables: [
+        { opspot: 0, rows: [[true], [false]] },
+        { opspot: 0, rows: [[false], [true]] },
+      ],
+    };
+    const submission = (rowhls) => ({
+      lefts: [{ rows: answer.tables[0].rows }],
+      right: { rows: answer.tables[1].rows },
+      rowhls,
+    });
+
+    const noneSelected = await equivalenceTruthTable(
+      {}, answer, submission([]), false, false, { highlightWitnessRow: true }
+    );
+    expect(noneSelected.successstatus).toBe('correct');
+    expect(noneSelected.score).toBe(100);
+
+    for (const row of [0, 1]) {
+      const rowSelected = await equivalenceTruthTable(
+        {}, answer, submission(answer.tables[0].rows.map((_, i) => i === row)), false, false, { highlightWitnessRow: true }
+      );
+      expect(rowSelected.successstatus).toBe('incorrect');
+    }
+  });
+});

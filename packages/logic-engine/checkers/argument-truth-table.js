@@ -6,7 +6,7 @@
 // checks whether a truth table answer for arguments is correct or not //
 /////////////////////////////////////////////////////////////////////////
 
-import { fullTableMatch, hasSingleRowHighlight, allTrueAtRow } from './truth-tables.js';
+import { fullTableMatch, isWitnessSelectionCorrect, allTrueAtRow } from './truth-tables.js';
 import { gradeComponents } from './component-grading.js';
 
 function normalizeSelection(givenans) {
@@ -121,7 +121,7 @@ export default async function(
             && allTrueAtRow(answer.prems, i)
             && answer.conc.rows[i]?.[answer.conc.opspot] === false
         );
-        const witnessRight = hasSingleRowHighlight(givenans, isValidWitness);
+        const witnessRight = isWitnessSelectionCorrect(givenans, isValidWitness, answer?.conc?.rows?.length);
         componentScores.push(witnessRight ? 1 : 0);
     }
     const rv = gradeComponents(componentScores, partialcredit);

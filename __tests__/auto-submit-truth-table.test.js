@@ -64,7 +64,7 @@ describe('automatic truth table submission', () => {
     expect(recomputeAssignmentGrade).toHaveBeenCalledWith({ assignmentId: 2, userId: 5 });
   });
 
-  it('skips impossible witness questions without recording a score or blocking valid drafts', async () => {
+  it('grades questions with no possible witness row', async () => {
     const question = (id, truthTable) => ({
       id,
       question_snapshot: {
@@ -85,8 +85,9 @@ describe('automatic truth table submission', () => {
 
     try {
       const result = await autoSubmitIfPastDeadline(assignment, 5);
-      expect(result.created).toHaveLength(1);
-      expect(createSubmission).toHaveBeenCalledTimes(1);
+      expect(warn).not.toHaveBeenCalled();
+      expect(result.created).toHaveLength(4);
+      expect(createSubmission).toHaveBeenCalledTimes(4);
       expect(createSubmission).toHaveBeenCalledWith(expect.objectContaining({
         assignment_question_id: 7, score: 100, is_correct: true,
       }));

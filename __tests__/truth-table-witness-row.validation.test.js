@@ -1,5 +1,6 @@
 import { validateLogicProblem } from '../validators/logic-engine.js';
 import { assertValidQuestionSnapshot } from '../validators/question-snapshot.js';
+import { computeTruthTableAnswer } from '@logic-app/logic-engine/truthTableAnswer.js';
 
 const cases = [
   {
@@ -123,38 +124,52 @@ describe.each(cases)('$kind witness row validation', ({ truthTable, tables, witn
   });
 });
 
+// a self-contradiction, valid argument, or inconsistent set has no witness row; leaving every row unhighlighted is correct
 describe.each([
-  { kind: 'formula', statement: 'P • ~P' },
-  { kind: 'argument', lefts: ['P'], right: 'P' },
-  { kind: 'equivalence', statements: ['P', '~P'] },
-])('impossible $kind witness requirements', (truthTable) => {
-  it.each(['truthTable', 'truth_table'])('rejects impossible witnesses in %s snapshots before grading', async (key) => {
-    const question = {
-      type: 'truth-table',
-      [key]: { ...truthTable, options: { highlightWitnessRow: true } },
-    };
-    const before = structuredClone(question);
+  { kind: 'formula', truthTable: { kind: 'formula', statement: 'P ∧ ¬P' } },
+  { kind: 'argument', truthTable: { kind: 'argument', lefts: ['P'], right: 'P' } },
+  { kind: 'equivalence', truthTable: { kind: 'equivalence', statements: ['P', '¬P'] } },
+])('$kind truth tables with no witness row', ({ truthTable }) => {
+  const notation = 'hurley';
+  const answer = computeTruthTableAnswer({ truthTable }, { notation });
+  const tables = truthTable.kind === 'formula'
+    ? [{ rows: answer.rows }]
+    : truthTable.kind === 'argument'
+      ? [...answer.prems, answer.conc].map((table) => ({ rows: table.rows }))
+      : answer.tables.map((table) => ({ rows: table.rows }));
+  const rowCount = tables[0].rows.length;
 
-    await expect(assertValidQuestionSnapshot(question)).rejects.toMatchObject({
-      code: 'INVALID_QUESTION', status: 422,
-    });
-    await expect(validateLogicProblem({ question, submission: {} }))
-      .rejects.toMatchObject({ code: 'INVALID_QUESTION', status: 422 });
-    expect(question).toEqual(before);
+  const grade = (submission, partialCredit = false) => validateLogicProblem({
+    question: {
+      type: 'truth-table',
+      truthTable: { ...truthTable, options: { highlightWitnessRow: true, partialCredit } },
+    },
+    submission,
+    options: { notation },
   });
 
-  it('permits the question when the witness requirement is disabled', async () => {
+  it('permits enabling the witness requirement even though no row satisfies it', async () => {
     await expect(assertValidQuestionSnapshot({
       type: 'truth-table',
-      options: { highlightWitnessRow: true },
-      truthTable: { ...truthTable, options: { highlightWitnessRow: false } },
+      truthTable: { ...truthTable, options: { highlightWitnessRow: true } },
     })).resolves.toBeUndefined();
   });
-});
 
-it('uses the course notation when checking witness availability during authoring', async () => {
-  await expect(assertValidQuestionSnapshot({
-    type: 'truth-table',
-    truthTable: { kind: 'formula', statement: 'P ∧ ¬P', options: { highlightWitnessRow: true } },
-  }, { logicSystem: 'fitch' })).rejects.toMatchObject({ code: 'INVALID_QUESTION', status: 422 });
+  it('awards full credit for leaving every row unhighlighted', async () => {
+    const submission = { tables, witnessRow: null, mainOperatorColumn: null, mcans: [] };
+    expect(await grade(submission)).toMatchObject({
+      isCorrect: true,
+      score: 100,
+      result: { componentScores: [1, 1] },
+    });
+  });
+
+  it.each([false, true])('never awards witness credit for a highlighted row (partial credit %s)', async (partialCredit) => {
+    for (let row = 0; row < rowCount; row += 1) {
+      const submission = { tables, witnessRow: row, mainOperatorColumn: null, mcans: [] };
+      const result = await grade(submission, partialCredit);
+      expect(result.isCorrect).toBe(false);
+      expect(result.result.componentScores.at(-1)).toBe(0);
+    }
+  });
 });
