@@ -1,7 +1,5 @@
 import getFormulaClass from '@logic-app/logic-engine/symbolic/formula.js';
 import proofArgumentExtraction from '@logic-app/logic-engine/checkers/proof-argument-extraction.js';
-import { allTrueAtRow } from '@logic-app/logic-engine/checkers/truth-tables.js';
-import { computeTruthTableAnswer } from '@logic-app/logic-engine/truthTableAnswer.js';
 import { getLogicSystem, LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '@logic-app/logic-engine/logicSystems.js';
 import {
   getAssumptionRuleRequirements,
@@ -75,40 +73,17 @@ function getCitationError(result, lineNumber) {
 }
 
 /*
-validates author owned proof data and required truth table witnesses
+validates author owned proof-argument-extraction data
 leaves snapshots unchanged and permits blank student owned citations
 rejects invalid questions before saving or grading with an invalid question error
 unrelated question types pass through unchanged
 */
 export async function assertValidQuestionSnapshot(question, options = {}) {
   const type = getQuestionType(question);
-  if (type !== 'proof-argument-extraction' && type !== 'truth-table') return;
+  if (type !== 'proof-argument-extraction') return;
 
   const logicSystem = normalizeLogicSystem(options.logicSystem, LEGACY_LOGIC_SYSTEM);
   const notation = options.notation || getLogicSystem(logicSystem, LEGACY_LOGIC_SYSTEM).derivationSystem;
-  if (type === 'truth-table') {
-    const mergedOptions = {
-      ...options,
-      ...question.options,
-      ...question.truthTable?.options,
-      ...question.truth_table?.options,
-    };
-    if (!mergedOptions.highlightWitnessRow) return;
-
-    const truthTable = question.truthTable || question.truth_table || {};
-    const kind = truthTable.kind || 'formula';
-    const answer = computeTruthTableAnswer(question, { notation });
-    const hasWitness = kind === 'formula'
-      ? answer?.contra === false
-      : kind === 'argument'
-        ? answer?.valid === false
-        : answer?.tables?.[0]?.rows.some((_, index) => allTrueAtRow(answer.tables, index));
-    if (!hasWitness) {
-      throw new InvalidQuestionError('No witness row exists. Disable the witness requirement or change the formulas.');
-    }
-    return;
-  }
-
   const Formula = getFormulaClass(notation);
   const premises = question?.prems;
   const lines = question?.lines;

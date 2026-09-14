@@ -50,16 +50,23 @@ export function fullTableMatch(ansrows, givenrows) {
     return { rowdiff, offcells, numchecked };
 }
 
-/* checks that exactly one row is highlighted, and that it is a valid witness
-according to the caller-supplied predicate; shared by all three truth-table checkers */
-export function hasSingleRowHighlight(givenans, isValidWitness) {
+// true iff one row matches isValidWitness, or none do and no row is selected
+export function isWitnessSelectionCorrect(givenans, isValidWitness, rowCount) {
     const highlights = Array.isArray(givenans?.rowhls) ? givenans.rowhls : [];
     const selectedCount = highlights.filter((v) => v === true).length;
-    return selectedCount === 1 && isValidWitness(highlights.indexOf(true));
+    if (selectedCount === 1) {
+        return isValidWitness(highlights.indexOf(true));
+    }
+    if (selectedCount === 0 && Number.isInteger(rowCount) && rowCount > 0) {
+        for (let i = 0; i < rowCount; i++) {
+            if (isValidWitness(i)) return false;
+        }
+        return true;
+    }
+    return false;
 }
 
 // true iff every table in `tables` evaluates true at row i's main operator
 export function allTrueAtRow(tables, i) {
     return tables.every((table) => table.rows[i]?.[table.opspot] === true);
 }
-

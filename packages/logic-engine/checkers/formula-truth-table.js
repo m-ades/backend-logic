@@ -6,7 +6,7 @@
 // determines if a truth-table answer for a single formula is correct //
 ////////////////////////////////////////////////////////////////////////
 
-import { fullTableMatch, hasSingleRowHighlight } from './truth-tables.js';
+import { fullTableMatch, isWitnessSelectionCorrect } from './truth-tables.js';
 import { gradeComponents } from './component-grading.js';
 
 function normalizeSelection(givenans) {
@@ -97,8 +97,10 @@ export default async function(
         componentScores.push(hasMainOperatorHighlight(givenans, answer.opspot) ? 1 : 0);
     }
     if (options.highlightWitnessRow) {
-        const witnessRight = hasSingleRowHighlight(
-            givenans, (i) => Array.isArray(answer?.rows) && answer.rows[i]?.[answer.opspot] === true
+        const witnessRight = isWitnessSelectionCorrect(
+            givenans,
+            (i) => Array.isArray(answer?.rows) && answer.rows[i]?.[answer.opspot] === true,
+            answer?.rows?.length
         );
         componentScores.push(witnessRight ? 1 : 0);
     }

@@ -6,7 +6,7 @@
 // Determines if an equivalence truth table answer is correct        //
 ///////////////////////////////////////////////////////////////////////
 
-import { fullTableMatch, hasSingleRowHighlight, allTrueAtRow } from './truth-tables.js';
+import { fullTableMatch, isWitnessSelectionCorrect, allTrueAtRow } from './truth-tables.js';
 import { gradeComponents } from './component-grading.js';
 
 function normalizeSelection(givenans) {
@@ -113,7 +113,7 @@ export default async function(
     if (opts.highlightWitnessRow) {
         // an empty statement set has no witness row to speak of; never award credit for it
         const isValidWitness = (i) => answerTables.length > 0 && allTrueAtRow(answerTables, i);
-        const witnessRight = hasSingleRowHighlight(givenans, isValidWitness);
+        const witnessRight = isWitnessSelectionCorrect(givenans, isValidWitness, answerTables[0]?.rows?.length);
         componentScores.push(witnessRight ? 1 : 0);
     }
     const rv = gradeComponents(componentScores, partialcredit);

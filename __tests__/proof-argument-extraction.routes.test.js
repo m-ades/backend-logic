@@ -114,14 +114,6 @@ const validQuestion = {
 
 const invalidQuestions = [
   { question: invalidScopeQuestion, message: 'must end before the conclusion' },
-  ...[
-    { kind: 'formula', statement: 'P ∧ ¬P' },
-    { kind: 'argument', lefts: ['P'], right: 'P' },
-    { kind: 'equivalence', statements: ['P', '¬P'] },
-  ].map((truthTable) => ({
-    question: { type: 'truth-table', truthTable: { ...truthTable, options: { highlightWitnessRow: true } } },
-    message: 'No witness row exists',
-  })),
 ];
 
 describe('question snapshot boundaries', () => {
@@ -157,7 +149,7 @@ describe('question snapshot boundaries', () => {
     expect(assignmentQuestionCreate).not.toHaveBeenCalled();
   });
 
-  it('rejects a bulk save containing an impossible witness question', async () => {
+  it('rejects a bulk save containing an invalid question', async () => {
     assignmentFindByPk.mockResolvedValue(assignment);
     const handlers = getRouteHandlers(assignmentQuestionsRouter, '/bulk', 'post');
     const req = {
@@ -165,7 +157,7 @@ describe('question snapshot boundaries', () => {
         assignment_id: assignment.id,
         questions: [
           { question_snapshot: validQuestion, order_index: 0 },
-          { question_snapshot: invalidQuestions[2].question, order_index: 1 },
+          { question_snapshot: invalidScopeQuestion, order_index: 1 },
         ],
       },
       user: { id: 7 },
@@ -178,7 +170,7 @@ describe('question snapshot boundaries', () => {
     expect(transaction).not.toHaveBeenCalled();
   });
 
-  it('rejects enabling a witness requirement on a valid argument during update', async () => {
+  it('permits enabling a witness requirement on a valid argument during update', async () => {
     const update = jest.fn();
     assignmentQuestionFindByPk.mockResolvedValue({
       id: 21,
@@ -196,9 +188,14 @@ describe('question snapshot boundaries', () => {
 
     const res = await runHandlers(handlers, req, createRes());
 
-    expect(res.statusCode).toBe(422);
-    expect(res.body.message).toContain('No witness row exists');
-    expect(update).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      question_snapshot: expect.objectContaining({
+        truthTable: expect.objectContaining({
+          options: expect.objectContaining({ highlightWitnessRow: true }),
+        }),
+      }),
+    }));
   });
 
   it('normalizes nonpositive attempt limits when creating questions', async () => {
