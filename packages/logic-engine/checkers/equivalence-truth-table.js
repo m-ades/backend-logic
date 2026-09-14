@@ -73,7 +73,7 @@ function relationSet(tables) {
 }
 
 export default async function(
-    question, answer, givenans, partialcredit, points, cheat, options
+    question, answer, givenans, partialcredit, cheat, options
 ) {
     // check table portion
     const answerTables = Array.isArray(answer?.tables)
@@ -116,7 +116,7 @@ export default async function(
         const witnessRight = hasSingleRowHighlight(givenans, isValidWitness);
         componentScores.push(witnessRight ? 1 : 0);
     }
-    const rv = gradeComponents(componentScores, partialcredit, points);
+    const rv = gradeComponents(componentScores, partialcredit);
     // only send off cells back to browser if they are allowed to 
     // cheat at this point
     if (cheat && rv.successstatus !== 'correct') {

@@ -79,7 +79,6 @@ export async function autoSubmitIfPastDeadline(assignment, userId) {
       validation = await validateLogicProblem({
         question: questionSnapshot,
         submission: draft.draft_data,
-        points: 100,
         options,
       });
     } catch (error) {

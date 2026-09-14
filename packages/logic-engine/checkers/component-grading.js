@@ -35,12 +35,12 @@ export function componentScorePercent(componentScores, componentWeights) {
 }
 
 /*
-grades independent components and returns credited scores status and points
+grades independent components and returns credited scores status and a rounded percentage
 omitted weights give equal shares and explicit weights accompany the result
 disabled partial credit zeros every score unless all components are correct
 invalid scores become zero and invalid weights throw a range error
 */
-export function gradeComponents(componentScores, partialcredit, points, componentWeights) {
+export function gradeComponents(componentScores, partialcredit, componentWeights) {
     const scores = normalizeScores(componentScores);
     const correct = scores.length > 0 && scores.every((score) => score === 1);
     const earnedFraction = scoreFraction(scores, componentWeights);
@@ -48,7 +48,7 @@ export function gradeComponents(componentScores, partialcredit, points, componen
 
     return {
         successstatus: correct ? 'correct' : (creditedFraction > 0 ? 'partial' : 'incorrect'),
-        points: Number.isFinite(points) ? points * creditedFraction : 0,
+        score: Math.round(100 * creditedFraction),
         componentScores: correct || partialcredit ? scores : scores.map(() => 0),
         ...(componentWeights ? { componentWeights: [...componentWeights] } : {}),
     };

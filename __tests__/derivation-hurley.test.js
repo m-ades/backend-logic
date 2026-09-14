@@ -26,7 +26,6 @@ async function runDerivation({ premises = [], conclusion, lines }) {
     null,
     buildProof({ conclusion, lines, premises }),
     false,
-    1,
     false,
     {}
   );
@@ -50,18 +49,18 @@ describe('derivation-hurley missing submissions', () => {
   const checker = getDerivationCheckerForLogicSystem('hurley');
 
   it.each([null, undefined])('rejects %s even when a correct answer key exists', async (submission) => {
-    const result = await checker(question, answer, submission, false, 100, false, {});
+    const result = await checker(question, answer, submission, false, false, {});
 
     expect(result.successstatus).toBe('incorrect');
-    expect(result.points).toBe(0);
+    expect(result.score).toBe(0);
     expect(result.errors?.['??']?.justification?.high?.['no proof data']).toBe(1);
   });
 
   it('awards full credit when the correct proof is actually submitted', async () => {
-    const result = await checker(question, null, answer, false, 100, false, {});
+    const result = await checker(question, null, answer, false, false, {});
 
     expect(result.successstatus).toBe('correct');
-    expect(result.points).toBe(100);
+    expect(result.score).toBe(100);
   });
 });
 
@@ -85,7 +84,6 @@ describe('derivation-hurley ACP/AIP completion', () => {
         conc: 'B⊃A',
       },
       submission: proof,
-      points: 100,
       options: { logicSystem: 'fitch' },
     });
 

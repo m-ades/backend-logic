@@ -18,11 +18,10 @@ describe('symbolfix strips Unicode variation selectors', () => {
       'A↔︎B',
       'A↔B',
       false,
-      1,
       false,
       { pred: false, notation: 'calgary' }
     );
 
-    expect(result).toMatchObject({ successstatus: 'correct', points: 1 });
+    expect(result).toMatchObject({ successstatus: 'correct', score: 100 });
   });
 });

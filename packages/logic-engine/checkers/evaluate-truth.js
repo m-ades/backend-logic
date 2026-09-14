@@ -9,11 +9,11 @@
 // partial credit not really an option here
 
 export default async function(
-    question, answer, givenans, partialcredit, points, cheat, options
+    question, answer, givenans, partialcredit, cheat, options
 ) {
     let correct = (answer === givenans);
     return {
         successstatus: (correct ? "correct" : "incorrect"),
-        points: ( correct ? points : 0 )
+        score: correct ? 100 : 0
     }
 }

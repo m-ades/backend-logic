@@ -19,7 +19,7 @@ if ((typeof process !== 'undefined') && process?.appsettings?.defaultnotation) {
 }
 
 export default async function(
-    question, answer, givenans, partialcredit, points, cheat, options
+    question, answer, givenans, partialcredit, cheat, options
 ) {
     // set notation
     let notation = defaultnotation;
@@ -31,10 +31,10 @@ export default async function(
     let offcells = false;
     let qright = null;
     let rowdiff = 0;
-    const ttTtl = 4;
-    let ttEarned = 0;
-    let transptsearned = 0;
-    const transptsttl = 2;
+    const tableWeight = 4;
+    let tableScore = 0;
+    let translationScore = 0;
+    const translationWeight = 2;
 
     const parseArgumentLine = (line) => {
         if (!line || typeof line !== 'string') return { error: tr('Enter the argument as a single line.') };
@@ -118,7 +118,7 @@ export default async function(
             if (!conclusionOk) {
                 messages.push(tr('The argument line does not match the expected translation.'));
             } else {
-                transptsearned = transptsttl;
+                translationScore = 1;
             }
         } catch {
             messages.push(tr('The argument line contains an invalid formula.'));
@@ -138,10 +138,11 @@ export default async function(
         };
         const tableCheck = await checkArgumentTT(
             tcQ, tablesShouldBe, givenans.tableAns,
-            partialcredit, ttTtl, cheat, { ...options, question: true }
+            partialcredit, cheat, { ...options, question: true }
         );
-        ttEarned = tableCheck.points;
-        if (ttEarned > ttTtl) ttEarned = ttTtl;
+        // keep component precision until the combined score is rounded
+        tableScore = tableCheck.componentScores.reduce((sum, score) => sum + score, 0)
+            / tableCheck.componentScores.length;
         if ("qright" in tableCheck) {
             qright = tableCheck.qright;
         }
@@ -163,10 +164,8 @@ export default async function(
     if (!givenans?.tableAns) {
         messages.push(tr('Enter the truth table.'));
     }
-    const translationScore = transptsttl > 0 ? (transptsearned / transptsttl) : 0;
-    const tableScore = ttTtl > 0 ? (ttEarned / ttTtl) : 0;
     const rv = gradeComponents(
-        [translationScore, tableScore], partialcredit, points, [transptsttl, ttTtl]
+        [translationScore, tableScore], partialcredit, [translationWeight, tableWeight]
     );
     if (cheat) {
         if (offcells) {

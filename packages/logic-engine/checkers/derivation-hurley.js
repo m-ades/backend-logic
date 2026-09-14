@@ -22,17 +22,17 @@ function normalizeRuleName(rule) {
 
 /*
 checks only the submitted hurley proof and ignores the answer key
-missing proof data returns incorrect with zero points
+missing proof data returns incorrect with a zero score
 */
 export default async function(
-    question, _answer, givenans, _partialcredit, points, _cheat, options
+    question, _answer, givenans, _partialcredit, _cheat, options
 ) {
     const proof = givenans;
     if (!proof) {
         return {
             successstatus: "incorrect",
             errors: { '??': { justification: { high: { 'no proof data': 1 } } } },
-            points: 0
+            score: 0
         };
     }
     // clone the answer to avoid messing it up when checking it
@@ -49,10 +49,9 @@ export default async function(
     addRequiredRuleErrors(checkResult, ansclone, require, requireAny, normalizeRuleName);
     // only correct if no errors
     const correct = (Object.keys(checkResult.errors).length == 0);
-    points = (correct) ? points : 0;
     return {
         successstatus: (correct ? "correct" : "incorrect"),
         errors: checkResult.errors,
-        points: points
+        score: correct ? 100 : 0
     }
 }

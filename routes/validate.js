@@ -133,7 +133,6 @@ router.post(
     const validation = await validateLogicProblem({
       question: questionSnapshot,
       submission: submission_data,
-      points: 100,
       options,
     });
 

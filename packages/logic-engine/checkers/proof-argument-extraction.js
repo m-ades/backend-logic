@@ -114,7 +114,7 @@ function buildCanonicalProof(premises, lines, justifications, scopes) {
 // the question owns every formula and any supplied justification; the submission
 // owns only the missing citations and argument text
 export default async function(
-    question, _answer, givenans, partialcredit, points, cheat, options = {}
+    question, _answer, givenans, partialcredit, cheat, options = {}
 ) {
     const premises = Array.isArray(question?.prems) ? question.prems : [];
     const lines = getQuestionLines(question);
@@ -122,7 +122,7 @@ export default async function(
     if (!conclusion) {
         return {
             successstatus: 'incorrect',
-            points: 0,
+            score: 0,
             message: 'This question has no conclusion line.',
         };
     }
@@ -142,7 +142,7 @@ export default async function(
     if (parsedScopes.error) {
         return {
             successstatus: 'incorrect',
-            points: 0,
+            score: 0,
             message: `This question has invalid assumption scopes: ${parsedScopes.error}`,
         };
     }
@@ -161,7 +161,6 @@ export default async function(
         null,
         proof,
         partialcredit,
-        points,
         cheat,
         options
     );
@@ -185,7 +184,7 @@ export default async function(
 
     const result = {
         successstatus: correct ? 'correct' : 'incorrect',
-        points: correct ? points : 0,
+        score: correct ? 100 : 0,
         message: correct ? 'Correct!' : messages.join(' '),
     };
     if (derivationResult?.errors) result.errors = derivationResult.errors;

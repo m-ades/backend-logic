@@ -64,12 +64,11 @@ describe('forallx notation', () => {
       '(∀x)(Fx → Gx)',
       '∀x(F(x) → G(x))',
       false,
-      1,
       false,
       { pred: true, notation: 'calgary' }
     );
 
-    expect(result).toMatchObject({ successstatus: 'correct', points: 1 });
+    expect(result).toMatchObject({ successstatus: 'correct', score: 100 });
   });
 
   it('checks equivalent FOL formulas without collapsing indexed names', async () => {
@@ -78,12 +77,11 @@ describe('forallx notation', () => {
       'K₁(a₁) ∧ L(a₂)',
       'L(a_2) ∧ K_1(a_1)',
       false,
-      1,
       false,
       { pred: true, notation: 'calgary' }
     );
 
-    expect(result).toMatchObject({ successstatus: 'correct', points: 1 });
+    expect(result).toMatchObject({ successstatus: 'correct', score: 100 });
   });
 });
 

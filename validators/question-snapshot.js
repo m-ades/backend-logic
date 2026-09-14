@@ -150,7 +150,6 @@ export async function assertValidQuestionSnapshot(question, options = {}) {
       justifications: [],
     },
     false,
-    100,
     true,
     { ...options, logicSystem, notation }
   );

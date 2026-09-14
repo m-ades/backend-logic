@@ -22,13 +22,11 @@ if ((typeof process != 'undefined') &&
 
 function checkTranslation(ansstr, givenstr, pred = true,
     notationname = defaultnotation) {
-    let maxfrac = 1;
     if (typeof ansstr !== 'string' || typeof givenstr !== 'string') {
         return {
             correct: false,
             determinate: false,
             message: tr('translation input is invalid'),
-            ptfrac: 0
         };
     }
     if (!ansstr.trim() || !givenstr.trim()) {
@@ -36,7 +34,6 @@ function checkTranslation(ansstr, givenstr, pred = true,
             correct: false,
             determinate: true,
             message: tr('translation is empty'),
-            ptfrac: 0
         };
     }
     // load formula class for the notation
@@ -56,12 +53,10 @@ function checkTranslation(ansstr, givenstr, pred = true,
             determinate: false,
             message: tr('the intended translation is not syntactically well ' +
                 'formed (' + ans.syntaxerrors + ')'),
-            ptfrac: 0
         };
     }
     // ensure well formed
     if (!given.wellformed) {
-        maxfrac = 0.8;
         message += tr('the formula given is not syntactically well ' +
             'formed (' + given.syntaxerrors + ')');
         correct = false;
@@ -69,7 +64,6 @@ function checkTranslation(ansstr, givenstr, pred = true,
     // ensure no free vars when pred = true
     if (pred) {
         if (given.freevars.length != 0) {
-            maxfrac = maxfrac - 0.1;
             message += ((message == '') ? '' : '; ') +
                 tr('translation uses a variable (' +
                 given.freevars.join(', ') + ') not bound by a quantifier');
@@ -78,7 +72,6 @@ function checkTranslation(ansstr, givenstr, pred = true,
     } else {
         // should not have terms
         if (given.terms.length != 0) {
-            maxfrac = maxfrac - 0.1;
             message += ((message == '') ? '' : '; ') +
                 tr('Sentential Logic translation incorrectly uses ' +
                     'terms (' + given.terms.join(', ') +
@@ -89,12 +82,10 @@ function checkTranslation(ansstr, givenstr, pred = true,
     // check if evaluate to the same once syntactic errors or
     // harmless differences taken into account
     if (ans.normal == given.normal) {
-        return { correct, determinate, message, ptfrac: maxfrac };
+        return { correct, determinate, message };
     }
     // check for equivalence
     const equivtestresult = equivtest(ans, given, notationname);
-    // todo? better partial credit for translations;
-    // currently awards up to 20% just for being well-formed??
     if (equivtestresult.determinate) {
         determinate = true;
         if (!equivtestresult.equiv) {
@@ -102,10 +93,8 @@ function checkTranslation(ansstr, givenstr, pred = true,
             message += ((message == '') ? '' : '; ') +
                 'formula provided is not equivalent to the correct ' +
                 'translation';
-            maxfrac = Math.max(0, maxfrac - 0.8);
         }
     } else {
-        maxfrac = Math.max(0, maxfrac - 0.8);
         message += ((message == '') ? '' : '; ') +
             'equivalence checker could not determine whether or not ' +
             'the formula provided is equivalent to the intended one';
@@ -114,7 +103,7 @@ function checkTranslation(ansstr, givenstr, pred = true,
             correct = false;
         }
     }
-    return { correct, determinate, message, ptfrac: maxfrac }
+    return { correct, determinate, message }
 }
 
 function splitTopLevel(value, separator) {
@@ -185,7 +174,6 @@ function checkTranslationAnswer(ansstr, givenstr, pred = true,
             correct: false,
             determinate: false,
             message: tr('the intended translation answer is invalid'),
-            ptfrac: 0
         };
     }
     const given = parseTranslationAnswer(givenstr, notationname);
@@ -194,7 +182,6 @@ function checkTranslationAnswer(ansstr, givenstr, pred = true,
             correct: false,
             determinate: true,
             message: tr('the translation answer is incomplete'),
-            ptfrac: 0
         };
     }
     if (answer.statements.length !== given.statements.length ||
@@ -203,7 +190,6 @@ function checkTranslationAnswer(ansstr, givenstr, pred = true,
             correct: false,
             determinate: true,
             message: tr('the answer does not have the expected structure'),
-            ptfrac: 0
         };
     }
     const statementResult = matchStatements(
@@ -215,7 +201,6 @@ function checkTranslationAnswer(ansstr, givenstr, pred = true,
             message: tr(answer.conclusion
                 ? 'one or more premises are not equivalent to the intended translation'
                 : 'one or more statements are not equivalent to the intended translation'),
-            ptfrac: 0
         };
     }
     if (answer.conclusion) {
@@ -230,23 +215,22 @@ function checkTranslationAnswer(ansstr, givenstr, pred = true,
             };
         }
     }
-    return { correct: true, determinate: true, message: '', ptfrac: 1 };
+    return { correct: true, determinate: true, message: '' };
 }
 
 export default async function(
-    question, answer, givenans, partialcredit, points, cheat, options
+    question, answer, givenans, partialcredit, cheat, options
 ) {
     // call function above
     const result = checkTranslationAnswer(answer, givenans,
         (options?.pred ?? true), (options?.notation ?? defaultnotation));
     // all-or-nothing; no partial credit for symbolic translation
-    const awarded = (result.correct) ? points : 0;
     // set up return value
     const rv = {
         successstatus: ((result.determinate) ?
             ((result.correct) ? "correct" : "incorrect" )
                 : "indeterminate"),
-        points: awarded
+        score: result.correct ? 100 : 0
     }
     // only return detailed message if hints set
     if (result.message && options.hints) {

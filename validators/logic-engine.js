@@ -1,4 +1,3 @@
-import { componentScorePercent } from '@logic-app/logic-engine/checkers/component-grading.js';
 import { getCompositeSubquestions } from '@logic-app/logic-engine/multiple-choice-utils.js';
 import { checkers as CHECKERS } from '@logic-app/logic-engine/checkers.js';
 import getFormulaClass from '@logic-app/logic-engine/symbolic/formula.js';
@@ -6,24 +5,6 @@ import { libtf } from '@logic-app/logic-engine/symbolic/libsemantics.js';
 import { computeTruthTableAnswer } from '@logic-app/logic-engine/truthTableAnswer.js';
 import { getDerivationProblemType, getLogicSystem } from '@logic-app/logic-engine/logicSystems.js';
 import { assertValidQuestionSnapshot } from './question-snapshot.js';
-
-function normalizeComponentCount(question) {
-  const components = question?.components;
-  if (Array.isArray(components)) {
-    return components.length;
-  }
-  if (Number.isFinite(components)) {
-    return Math.max(1, Math.floor(components));
-  }
-  return null;
-}
-
-function clampFraction(value) {
-  if (!Number.isFinite(value)) return 0;
-  if (value < 0) return 0;
-  if (value > 1) return 1;
-  return value;
-}
 
 function pickDefined(...values) {
   for (const value of values) {
@@ -313,7 +294,7 @@ function buildInvalidResult() {
     score: 0,
     result: {
       successstatus: 'incorrect',
-      points: 0,
+      score: 0,
       message: 'invalid submission data',
     },
   };
@@ -457,7 +438,6 @@ export function resolveSnapshotPartialCredit(questionSnapshot) {
 export async function validateLogicProblem({
   question,
   submission,
-  points,
   options = {},
 }) {
   const type = normalizeType(question);
@@ -516,27 +496,14 @@ export async function validateLogicProblem({
     answer,
     givenans,
     partialcredit,
-    points,
     false,
     mergedOptions
   );
 
   const isCorrect = checkResult.successstatus === 'correct';
-  const rawScore = Number.isFinite(checkResult.points)
-    ? checkResult.points
-    : (isCorrect ? points : 0);
-  const componentCount = normalizeComponentCount(question);
-  const componentScores = Array.isArray(checkResult.componentScores)
-    ? checkResult.componentScores.map(clampFraction)
-    : null;
-  const effectiveComponentCount = componentScores?.length || componentCount || 1;
-  const normalizedScores = componentScores
-    ? componentScores
-    : Array(effectiveComponentCount).fill(clampFraction(rawScore / points));
-  const score = componentScorePercent(normalizedScores, checkResult.componentWeights) ?? 0;
   return {
     isCorrect,
-    score,
+    score: checkResult.score,
     result: checkResult,
   };
 }

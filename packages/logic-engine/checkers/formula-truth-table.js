@@ -70,7 +70,7 @@ function shouldBe(rows, opspot) {
 }
 
 export default async function(
-    question, answer, givenans, partialcredit, points, cheat, options
+    question, answer, givenans, partialcredit, cheat, options
 ) {
     const givenRows = givenans?.right?.rows;
     const shapeIsValid = Array.isArray(givenRows) && Array.isArray(answer?.rows);
@@ -102,7 +102,7 @@ export default async function(
         );
         componentScores.push(witnessRight ? 1 : 0);
     }
-    const rv = gradeComponents(componentScores, partialcredit, points);
+    const rv = gradeComponents(componentScores, partialcredit);
     // only send off cells back to browser if they are allowed to 
     // cheat at this stage
     if (cheat && rv.successstatus !== 'correct') {

@@ -75,7 +75,7 @@ function progresslinesin(deriv, errors, rules, notationname = defaultnotation) {
 }
 
 export default async function(
-    question, answer, givenans, partialcredit, points, cheat, options
+    question, answer, givenans, partialcredit, cheat, options
 ) {
     // clone the answer to avoid messing it up when checking it
     const ansclone = JSON.parse(JSON.stringify(givenans));
@@ -98,34 +98,24 @@ export default async function(
     addRequiredRuleErrors(checkResult, ansclone, require, requireAny, normalizeForNotation);
     // only correct if no errors
     const correct = (Object.keys(checkResult.errors).length == 0);
-    let portion = 1;
+    let score = correct ? 100 : 0;
     // try to determine partial credit by checking progress vs needed
     // progress
     if (partialcredit && !correct) {
-        // get maximum credit from derivation check
-        const initialportion = checkResult.pointsportion ?? 0;
-        portion = initialportion;
         // check number of good lines versus answer's good lines
         const goalprogress = progresslinesin(answer, {}, rules, notationname);
         const actualprogress = progresslinesin(givenans, checkResult.errors, rules, notationname);
         const progportion = (actualprogress / goalprogress);
-        // if mostly wrong, we give points on the number of good steps
-        if (initialportion < 0.5) {
-            let buildup = actualprogress * 0.1;
-            if (buildup > 0.5) { buildup = 0.5; }
-            portion = Math.max(initialportion, buildup);
-        }
+        let portion = Math.min(actualprogress * 0.1, 0.5);
         // maximum of 0.8 for incomplete derivations
         if (progportion < 0.8) {
             portion = (portion * progportion);
         }
-        points = Math.floor(portion * points);
-    } else {
-        points = (correct) ? points : 0;
+        score = Math.floor(portion * 100);
     }
     return {
         successstatus: (correct ? "correct" : "incorrect"),
         errors: checkResult.errors,
-        points: points
+        score
     }
 }

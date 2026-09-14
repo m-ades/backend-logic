@@ -18,7 +18,7 @@ function normalizeCell(value) {
 }
 
 export default async function(
-    question, answer, givenans, partialcredit, points, cheat, options
+    question, answer, givenans, partialcredit, cheat, options
 ) {
     const expectedRow = answer?.row || [];
     const expectedTv = answer?.tv;
@@ -56,7 +56,7 @@ export default async function(
     const earnedScores = typeof expectedTv !== 'undefined'
         ? [rowScore, compoundScore]
         : [rowScore];
-    const rv = gradeComponents(earnedScores, partialcredit, points);
+    const rv = gradeComponents(earnedScores, partialcredit);
 
     if (cheat && offcells.length > 0) {
         rv.offcells = offcells;

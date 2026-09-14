@@ -63,7 +63,7 @@ function shouldBe(prems, conc) {
 }
 
 export default async function(
-  question, answer, givenans, partialcredit, points, cheat, options
+  question, answer, givenans, partialcredit, cheat, options
 ) {
     // normalize given answer shape to avoid runtime errors
     const givenLefts = Array.isArray(givenans?.lefts) ? givenans.lefts : [];
@@ -124,7 +124,7 @@ export default async function(
         const witnessRight = hasSingleRowHighlight(givenans, isValidWitness);
         componentScores.push(witnessRight ? 1 : 0);
     }
-    const rv = gradeComponents(componentScores, partialcredit, points);
+    const rv = gradeComponents(componentScores, partialcredit);
     // only add offcells to response if they are allowed to cheat
     // at this point
     if (cheat && rv.successstatus !== 'correct') {

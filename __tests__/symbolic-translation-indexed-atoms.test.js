@@ -5,7 +5,7 @@ import { formulaTable } from '@logic-app/logic-engine/symbolic/libsemantics.js';
 const options = { pred: false, notation: 'calgary', hints: true };
 
 async function check(answer, given) {
-  return checkTranslation({}, answer, given, false, 1, false, options);
+  return checkTranslation({}, answer, given, false, false, options);
 }
 
 describe('indexed propositional atoms', () => {
@@ -49,11 +49,11 @@ describe('indexed propositional atoms', () => {
   it('accepts Unicode and underscore spellings of the intended translation', async () => {
     await expect(check('(E₁ ∧ E₂)', '(E₁ ∧ E₂)')).resolves.toMatchObject({
       successstatus: 'correct',
-      points: 1,
+      score: 100,
     });
     await expect(check('(E₁ ∧ E₂)', '(E_1 ∧ E_2)')).resolves.toMatchObject({
       successstatus: 'correct',
-      points: 1,
+      score: 100,
     });
   });
 
@@ -61,27 +61,27 @@ describe('indexed propositional atoms', () => {
     await expect(check('B ∧ C_1, B ∧ C_2', 'B ∧ C_1, B ∧ C_2'))
       .resolves.toMatchObject({
         successstatus: 'correct',
-        points: 1,
+        score: 100,
       });
     await expect(check('B ∧ C_1, B ∧ C_2', 'B ∧ C₂, B ∧ C₁'))
       .resolves.toMatchObject({
         successstatus: 'correct',
-        points: 1,
+        score: 100,
       });
   });
 
   it('rejects formulas that collapse distinct indexed atoms', async () => {
     await expect(check('(E₁ ∧ E₂)', '(E₁ ∧ E₁)')).resolves.toMatchObject({
       successstatus: 'incorrect',
-      points: 0,
+      score: 0,
     });
     await expect(check('(E₁ ∧ E₂)', 'E₁')).resolves.toMatchObject({
       successstatus: 'incorrect',
-      points: 0,
+      score: 0,
     });
     await expect(check('(E₂ ∧ ¬S₂)', '(E₁ ∧ ¬S₁)')).resolves.toMatchObject({
       successstatus: 'incorrect',
-      points: 0,
+      score: 0,
     });
   });
 
@@ -93,7 +93,7 @@ describe('indexed propositional atoms', () => {
     expect(malformed.syntaxerrors).toContain('unexpected symbols');
     await expect(check('E__1', 'E__1')).resolves.toMatchObject({
       successstatus: 'indeterminate',
-      points: 0,
+      score: 0,
     });
   });
 });

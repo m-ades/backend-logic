@@ -1,7 +1,7 @@
 import multipleChoice from './multiple-choice.js';
 
 export default async function(
-  question, answer, givenans, partialcredit, points, cheat, options
+  question, answer, givenans, partialcredit, cheat, options
 ) {
   const subquestions = question?.subquestions || question?.questions;
   const normalizedQuestion = subquestions ? { ...question, subquestions } : question;
@@ -15,12 +15,11 @@ export default async function(
       answer,
       { answers: normalizedAnswers },
       partialcredit,
-      points,
       cheat,
       options
     );
   }
 
   const actual = givenans?.ans ?? givenans;
-  return multipleChoice(normalizedQuestion, answer, actual, partialcredit, points, cheat, options);
+  return multipleChoice(normalizedQuestion, answer, actual, partialcredit, cheat, options);
 }

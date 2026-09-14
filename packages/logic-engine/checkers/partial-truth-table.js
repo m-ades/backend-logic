@@ -72,7 +72,7 @@ function computeExpected(question, options) {
 }
 
 export default async function(
-    question, answer, givenans, partialcredit, points, cheat, options
+    question, answer, givenans, partialcredit, cheat, options
 ) {
     const { expected, unknownIndices } = computeExpected(question, options);
     const givenRow = Array.isArray(givenans?.row) ? givenans.row : [];
@@ -92,11 +92,10 @@ export default async function(
     const total = unknownIndices.length;
     const correct = (total === 0) ? true : (correctCount === total);
     const score = total > 0 ? (correct ? 1 : 0) : 1; // all-or-nothing; no cell-by-cell credit
-    const awarded = partialcredit ? Math.floor(points * score) : (correct ? points : 0);
 
     const rv = {
         successstatus: (correct ? "correct" : "incorrect"),
-        points: awarded,
+        score: correct ? 100 : 0,
         componentScores: [score]
     };
 

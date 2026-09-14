@@ -38,7 +38,7 @@ function sameSet(a, b) {
 
 // accepts either composite field name and treats missing selections as incorrect
 export default async function(
-    question, answer, givenans, partialcredit, points, cheat, options
+    question, answer, givenans, partialcredit, cheat, options
 ) {
     const subquestions = getCompositeSubquestions(question);
     if (subquestions.length > 0) {
@@ -63,7 +63,7 @@ export default async function(
             componentScores.push(isCorrect ? 1 : 0);
         }
 
-        return gradeComponents(componentScores, partialcredit, points);
+        return gradeComponents(componentScores, partialcredit);
     }
 
     answer = answer?.answers ?? answer?.ans ?? answer
@@ -81,7 +81,7 @@ export default async function(
     }
     return {
         successstatus: (correct ? "correct" : "incorrect"),
-        points: ( correct ? points : 0 ),
+        score: correct ? 100 : 0,
         componentScores: [correct ? 1 : 0],
     };
 }

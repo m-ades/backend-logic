@@ -21,7 +21,6 @@ describe('proof argument extraction', () => {
         argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
         justifications: correctJustifications,
       },
-      points: 100,
       options: { logicSystem: 'fitch' },
     });
 
@@ -36,7 +35,6 @@ describe('proof argument extraction', () => {
         argumentLine: 'P ∧ S / S → R // R ∨ E',
         justifications: correctJustifications,
       },
-      points: 100,
       options: { logicSystem: 'fitch' },
     });
 
@@ -51,7 +49,6 @@ describe('proof argument extraction', () => {
         argumentLine: 'S → R, P ∧ S ∴ R ∨ E',
         justifications: correctJustifications,
       },
-      points: 100,
       options: { logicSystem: 'fitch' },
     });
 
@@ -66,7 +63,6 @@ describe('proof argument extraction', () => {
         argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
         justifications: ['∧E 2', '∧E 1', '→E 2,4', '∨I 5'],
       },
-      points: 100,
       options: { logicSystem: 'fitch' },
     });
 
@@ -84,7 +80,6 @@ describe('proof argument extraction', () => {
         argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
         justifications: ['∧E 2', '∧E 1', '→E 2,4', '∨I 2'],
       },
-      points: 100,
       options: { logicSystem: 'fitch' },
     });
 
@@ -101,7 +96,6 @@ describe('proof argument extraction', () => {
       submission: {
         argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
       },
-      points: 100,
       options: { logicSystem: 'fitch' },
     });
 
@@ -121,7 +115,6 @@ describe('proof argument extraction', () => {
         argumentLine: 'J → ¬J ∴ ¬J',
         justifications: ['R 1', 'AS', '→E 1,3', '¬E 3,4', '¬I 3-5'],
       },
-      points: 100,
       options: { logicSystem: 'fitch' },
     });
 
@@ -141,7 +134,6 @@ describe('proof argument extraction', () => {
         argumentLine: 'P ∧ D ∴ P',
         justifications: ['∧E 1', '∧E 1'],
       },
-      points: 100,
       options: { logicSystem: 'fitch' },
     });
 
@@ -162,7 +154,6 @@ describe('proof argument extraction', () => {
         argumentLine: 'P ∧ D ∴ P',
         justifications: ['AS'],
       },
-      points: 100,
       options: { logicSystem: 'fitch' },
     })).rejects.toMatchObject({
       code: 'INVALID_QUESTION',
@@ -186,7 +177,6 @@ describe('proof argument extraction', () => {
         argumentLine: 'R ∴ P → (Q → P)',
         justifications: ['AS', 'AS', 'R 2', '→I 3-4', '→I 2-5'],
       },
-      points: 100,
       options: { logicSystem: 'fitch' },
     });
 
@@ -208,7 +198,6 @@ describe('proof argument extraction', () => {
         argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
         justifications: correctJustifications,
       },
-      points: 100,
       options: { logicSystem: 'fitch' },
     })).rejects.toMatchObject({
       code: 'INVALID_QUESTION',
@@ -232,7 +221,6 @@ describe('proof argument extraction', () => {
           }],
         },
       },
-      points: 100,
       options: { logicSystem: 'fitch' },
     });
 
@@ -250,7 +238,6 @@ describe('proof argument extraction', () => {
         argumentLine: 'P • S, P ⊃ R ∴ R ∨ E',
         justifications: ['1 Simp', '2,3 MP', '4 Add'],
       },
-      points: 100,
       options: { logicSystem: 'hurley' },
     });
 
@@ -270,7 +257,6 @@ describe('proof argument extraction', () => {
         argumentLine: 'A • C ∴ B ⊃ A',
         justifications: ['ACP', '1 Simp', '2-3 CP'],
       },
-      points: 100,
     });
 
     expect(result.isCorrect).toBe(true);
@@ -289,7 +275,6 @@ describe('proof argument extraction', () => {
         argumentLine: 'A • ~A ∴ ~B',
         justifications: ['AIP', '1 Com', '1 Simp', '3 Simp', '2-5 IP'],
       },
-      points: 100,
       options: { logicSystem: 'hurley' },
     });
 
@@ -309,7 +294,6 @@ describe('proof argument extraction', () => {
         argumentLine: 'A • C ∴ B ⊃ A',
         justifications: ['ACP', '1 Simp', '2-3 CP'],
       },
-      points: 100,
       options: { logicSystem: 'hurley' },
     });
 
@@ -333,7 +317,6 @@ describe('proof argument extraction', () => {
         argumentLine: 'A ∴ A',
         justifications: [],
       },
-      points: 100,
       options: { logicSystem: 'hurley' },
     })).rejects.toMatchObject({
       code: 'INVALID_QUESTION',
@@ -352,7 +335,6 @@ describe('proof argument extraction', () => {
         argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
         justifications: correctJustifications,
       },
-      points: 100,
       options: { logicSystem: 'fitch' },
     })).rejects.toMatchObject({
       code: 'INVALID_QUESTION',

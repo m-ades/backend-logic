@@ -32,6 +32,28 @@ function buildNestedProof({ conclusion, parts, premises = [] }) {
 }
 
 describe('derivation-calgary checker', () => {
+  it('preserves progress credit as a percentage when partial credit is requested', async () => {
+    const question = { prems: ['P', 'P → Q', 'Q → R'], conc: 'R' };
+    const answer = {
+      parts: [
+        { n: '1', s: 'P', j: 'Pr' },
+        { n: '2', s: 'P → Q', j: 'Pr' },
+        { n: '3', s: 'Q → R', j: 'Pr' },
+        { n: '4', s: 'Q', j: '→E 1,2' },
+        { n: '5', s: 'R', j: '→E 3,4' },
+      ],
+    };
+    const submission = structuredClone(answer);
+    submission.parts[4].s = 'S';
+
+    for (const partialcredit of [true, false]) {
+      const result = await checkDerivation(question, answer, submission, partialcredit, false, { notation: 'calgary' });
+      expect(result.successstatus).toBe('incorrect');
+      expect(result.score).toBe(partialcredit ? 5 : 0);
+      expect(result).not.toHaveProperty('points');
+    }
+  });
+
   it.each([
     ['DS 2,3', 'correct'],
     ['DS 1,2,3', 'incorrect'],
@@ -45,7 +67,7 @@ describe('derivation-calgary checker', () => {
         { formula: 'P', justification },
       ],
     });
-    const result = await checkDerivation(question, null, proof, false, 1, false, { notation: 'calgary' });
+    const result = await checkDerivation(question, null, proof, false, false, { notation: 'calgary' });
 
     expect(result.successstatus).toBe(expectedStatus);
     expect(result.errors?.['4']?.rule?.high?.['DS eliminates only the left disjunct']).toBeUndefined();
@@ -70,13 +92,12 @@ describe('derivation-calgary checker', () => {
       null,
       proof,
       false,
-      1,
       false,
       {}
     );
 
     expect(result.successstatus).toBe('correct');
-    expect(result.points).toBe(1);
+    expect(result.score).toBe(100);
   });
 
   it('checks derivations containing indexed sentence letters', async () => {
@@ -95,13 +116,12 @@ describe('derivation-calgary checker', () => {
       null,
       proof,
       false,
-      1,
       false,
       {}
     );
 
     expect(result.successstatus).toBe('correct');
-    expect(result.points).toBe(1);
+    expect(result.score).toBe(100);
   });
 
   test.each([
@@ -123,7 +143,6 @@ describe('derivation-calgary checker', () => {
       null,
       proof,
       false,
-      1,
       false,
       {}
     );
@@ -154,13 +173,12 @@ describe('derivation-calgary checker', () => {
       null,
       proof,
       false,
-      1,
       false,
       {}
     );
 
     expect(result.successstatus).toBe('correct');
-    expect(result.points).toBe(1);
+    expect(result.score).toBe(100);
   });
 
   it('accepts Haskell parser aliases for Calgary rules', async () => {
@@ -179,13 +197,12 @@ describe('derivation-calgary checker', () => {
       null,
       proof,
       false,
-      1,
       false,
       {}
     );
 
     expect(result.successstatus).toBe('correct');
-    expect(result.points).toBe(1);
+    expect(result.score).toBe(100);
   });
 
   it('normalizes connective aliases in Calgary formulas and rule names', async () => {
@@ -204,13 +221,12 @@ describe('derivation-calgary checker', () => {
       null,
       proof,
       false,
-      1,
       false,
       {}
     );
 
     expect(result.successstatus).toBe('correct');
-    expect(result.points).toBe(1);
+    expect(result.score).toBe(100);
   });
 
   it('rejects bare connective names when the rule requires an intro or elim suffix', async () => {
@@ -235,7 +251,6 @@ describe('derivation-calgary checker', () => {
       null,
       proof,
       false,
-      1,
       false,
       {}
     );
@@ -258,7 +273,6 @@ describe('derivation-calgary checker', () => {
       null,
       proof,
       false,
-      1,
       false,
       {}
     );
@@ -289,13 +303,12 @@ describe('derivation-calgary checker', () => {
       null,
       proof,
       false,
-      1,
       false,
       {}
     );
 
     expect(result.successstatus).toBe('correct');
-    expect(result.points).toBe(1);
+    expect(result.score).toBe(100);
   });
 
   it('is registered for backend validation', async () => {
@@ -315,7 +328,6 @@ describe('derivation-calgary checker', () => {
         conc: 'P ∨ Q',
       },
       submission: proof,
-      points: 100,
     });
 
     expect(result.isCorrect).toBe(true);
@@ -346,7 +358,6 @@ describe('derivation-calgary checker', () => {
         conc: '¬J',
       },
       submission: proof,
-      points: 100,
       options: { logicSystem: 'hurley' },
     });
 
@@ -373,7 +384,6 @@ describe('derivation-calgary checker', () => {
         options: { notation: 'hurley' },
       },
       submission: proof,
-      points: 100,
       options: { logicSystem: 'fitch' },
     });
 

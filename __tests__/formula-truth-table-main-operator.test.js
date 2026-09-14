@@ -1,3 +1,4 @@
+
 import formulaTruthTable from '@logic-app/logic-engine/checkers/formula-truth-table.js';
 
 const answer = {
@@ -17,19 +18,19 @@ const table = (colhls) => ({
 describe('formula truth table main operator highlight', () => {
   it('requires exactly the main operator column', async () => {
     const result = await formulaTruthTable(
-      {}, answer, table([false, true]), false, 100, false, { highlightMainOperator: true }
+      {}, answer, table([false, true]), false, false, { highlightMainOperator: true }
     );
 
     expect(result.successstatus).toBe('correct');
-    expect(result.points).toBe(100);
+    expect(result.score).toBe(100);
   });
 
   it('rejects a wrong or additional highlighted column', async () => {
     const wrong = await formulaTruthTable(
-      {}, answer, table([true, false]), false, 100, false, { highlightMainOperator: true }
+      {}, answer, table([true, false]), false, false, { highlightMainOperator: true }
     );
     const multiple = await formulaTruthTable(
-      {}, answer, table([true, true]), false, 100, false, { highlightMainOperator: true }
+      {}, answer, table([true, true]), false, false, { highlightMainOperator: true }
     );
 
     expect(wrong.successstatus).toBe('incorrect');
@@ -38,11 +39,11 @@ describe('formula truth table main operator highlight', () => {
 
   it('splits partial credit between the table and highlight', async () => {
     const result = await formulaTruthTable(
-      {}, answer, table([true, false]), true, 100, false, { highlightMainOperator: true }
+      {}, answer, table([true, false]), true, false, { highlightMainOperator: true }
     );
 
     expect(result.successstatus).toBe('partial');
-    expect(result.points).toBe(50);
+    expect(result.score).toBe(50);
     expect(result.componentScores).toEqual([1, 0]);
   });
 });

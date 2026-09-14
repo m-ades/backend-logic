@@ -6,6 +6,7 @@
 // combines translation checking with a derivation check              //
 ////////////////////////////////////////////////////////////////////////
 
+import { componentScorePercent } from './component-grading.js';
 import tr from '../translate.js';
 import { getDerivationCheckerForLogicSystem } from './derivation-by-logic-system.js';
 import getFormulaClass from '../symbolic/formula.js';
@@ -50,7 +51,7 @@ const resolveExpected = (answer) => {
 };
 
 export default async function(
-    question, answer, givenans, partialcredit, points, cheat, options
+    question, answer, givenans, partialcredit, cheat, options
 ) {
     let notation = defaultnotation;
     if (options?.notation) {
@@ -60,11 +61,10 @@ export default async function(
     let correct = true;
     const messages = [];
     let derivErrors = null;
-    const derivTtl = 5;
     const expectedArg = resolveExpected(answer);
     const expectedTransCount = ((expectedArg?.premises?.length ?? 0) + (expectedArg?.conclusion ? 1 : 0)) || 1;
     const transTtl = expectedTransCount;
-    let derivEarned = 0;
+    let derivationScore = 0;
     let transEarned = 0;
 
     const expected = expectedArg;
@@ -154,12 +154,11 @@ export default async function(
             null,
             providedProof,
             partialcredit,
-            derivTtl,
             cheat,
             options
         );
         if (derivResult.successstatus === 'correct') {
-            derivEarned = derivTtl;
+            derivationScore = 1;
         } else {
             correct = false;
             derivErrors = derivResult.errors || null;
@@ -170,15 +169,11 @@ export default async function(
         messages.push(tr('No derivation was submitted.'));
     }
 
-    // Derivations are all-or-nothing; no partial credit for combo translation-derivation
-    const earned = correct ? points : 0;
-
     const translationScore = transTtl > 0 ? (transEarned / transTtl) : 0;
-    const derivationScore = derivTtl > 0 ? (derivEarned / derivTtl) : 0;
 
     const rv = {
         successstatus: (correct ? "correct" : "incorrect"),
-        points: earned,
+        score: componentScorePercent([translationScore, derivationScore]),
         componentScores: [translationScore, derivationScore],
     };
     if (cheat) {
