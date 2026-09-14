@@ -655,7 +655,7 @@ router.get('/courses/:id/deadlines', courseAccessValidators, async (req, res, ne
         where: { assignment_id: assignmentIds, user_id: userId },
       }),
       Accommodation.findOne({
-        where: { course_id: courseId, user_id },
+        where: { course_id: courseId, user_id: userId },
       }),
     ]);
     const extensionByAssignment = new Map(
