@@ -1,5 +1,5 @@
-import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
-import checkTranslation from '../lib/logicpenguin/checkers/symbolic-translation.js';
+import getFormulaClass from '@logic-app/logic-engine/symbolic/formula.js';
+import checkTranslation from '@logic-app/logic-engine/checkers/symbolic-translation.js';
 
 describe('symbolfix strips Unicode variation selectors', () => {
   const Formula = getFormulaClass('calgary');
@@ -18,11 +18,10 @@ describe('symbolfix strips Unicode variation selectors', () => {
       'A↔︎B',
       'A↔B',
       false,
-      1,
       false,
       { pred: false, notation: 'calgary' }
     );
 
-    expect(result).toMatchObject({ successstatus: 'correct', points: 1 });
+    expect(result).toMatchObject({ successstatus: 'correct', score: 100 });
   });
 });

@@ -1,13 +1,13 @@
-import getFormulaClass from '../lib/logicpenguin/symbolic/formula.js';
-import proofArgumentExtraction from '../lib/logicpenguin/checkers/proof-argument-extraction.js';
-import { allTrueAtRow } from '../lib/logicpenguin/checkers/truth-tables.js';
-import { computeTruthTableAnswer } from '../lib/truthTableAnswer.js';
-import { getLogicSystem, LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '../lib/logicSystems.js';
+import getFormulaClass from '@logic-app/logic-engine/symbolic/formula.js';
+import proofArgumentExtraction from '@logic-app/logic-engine/checkers/proof-argument-extraction.js';
+import { allTrueAtRow } from '@logic-app/logic-engine/checkers/truth-tables.js';
+import { computeTruthTableAnswer } from '@logic-app/logic-engine/truthTableAnswer.js';
+import { getLogicSystem, LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '@logic-app/logic-engine/logicSystems.js';
 import {
   getAssumptionRuleRequirements,
   getJustificationRule,
   parseAssumptionScopes,
-} from '../lib/proofArgumentExtractionScopes.js';
+} from '@logic-app/logic-engine/proofArgumentExtractionScopes.js';
 
 /*
 signals invalid author owned question data with status code 422
@@ -150,7 +150,6 @@ export async function assertValidQuestionSnapshot(question, options = {}) {
       justifications: [],
     },
     false,
-    100,
     true,
     { ...options, logicSystem, notation }
   );

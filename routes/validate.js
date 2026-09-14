@@ -10,8 +10,8 @@ import {
   CourseEnrollment,
   Submission,
 } from '../models/index.js';
-import { validateLogicPenguin, resolveSnapshotPartialCredit } from '../validators/logicpenguin.js';
-import { LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '../lib/logicSystems.js';
+import { validateLogicProblem, resolveSnapshotPartialCredit } from '../validators/logic-engine.js';
+import { LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '@logic-app/logic-engine/logicSystems.js';
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { recomputeAssignmentGrade, ensureZeroGradesForPastDue } from '../utils/grades.js';
 import { handleValidationResult } from '../middleware/validation.js';
@@ -130,10 +130,9 @@ router.post(
     };
 
     // run the autograder to score the submission
-    const validation = await validateLogicPenguin({
+    const validation = await validateLogicProblem({
       question: questionSnapshot,
       submission: submission_data,
-      points: 100,
       options,
     });
 
@@ -146,7 +145,7 @@ router.post(
       score: validation.score,
       is_correct: validation.isCorrect,
       validated_at: new Date(),
-      validation_version: validation_version || 'lp-v1',
+      validation_version: validation_version || 'logic-engine-v1',
     });
 
     await recomputeAssignmentGrade({ assignmentId: assignment.id, userId: user_id });

@@ -1,4 +1,4 @@
-import { validateLogicPenguin } from '../validators/logicpenguin.js';
+import { validateLogicProblem } from '../validators/logic-engine.js';
 
 function buildFlatProof({ conclusion, lines, premises = [] }) {
   return {
@@ -31,6 +31,22 @@ function buildNestedProof({ conclusion, parts, premises = [] }) {
 }
 
 describe('combo-translation-derivation logic systems', () => {
+  it('preserves the existing incomplete combo percentage until its policy is revised', async () => {
+    for (const partialcredit of [true, false]) {
+      const result = await validateLogicProblem({
+        question: {
+          type: 'combo-translation-derivation',
+          answer: { premises: ['A'], conclusion: 'B' },
+        },
+        submission: { argumentLine: 'A // B' },
+        options: { partialcredit, logicSystem: 'hurley' },
+      });
+      expect(result.isCorrect).toBe(false);
+      expect(result.score).toBe(50);
+      expect(result.result.successstatus).toBe('incorrect');
+    }
+  });
+
   it('uses Fitch/Calgary derivation validation when the course logic system is fitch', async () => {
     const proof = buildNestedProof({
       premises: ['J → ¬J'],
@@ -48,7 +64,7 @@ describe('combo-translation-derivation logic systems', () => {
       ],
     });
 
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question: {
         type: 'combo-translation-derivation',
         answer: {
@@ -60,7 +76,6 @@ describe('combo-translation-derivation logic systems', () => {
         argumentLine: 'J → ¬J // ¬J',
         proof,
       },
-      points: 100,
       options: { logicSystem: 'fitch' },
     });
 
@@ -80,7 +95,7 @@ describe('combo-translation-derivation logic systems', () => {
       ],
     });
 
-    const result = await validateLogicPenguin({
+    const result = await validateLogicProblem({
       question: {
         type: 'combo-translation-derivation',
         answer: {
@@ -92,7 +107,6 @@ describe('combo-translation-derivation logic systems', () => {
         argumentLine: 'A // B⊃A',
         proof,
       },
-      points: 100,
       options: { logicSystem: 'hurley' },
     });
 

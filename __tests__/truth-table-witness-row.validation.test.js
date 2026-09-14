@@ -1,4 +1,4 @@
-import { validateLogicPenguin } from '../validators/logicpenguin.js';
+import { validateLogicProblem } from '../validators/logic-engine.js';
 import { assertValidQuestionSnapshot } from '../validators/question-snapshot.js';
 
 const cases = [
@@ -35,7 +35,7 @@ const cases = [
 ];
 
 describe.each(cases)('$kind witness row validation', ({ truthTable, tables, witnessRow, wrongRow, classification }) => {
-  const grade = (submission, partialCredit = false, options = {}) => validateLogicPenguin({
+  const grade = (submission, partialCredit = false, options = {}) => validateLogicProblem({
     question: {
       type: 'truth-table',
       truthTable: {
@@ -44,7 +44,6 @@ describe.each(cases)('$kind witness row validation', ({ truthTable, tables, witn
       },
     },
     submission,
-    points: 100,
     options: { notation: 'hurley' },
   });
   const manual = (selectedRow) => ({
@@ -70,7 +69,7 @@ describe.each(cases)('$kind witness row validation', ({ truthTable, tables, witn
       score: partialCredit ? 50 : 0,
       result: {
         successstatus: partialCredit ? 'partial' : 'incorrect',
-        points: partialCredit ? 50 : 0,
+        score: partialCredit ? 50 : 0,
         componentScores: partialCredit ? [1, 0] : [0, 0],
       },
     };
@@ -139,7 +138,7 @@ describe.each([
     await expect(assertValidQuestionSnapshot(question)).rejects.toMatchObject({
       code: 'INVALID_QUESTION', status: 422,
     });
-    await expect(validateLogicPenguin({ question, submission: {}, points: 100 }))
+    await expect(validateLogicProblem({ question, submission: {} }))
       .rejects.toMatchObject({ code: 'INVALID_QUESTION', status: 422 });
     expect(question).toEqual(before);
   });

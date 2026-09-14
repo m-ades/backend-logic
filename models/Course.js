@@ -1,5 +1,5 @@
 import { DataTypes, Model } from 'sequelize';
-import { DEFAULT_LOGIC_SYSTEM, LOGIC_SYSTEMS } from '../lib/logicSystems.js';
+import { DEFAULT_LOGIC_SYSTEM, LOGIC_SYSTEMS } from '@logic-app/logic-engine/logicSystems.js';
 
 export default function initCourse(sequelize) {
   class Course extends Model {}

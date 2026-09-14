@@ -20,7 +20,7 @@ import {
 } from '../validators/textbook.js';
 import { isSystemAdmin } from '../utils/authorization.js';
 import { requireEnrollmentForCourse } from '../utils/enrollment.js';
-import { DEFAULT_LOGIC_SYSTEM, normalizeLogicSystem } from '../lib/logicSystems.js';
+import { DEFAULT_LOGIC_SYSTEM, normalizeLogicSystem } from '@logic-app/logic-engine/logicSystems.js';
 import { requireInstructorOrAdmin } from './instructor.js';
 import { isAssignmentLocked } from '../utils/publicationPolicy.js';
 

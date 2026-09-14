@@ -13,6 +13,7 @@ const assignmentFindAll = jest.fn();
 const accommodationFindOne = jest.fn();
 const accommodationCreate = jest.fn();
 const extensionFindOne = jest.fn();
+const extensionFindAll = jest.fn();
 const extensionCreate = jest.fn();
 const assignmentQuestionFindByPk = jest.fn();
 const overrideFindOne = jest.fn();
@@ -22,7 +23,7 @@ const submissionFindAll = jest.fn();
 
 jest.unstable_mockModule('../models/index.js', () => ({
   Assignment: { findByPk: assignmentFindByPk, findAll: assignmentFindAll },
-  AssignmentExtension: { findOne: extensionFindOne, create: extensionCreate },
+  AssignmentExtension: { findOne: extensionFindOne, findAll: extensionFindAll, create: extensionCreate },
   Accommodation: { findOne: accommodationFindOne, create: accommodationCreate },
   AssignmentGrade: {},
   AssignmentQuestion: { findByPk: assignmentQuestionFindByPk },
@@ -117,6 +118,7 @@ describe('instructor routes', () => {
     accommodationFindOne.mockReset();
     accommodationCreate.mockReset();
     extensionFindOne.mockReset();
+    extensionFindAll.mockReset();
     extensionCreate.mockReset();
     assignmentQuestionFindByPk.mockReset();
     overrideFindOne.mockReset();
@@ -128,6 +130,58 @@ describe('instructor routes', () => {
 
   afterEach(() => {
     consoleErrorSpy?.mockRestore();
+  });
+
+  describe('GET /courses/:id/deadlines', () => {
+    const handlers = getRouteHandlers('/courses/:id/deadlines', 'get');
+    const request = () => ({ params: { id: '8' }, user: { id: 2 } });
+
+    it('returns deadlines using the current user extensions and accommodation', async () => {
+      findOne.mockResolvedValueOnce({ role: 'instructor' });
+      assignmentFindAll.mockResolvedValueOnce([{
+        id: 4,
+        title: 'Derivations',
+        due_date: '2026-09-15T16:00:00Z',
+        late_window_days: 2,
+        late_penalty_percent: 10,
+      }]);
+      extensionFindAll.mockResolvedValueOnce([{
+        assignment_id: 4,
+        extended_due_date: '2026-09-16T16:00:00Z',
+      }]);
+      accommodationFindOne.mockResolvedValueOnce({ extra_late_days: 1 });
+
+      const res = await runHandlers(handlers, request(), createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(extensionFindAll).toHaveBeenCalledWith({
+        where: { assignment_id: [4], user_id: 2 },
+      });
+      expect(accommodationFindOne).toHaveBeenCalledWith({
+        where: { course_id: 8, user_id: 2 },
+      });
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0]).toEqual(expect.objectContaining({
+        assignment_id: 4,
+        title: 'Derivations',
+        has_extension: true,
+        extra_late_days: 1,
+      }));
+      expect(new Date(res.body[0].due_at).toISOString()).toBe('2026-09-17T16:00:00.000Z');
+      expect(new Date(res.body[0].cutoff_at).toISOString()).toBe('2026-09-19T16:00:00.000Z');
+    });
+
+    it('returns an empty list when the course has no assignments', async () => {
+      findOne.mockResolvedValueOnce({ role: 'instructor' });
+      assignmentFindAll.mockResolvedValueOnce([]);
+      extensionFindAll.mockResolvedValueOnce([]);
+      accommodationFindOne.mockResolvedValueOnce(null);
+
+      const res = await runHandlers(handlers, request(), createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toEqual([]);
+    });
   });
 
   describe('GET /assignments/:id/submissions', () => {

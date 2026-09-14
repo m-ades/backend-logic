@@ -1,4 +1,4 @@
-import argumentTruthTable from '../lib/logicpenguin/checkers/argument-truth-table.js';
+import argumentTruthTable from '@logic-app/logic-engine/checkers/argument-truth-table.js';
 
 const answer = {
   valid: true,
@@ -14,11 +14,11 @@ describe('argument truth table row counts', () => {
     const result = await argumentTruthTable(
       {}, answer,
       { lefts: [{ rows }], right: answer.conc, mcans: ['valid'] },
-      true, 1, false, { question: true }
+      true, false, { question: true }
     );
 
     expect(result).toEqual({
-      successstatus: 'partial', points: 0.5, componentScores: [0, 1],
+      successstatus: 'partial', score: 50, componentScores: [0, 1],
     });
   });
 
@@ -26,11 +26,11 @@ describe('argument truth table row counts', () => {
     const result = await argumentTruthTable(
       {}, answer,
       { lefts: [{ rows: [[true]] }], right: answer.conc, mcans: ['invalid'] },
-      true, 1, false, { question: true }
+      true, false, { question: true }
     );
 
     expect(result).toEqual({
-      successstatus: 'incorrect', points: 0, componentScores: [0, 0],
+      successstatus: 'incorrect', score: 0, componentScores: [0, 0],
     });
   });
 
@@ -38,11 +38,11 @@ describe('argument truth table row counts', () => {
     const result = await argumentTruthTable(
       {}, answer,
       { lefts: [{ rows: [] }], right: answer.conc, mcans: ['valid'] },
-      false, 1, false, { question: true }
+      false, false, { question: true }
     );
 
     expect(result).toEqual({
-      successstatus: 'incorrect', points: 0, componentScores: [0, 0],
+      successstatus: 'incorrect', score: 0, componentScores: [0, 0],
     });
   });
 });

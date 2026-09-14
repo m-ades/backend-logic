@@ -7,9 +7,9 @@ import {
   CourseEnrollment,
   Submission,
 } from '../models/index.js';
-import { validateLogicPenguin, resolveSnapshotPartialCredit } from '../validators/logicpenguin.js';
+import { validateLogicProblem, resolveSnapshotPartialCredit } from '../validators/logic-engine.js';
 import { isInvalidQuestionError } from '../validators/question-snapshot.js';
-import { LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '../lib/logicSystems.js';
+import { LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '@logic-app/logic-engine/logicSystems.js';
 import { computeDeadlinePolicy } from './assignmentPolicy.js';
 import { recomputeAssignmentGrade } from './grades.js';
 
@@ -76,10 +76,9 @@ export async function autoSubmitIfPastDeadline(assignment, userId) {
 
     let validation;
     try {
-      validation = await validateLogicPenguin({
+      validation = await validateLogicProblem({
         question: questionSnapshot,
         submission: draft.draft_data,
-        points: 100,
         options,
       });
     } catch (error) {
@@ -97,7 +96,7 @@ export async function autoSubmitIfPastDeadline(assignment, userId) {
       is_correct: validation.isCorrect,
       auto_submitted: true,
       validated_at: new Date(),
-      validation_version: 'lp-auto-v1',
+      validation_version: 'logic-engine-auto-v1',
     });
 
     created.push(submission);

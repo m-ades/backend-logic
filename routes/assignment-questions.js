@@ -15,7 +15,7 @@ import {
   assignmentIdBody,
 } from '../validators/common.js';
 import { assertValidQuestionSnapshot } from '../validators/question-snapshot.js';
-import { LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '../lib/logicSystems.js';
+import { LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '@logic-app/logic-engine/logicSystems.js';
 import { recomputeAssignmentGrade } from '../utils/grades.js';
 import { requireInstructorOrAdmin } from './instructor.js';
 
