@@ -640,13 +640,12 @@ const SUBMISSION_SUMMARY_ATTRIBUTES = [
   'is_correct',
   'auto_submitted',
   'submitted_at',
-  'validated_at',
 ];
 const submissionListValidators = [
   assignmentIdParam,
   userIdOptionalQuery,
-  // summary=true drops submission_data so a whole-class listing stays small.
-  // the default keeps every column because the per-student answer viewer needs it
+  /* summary=true drops submission_data so a whole-class listing stays small,
+     default keeps every column since the per-student answer viewer needs it */
   query('summary').optional().isBoolean().toBoolean(),
   handleValidationResult,
 ];

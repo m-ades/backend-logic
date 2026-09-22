@@ -226,6 +226,8 @@ describe('instructor routes', () => {
       const options = submissionFindAll.mock.calls[0][0];
       expect(options).not.toHaveProperty('where');
       expect(options.attributes).not.toContain('submission_data');
+      // validated_at unused here
+      expect(options.attributes).not.toContain('validated_at');
       expect(options.attributes).toEqual(expect.arrayContaining(['id', 'attempt', 'score', 'is_correct', 'submitted_at']));
     });
 
