@@ -15,7 +15,7 @@ import {
 import { addDays, computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { recomputeAssignmentGrade } from '../utils/grades.js';
 import { requireEnrollmentForCourse } from '../utils/enrollment.js';
-import { formatDueDateEastern } from '../utils/easternDate.js';
+import { formatDueDateEastern, parseDueDateForStorage } from '../utils/easternDate.js';
 import {
   hashPassword,
   isStrongPassword,
@@ -31,14 +31,30 @@ import {
 const router = express.Router();
 const courseAccessValidators = [courseIdParam, handleValidationResult];
 const assignmentAccessValidators = [assignmentIdParam, handleValidationResult];
-const classwideExtensionValidators = [
-  assignmentIdParam,
-  body('extended_due_date').isISO8601().withMessage('extended_due_date must be a valid date'),
-  body('reason').optional({ nullable: true, checkFalsy: true }).isString().isLength({ max: 500 }),
-  handleValidationResult,
-];
 const EXTENSION_USER_ATTRIBUTES = ['id', 'username'];
 const MAX_EXTENSION_REASON_LENGTH = 500;
+
+// shared by both extension endpoints
+const extendedDueDateBody = body('extended_due_date')
+  .isISO8601()
+  .withMessage('extended_due_date must be a valid date');
+const extensionReasonBody = body('reason')
+  .optional({ nullable: true, checkFalsy: true })
+  .isString()
+  .isLength({ max: MAX_EXTENSION_REASON_LENGTH });
+
+const classwideExtensionValidators = [
+  assignmentIdParam,
+  extendedDueDateBody,
+  extensionReasonBody,
+  handleValidationResult,
+];
+const individualExtensionValidators = [
+  assignmentIdParam,
+  extendedDueDateBody,
+  extensionReasonBody,
+  handleValidationResult,
+];
 
 const normalizeExtensionReason = (reason) => {
   if (reason == null) return null;
@@ -399,9 +415,9 @@ router.get('/assignments/:id/extensions', assignmentAccessValidators, async (req
         { model: User, attributes: EXTENSION_USER_ATTRIBUTES },
         { model: User, as: 'grantedBy', attributes: EXTENSION_USER_ATTRIBUTES, required: false },
       ],
-      order: [['id', 'ASC']],
     });
 
+    // re-sorted by username below
     const payload = extensions
       .map(serializeExtension)
       .sort((a, b) =>
@@ -413,7 +429,7 @@ router.get('/assignments/:id/extensions', assignmentAccessValidators, async (req
   }
 });
 
-router.post('/assignments/:id/extensions', assignmentAccessValidators, async (req, res, next) => {
+router.post('/assignments/:id/extensions', individualExtensionValidators, async (req, res, next) => {
   try {
     const assignmentId = req.params.id;
     const userId = req.user.id;
@@ -428,10 +444,11 @@ router.post('/assignments/:id/extensions', assignmentAccessValidators, async (re
     }
 
     const targetUserId = Number(req.body.user_id ?? req.body.student_id);
-    const extendedDueDate = req.body.extended_due_date;
-    if (!targetUserId || !extendedDueDate) {
-      return res.status(400).json({ message: 'user_id and extended_due_date are required' });
+    if (!targetUserId) {
+      return res.status(400).json({ message: 'user_id is required' });
     }
+    // bare dates become eastern midnight
+    const extendedDueDate = parseDueDateForStorage(req.body.extended_due_date, 'extended_due_date');
     await requireEnrollmentForCourse(
       targetUserId,
       assignment.course_id,
@@ -444,6 +461,7 @@ router.post('/assignments/:id/extensions', assignmentAccessValidators, async (re
       extended_due_date: extendedDueDate,
       reason: normalizeExtensionReason(req.body.reason),
       granted_by: userId,
+      created_at: new Date(),
     };
 
     const existing = await AssignmentExtension.findOne({
@@ -568,8 +586,8 @@ async function classwideExtensionHandler(req, res, next) {
       return res.status(403).json({ message: 'Instructor access required' });
     }
 
-    // classwideExtensionValidators already guarantees an ISO 8601 date
-    const extendedDueDate = req.body.extended_due_date;
+    // bare dates become eastern midnight
+    const extendedDueDate = parseDueDateForStorage(req.body.extended_due_date, 'extended_due_date');
     const classwideMs = new Date(extendedDueDate).getTime();
 
     const enrollments = await CourseEnrollment.findAll({
@@ -591,6 +609,8 @@ async function classwideExtensionHandler(req, res, next) {
     const reason = normalizeExtensionReason(req.body.reason);
     const payload = [];
     let preserved = 0;
+    // same timestamp for the whole batch
+    const grantedAt = new Date();
 
     for (const { user_id: targetUserId } of enrollments) {
       const existing = existingByUser.get(targetUserId);
@@ -606,12 +626,14 @@ async function classwideExtensionHandler(req, res, next) {
         extended_due_date: extendedDueDate,
         reason,
         granted_by: userId,
+        created_at: grantedAt,
       });
     }
 
     if (payload.length > 0) {
+      // no updated_at column; created_at tracks last grant
       await AssignmentExtension.bulkCreate(payload, {
-        updateOnDuplicate: ['extended_due_date', 'reason', 'granted_by'],
+        updateOnDuplicate: ['extended_due_date', 'reason', 'granted_by', 'created_at'],
       });
     }
 
