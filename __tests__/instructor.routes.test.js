@@ -17,8 +17,7 @@ const extensionFindAll = jest.fn();
 const extensionCreate = jest.fn();
 const extensionBulkCreate = jest.fn();
 const assignmentQuestionFindByPk = jest.fn();
-const overrideFindOne = jest.fn();
-const overrideCreate = jest.fn();
+const overrideUpsert = jest.fn();
 const overrideFindAll = jest.fn();
 const recomputeAssignmentGrade = jest.fn();
 const submissionFindAll = jest.fn();
@@ -34,7 +33,7 @@ jest.unstable_mockModule('../models/index.js', () => ({
   Accommodation: { findOne: accommodationFindOne, create: accommodationCreate },
   AssignmentGrade: {},
   AssignmentQuestion: { findByPk: assignmentQuestionFindByPk },
-  AssignmentQuestionOverride: { findOne: overrideFindOne, findAll: overrideFindAll, create: overrideCreate },
+  AssignmentQuestionOverride: { findAll: overrideFindAll, upsert: overrideUpsert },
   Submission: { findAll: submissionFindAll },
   CourseEnrollment: { findOne, findAll, create: createEnrollment },
   User: { findByPk, findOne: userFindOne, create: userCreate },
@@ -129,8 +128,7 @@ describe('instructor routes', () => {
     extensionCreate.mockReset();
     extensionBulkCreate.mockReset().mockResolvedValue([]);
     assignmentQuestionFindByPk.mockReset();
-    overrideFindOne.mockReset();
-    overrideCreate.mockReset();
+    overrideUpsert.mockReset();
     overrideFindAll.mockReset();
     recomputeAssignmentGrade.mockReset().mockResolvedValue(undefined);
     submissionFindAll.mockReset();
@@ -451,16 +449,33 @@ describe('instructor routes', () => {
       const res = await runHandlers(handlers, req, createRes());
 
       expect(res.statusCode).toBe(403);
-      expect(overrideCreate).not.toHaveBeenCalled();
+      expect(overrideUpsert).not.toHaveBeenCalled();
     });
 
-    it('grants an attempt override to an enrolled user', async () => {
+    it('rejects granting an attempt override to a ta (not a student)', async () => {
       assignmentQuestionFindByPk.mockResolvedValueOnce({ id: 20, Assignment: { course_id: 3 } });
       findOne
         .mockResolvedValueOnce({ role: 'instructor' })
-        .mockResolvedValueOnce({ id: 1 });
-      overrideFindOne.mockResolvedValueOnce(null);
-      overrideCreate.mockResolvedValueOnce({ id: 12, assignment_question_id: 20, user_id: 55 });
+        .mockResolvedValueOnce({ id: 1, role: 'ta' });
+
+      const handlers = getRouteHandlers('/assignment-questions/:id/overrides', 'post');
+      const req = {
+        params: { id: '20' },
+        body: { user_id: 55, extra_attempts: 2 },
+        user: { id: 2 },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(403);
+      expect(overrideUpsert).not.toHaveBeenCalled();
+    });
+
+    it('grants an attempt override to an enrolled student via an atomic upsert', async () => {
+      assignmentQuestionFindByPk.mockResolvedValueOnce({ id: 20, Assignment: { course_id: 3 } });
+      findOne
+        .mockResolvedValueOnce({ role: 'instructor' })
+        .mockResolvedValueOnce({ id: 1, role: 'student' });
+      overrideUpsert.mockResolvedValueOnce([{ id: 12, assignment_question_id: 20, user_id: 55 }, true]);
 
       const handlers = getRouteHandlers('/assignment-questions/:id/overrides', 'post');
       const req = {
@@ -471,7 +486,84 @@ describe('instructor routes', () => {
       const res = await runHandlers(handlers, req, createRes());
 
       expect(res.statusCode).toBe(201);
-      expect(overrideCreate).toHaveBeenCalledTimes(1);
+      expect(overrideUpsert).toHaveBeenCalledTimes(1);
+      expect(overrideUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({ assignment_question_id: 20, user_id: 55, extra_attempts: 2 }),
+        { conflictFields: ['assignment_question_id', 'user_id'] }
+      );
+    });
+
+    it('returns 200 (not a crash) when the upsert resolves an existing row', async () => {
+      // conflict resolved as an update, not a crash
+      assignmentQuestionFindByPk.mockResolvedValueOnce({ id: 20, Assignment: { course_id: 3 } });
+      findOne
+        .mockResolvedValueOnce({ role: 'instructor' })
+        .mockResolvedValueOnce({ id: 1, role: 'student' });
+      overrideUpsert.mockResolvedValueOnce([{ id: 12, assignment_question_id: 20, user_id: 55, extra_attempts: 3 }, false]);
+
+      const handlers = getRouteHandlers('/assignment-questions/:id/overrides', 'post');
+      const req = {
+        params: { id: '20' },
+        body: { user_id: 55, extra_attempts: 3 },
+        user: { id: 2 },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toEqual({ id: 12, assignment_question_id: 20, user_id: 55, extra_attempts: 3 });
+    });
+
+    it('grants back to back for the same student+question both succeed (no find-then-create race window)', async () => {
+      assignmentQuestionFindByPk.mockResolvedValue({ id: 20, Assignment: { course_id: 3 } });
+      findOne
+        .mockResolvedValueOnce({ role: 'instructor' }) // request 1: requester check
+        .mockResolvedValueOnce({ id: 1, role: 'student' }) // request 1: target check
+        .mockResolvedValueOnce({ role: 'instructor' }) // request 2: requester check
+        .mockResolvedValueOnce({ id: 1, role: 'student' }); // request 2: target check
+      overrideUpsert
+        .mockResolvedValueOnce([{ id: 12, assignment_question_id: 20, user_id: 55, extra_attempts: 2 }, true])
+        .mockResolvedValueOnce([{ id: 12, assignment_question_id: 20, user_id: 55, extra_attempts: 5 }, false]);
+
+      const handlers = getRouteHandlers('/assignment-questions/:id/overrides', 'post');
+      const makeReq = (extra) => ({
+        params: { id: '20' },
+        body: { user_id: 55, extra_attempts: extra },
+        user: { id: 2 },
+      });
+
+      const first = await runHandlers(handlers, makeReq(2), createRes());
+      const second = await runHandlers(handlers, makeReq(5), createRes());
+
+      expect(first.statusCode).toBe(201);
+      expect(second.statusCode).toBe(200);
+      expect(overrideUpsert).toHaveBeenCalledTimes(2);
+    });
+
+    it('rejects a non-integer extra_attempts value', async () => {
+      const handlers = getRouteHandlers('/assignment-questions/:id/overrides', 'post');
+      const req = { params: { id: '20' }, body: { user_id: 55, extra_attempts: 1.5 }, user: { id: 2 } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(400);
+      expect(overrideUpsert).not.toHaveBeenCalled();
+    });
+
+    it('rejects a negative extra_attempts value', async () => {
+      const handlers = getRouteHandlers('/assignment-questions/:id/overrides', 'post');
+      const req = { params: { id: '20' }, body: { user_id: 55, extra_attempts: -1 }, user: { id: 2 } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(400);
+      expect(overrideUpsert).not.toHaveBeenCalled();
+    });
+
+    it('rejects an extra_attempts value above the max', async () => {
+      const handlers = getRouteHandlers('/assignment-questions/:id/overrides', 'post');
+      const req = { params: { id: '20' }, body: { user_id: 55, extra_attempts: 101 }, user: { id: 2 } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(400);
+      expect(overrideUpsert).not.toHaveBeenCalled();
     });
   });
   describe('GET /assignment-questions/:id/overrides', () => {
@@ -529,9 +621,8 @@ describe('instructor routes', () => {
       assignmentQuestionFindByPk.mockResolvedValueOnce({ id: 20, Assignment: { course_id: 3 } });
       findOne
         .mockResolvedValueOnce({ role: 'instructor' })
-        .mockResolvedValueOnce({ id: 1 });
-      overrideFindOne.mockResolvedValueOnce(null);
-      overrideCreate.mockResolvedValueOnce({ id: 1 });
+        .mockResolvedValueOnce({ id: 1, role: 'student' });
+      overrideUpsert.mockResolvedValueOnce([{ id: 1 }, true]);
 
       const res = await runHandlers(
         handlers,
@@ -540,7 +631,10 @@ describe('instructor routes', () => {
       );
 
       expect(res.statusCode).toBe(201);
-      expect(overrideCreate).toHaveBeenCalledWith(expect.objectContaining({ reason: null }));
+      expect(overrideUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: null }),
+        expect.anything()
+      );
     });
 
     it('rejects a reason longer than 500 characters', async () => {
@@ -551,7 +645,7 @@ describe('instructor routes', () => {
       );
 
       expect(res.statusCode).toBe(400);
-      expect(overrideCreate).not.toHaveBeenCalled();
+      expect(overrideUpsert).not.toHaveBeenCalled();
     });
   });
   describe('POST /assignments/:id/extensions/classwide', () => {
