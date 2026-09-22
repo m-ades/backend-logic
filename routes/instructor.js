@@ -1,6 +1,6 @@
 import express from 'express';
 import { Op } from 'sequelize';
-import { body, param } from 'express-validator';
+import { body, param, query } from 'express-validator';
 import {
   Assignment,
   AssignmentExtension,
@@ -458,25 +458,65 @@ router.post('/assignments/:id/extensions', assignmentAccessValidators, async (re
   }
 });
 
+async function requireAssignmentQuestionInstructorAccess(assignmentQuestionId, userId) {
+  const question = await AssignmentQuestion.findByPk(assignmentQuestionId, {
+    include: [{ model: Assignment }],
+  });
+  if (!question) {
+    return { error: { status: 404, message: 'Assignment question not found' } };
+  }
+  if (!(await requireInstructor(question.Assignment?.course_id, userId))) {
+    return { error: { status: 403, message: 'Instructor access required' } };
+  }
+  return { question };
+}
+
+function normalizeOverrideReason(value) {
+  return typeof value === 'string' ? value.trim().slice(0, 500) || null : null;
+}
+
+router.get('/assignment-questions/:id/overrides', [
+  param('id').isInt({ gt: 0 }).toInt().withMessage('assignment_question_id is required'),
+  handleValidationResult,
+], async (req, res, next) => {
+  try {
+    const assignmentQuestionId = Number(req.params.id);
+    const { question, error } = await requireAssignmentQuestionInstructorAccess(
+      assignmentQuestionId,
+      req.user.id
+    );
+    if (error) {
+      return res.status(error.status).json({ message: error.message });
+    }
+
+    const overrides = await AssignmentQuestionOverride.findAll({
+      where: { assignment_question_id: question.id },
+      include: [{ model: User, attributes: ['id', 'username'] }],
+      order: [['id', 'ASC']],
+    });
+
+    res.json(overrides);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post('/assignment-questions/:id/overrides', [
   param('id').isInt({ gt: 0 }).toInt().withMessage('assignment_question_id is required'),
   body('user_id').isInt({ gt: 0 }).toInt().withMessage('user_id is required'),
   body('extra_attempts').isInt({ min: 0 }).toInt().withMessage('extra_attempts is required'),
+  body('reason').optional({ nullable: true, checkFalsy: true }).isString().isLength({ max: 500 }),
   handleValidationResult,
 ], async (req, res, next) => {
   try {
     const assignmentQuestionId = Number(req.params.id);
     const userId = req.user.id;
-
-    const question = await AssignmentQuestion.findByPk(assignmentQuestionId, {
-      include: [{ model: Assignment }],
-    });
-    if (!question) {
-      return res.status(404).json({ message: 'Assignment question not found' });
-    }
-
-    if (!(await requireInstructor(question.Assignment?.course_id, userId))) {
-      return res.status(403).json({ message: 'Instructor access required' });
+    const { question, error } = await requireAssignmentQuestionInstructorAccess(
+      assignmentQuestionId,
+      userId
+    );
+    if (error) {
+      return res.status(error.status).json({ message: error.message });
     }
 
     const targetUserId = Number(req.body.user_id);
@@ -491,7 +531,7 @@ router.post('/assignment-questions/:id/overrides', [
       assignment_question_id: assignmentQuestionId,
       user_id: targetUserId,
       extra_attempts: extraAttempts,
-      reason: req.body.reason ?? null,
+      reason: normalizeOverrideReason(req.body.reason),
       granted_by: userId,
     };
 
@@ -582,8 +622,29 @@ async function classwideExtensionHandler(req, res, next) {
 router.post('/assignments/:id/extensions/classwide', classwideExtensionValidators, classwideExtensionHandler);
 router.put('/assignments/:id/extensions/classwide', classwideExtensionValidators, classwideExtensionHandler);
 
+// columns the classwide submissions table needs; leaves out the submission_data jsonb
+const SUBMISSION_SUMMARY_ATTRIBUTES = [
+  'id',
+  'assignment_question_id',
+  'user_id',
+  'attempt',
+  'score',
+  'is_correct',
+  'auto_submitted',
+  'submitted_at',
+  'validated_at',
+];
+const submissionListValidators = [
+  assignmentIdParam,
+  userIdOptionalQuery,
+  // summary=true drops submission_data so a whole-class listing stays small.
+  // the default keeps every column because the per-student answer viewer needs it
+  query('summary').optional().isBoolean().toBoolean(),
+  handleValidationResult,
+];
+
 // returns saved attempts to instructors/admins, optionally filtered to one student
-router.get('/assignments/:id/submissions', [assignmentIdParam, userIdOptionalQuery, handleValidationResult], async (req, res, next) => {
+router.get('/assignments/:id/submissions', submissionListValidators, async (req, res, next) => {
   try {
     const assignmentId = req.params.id;
     const userId = req.user.id;
@@ -599,14 +660,22 @@ router.get('/assignments/:id/submissions', [assignmentIdParam, userIdOptionalQue
 
     const submissions = await Submission.findAll({
       ...(req.query.userId ? { where: { user_id: req.query.userId } } : {}),
+      ...(req.query.summary === true ? { attributes: SUBMISSION_SUMMARY_ATTRIBUTES } : {}),
       include: [
         {
           model: AssignmentQuestion,
           where: { assignment_id: assignmentId },
+          attributes: ['id', 'order_index', 'points_value'],
         },
-        { model: User, attributes: ['id', 'username'] },
+        {
+          model: User,
+          attributes: ['id', 'username'],
+        },
       ],
-      order: [['submitted_at', 'DESC']],
+      order: [
+        ['submitted_at', 'DESC'],
+        ['id', 'DESC'],
+      ],
     });
 
     res.json(submissions);
