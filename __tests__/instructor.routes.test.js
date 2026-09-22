@@ -202,8 +202,31 @@ describe('instructor routes', () => {
       expect(submissionFindAll).toHaveBeenCalledWith(expect.objectContaining({
         where: { user_id: 9 },
         include: expect.arrayContaining([expect.objectContaining({ where: { assignment_id: 4 } })]),
-        order: [['submitted_at', 'DESC']],
+        order: [['submitted_at', 'DESC'], ['id', 'DESC']],
       }));
+      // the per-student answer viewer needs submission_data, so the default returns every column
+      expect(submissionFindAll.mock.calls[0][0]).not.toHaveProperty('attributes');
+    });
+
+    it('omits submission_data when summary=true is requested', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({ id: 4, course_id: 8 });
+      findOne.mockResolvedValueOnce({ role: 'instructor' });
+      submissionFindAll.mockResolvedValueOnce([]);
+
+      const res = await runHandlers(handlers, request({ summary: 'true' }), createRes());
+
+      expect(res.statusCode).toBe(200);
+      const options = submissionFindAll.mock.calls[0][0];
+      expect(options).not.toHaveProperty('where');
+      expect(options.attributes).not.toContain('submission_data');
+      expect(options.attributes).toEqual(expect.arrayContaining(['id', 'attempt', 'score', 'is_correct', 'submitted_at']));
+    });
+
+    it.each(['yes', '2'])('rejects a non-boolean summary flag %s', async (summary) => {
+      const res = await runHandlers(handlers, request({ summary }), createRes());
+
+      expect(res.statusCode).toBe(400);
+      expect(submissionFindAll).not.toHaveBeenCalled();
     });
 
     it('preserves the whole assignment view when no student is selected', async () => {

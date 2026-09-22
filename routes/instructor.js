@@ -1,6 +1,6 @@
 import express from 'express';
 import { Op } from 'sequelize';
-import { body, param } from 'express-validator';
+import { body, param, query } from 'express-validator';
 import {
   Assignment,
   AssignmentExtension,
@@ -514,8 +514,29 @@ router.post('/assignments/:id/extensions/classwide', assignmentAccessValidators,
   }
 });
 
+// columns the classwide submissions table needs; leaves out the submission_data jsonb
+const SUBMISSION_SUMMARY_ATTRIBUTES = [
+  'id',
+  'assignment_question_id',
+  'user_id',
+  'attempt',
+  'score',
+  'is_correct',
+  'auto_submitted',
+  'submitted_at',
+  'validated_at',
+];
+const submissionListValidators = [
+  assignmentIdParam,
+  userIdOptionalQuery,
+  // summary=true drops submission_data so a whole-class listing stays small.
+  // the default keeps every column because the per-student answer viewer needs it
+  query('summary').optional().isBoolean().toBoolean(),
+  handleValidationResult,
+];
+
 // returns saved attempts to instructors/admins, optionally filtered to one student
-router.get('/assignments/:id/submissions', [assignmentIdParam, userIdOptionalQuery, handleValidationResult], async (req, res, next) => {
+router.get('/assignments/:id/submissions', submissionListValidators, async (req, res, next) => {
   try {
     const assignmentId = req.params.id;
     const userId = req.user.id;
@@ -531,14 +552,22 @@ router.get('/assignments/:id/submissions', [assignmentIdParam, userIdOptionalQue
 
     const submissions = await Submission.findAll({
       ...(req.query.userId ? { where: { user_id: req.query.userId } } : {}),
+      ...(req.query.summary === true ? { attributes: SUBMISSION_SUMMARY_ATTRIBUTES } : {}),
       include: [
         {
           model: AssignmentQuestion,
           where: { assignment_id: assignmentId },
+          attributes: ['id', 'order_index', 'points_value'],
         },
-        { model: User, attributes: ['id', 'username'] },
+        {
+          model: User,
+          attributes: ['id', 'username'],
+        },
       ],
-      order: [['submitted_at', 'DESC']],
+      order: [
+        ['submitted_at', 'DESC'],
+        ['id', 'DESC'],
+      ],
     });
 
     res.json(submissions);
