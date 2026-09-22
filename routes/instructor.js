@@ -520,14 +520,9 @@ async function classwideExtensionHandler(req, res, next) {
       return res.status(403).json({ message: 'Instructor access required' });
     }
 
+    // classwideExtensionValidators already guarantees an ISO 8601 date
     const extendedDueDate = req.body.extended_due_date;
-    if (!extendedDueDate) {
-      return res.status(400).json({ message: 'extended_due_date is required' });
-    }
-    const classwideMs = Date.parse(extendedDueDate);
-    if (Number.isNaN(classwideMs)) {
-      return res.status(400).json({ message: 'extended_due_date must be a valid date' });
-    }
+    const classwideMs = new Date(extendedDueDate).getTime();
 
     const enrollments = await CourseEnrollment.findAll({
       where: { course_id: assignment.course_id, role: 'student' },
@@ -551,8 +546,9 @@ async function classwideExtensionHandler(req, res, next) {
 
     for (const { user_id: targetUserId } of enrollments) {
       const existing = existingByUser.get(targetUserId);
-      const existingMs = existing ? Date.parse(existing.extended_due_date) : NaN;
-      if (existing && !Number.isNaN(existingMs) && existingMs > classwideMs) {
+      // a student who already has a later individual extension keeps it
+      const existingMs = existing ? new Date(existing.extended_due_date).getTime() : NaN;
+      if (Number.isFinite(existingMs) && existingMs > classwideMs) {
         preserved += 1;
         continue;
       }
@@ -571,11 +567,11 @@ async function classwideExtensionHandler(req, res, next) {
       });
     }
 
-    await Promise.all(
-      enrollments.map((enrollment) =>
-        recomputeAssignmentGrade({ assignmentId: assignment.id, userId: enrollment.user_id })
-      )
-    );
+    // only students whose deadline actually moved need a grade recompute;
+    // run them one at a time so a large class can't exhaust the db pool
+    for (const { user_id: targetUserId } of payload) {
+      await recomputeAssignmentGrade({ assignmentId: assignment.id, userId: targetUserId });
+    }
 
     res.status(200).json({ updated: payload.length, preserved, total });
   } catch (error) {

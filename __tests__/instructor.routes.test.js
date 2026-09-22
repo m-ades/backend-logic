@@ -15,6 +15,7 @@ const accommodationCreate = jest.fn();
 const extensionFindOne = jest.fn();
 const extensionFindAll = jest.fn();
 const extensionCreate = jest.fn();
+const extensionBulkCreate = jest.fn();
 const assignmentQuestionFindByPk = jest.fn();
 const overrideFindOne = jest.fn();
 const overrideCreate = jest.fn();
@@ -23,7 +24,12 @@ const submissionFindAll = jest.fn();
 
 jest.unstable_mockModule('../models/index.js', () => ({
   Assignment: { findByPk: assignmentFindByPk, findAll: assignmentFindAll },
-  AssignmentExtension: { findOne: extensionFindOne, findAll: extensionFindAll, create: extensionCreate },
+  AssignmentExtension: {
+    findOne: extensionFindOne,
+    findAll: extensionFindAll,
+    create: extensionCreate,
+    bulkCreate: extensionBulkCreate,
+  },
   Accommodation: { findOne: accommodationFindOne, create: accommodationCreate },
   AssignmentGrade: {},
   AssignmentQuestion: { findByPk: assignmentQuestionFindByPk },
@@ -120,6 +126,7 @@ describe('instructor routes', () => {
     extensionFindOne.mockReset();
     extensionFindAll.mockReset();
     extensionCreate.mockReset();
+    extensionBulkCreate.mockReset().mockResolvedValue([]);
     assignmentQuestionFindByPk.mockReset();
     overrideFindOne.mockReset();
     overrideCreate.mockReset();
@@ -440,6 +447,135 @@ describe('instructor routes', () => {
 
       expect(res.statusCode).toBe(201);
       expect(overrideCreate).toHaveBeenCalledTimes(1);
+    });
+  });
+  describe('POST /assignments/:id/extensions/classwide', () => {
+    const request = (body, method = 'post') => ({
+      params: { id: '9' },
+      body,
+      user: { id: 2 },
+      method,
+    });
+
+    it('applies the classwide date and keeps later individual extensions', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3 });
+      findOne.mockResolvedValueOnce({ role: 'instructor' });
+      findAll.mockResolvedValueOnce([{ user_id: 55 }, { user_id: 56 }, { user_id: 57 }]);
+      extensionFindAll.mockResolvedValueOnce([
+        // later than the classwide date, so it must be preserved
+        { user_id: 55, extended_due_date: new Date('2026-06-01T00:00:00Z') },
+        // earlier than the classwide date, so it is overwritten
+        { user_id: 56, extended_due_date: new Date('2026-04-01T00:00:00Z') },
+      ]);
+
+      const handlers = getRouteHandlers('/assignments/:id/extensions/classwide', 'post');
+      const res = await runHandlers(
+        handlers,
+        request({ extended_due_date: '2026-05-01T00:00:00Z', reason: '  snow day  ' }),
+        createRes()
+      );
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toEqual({ updated: 2, preserved: 1, total: 3 });
+      expect(extensionBulkCreate).toHaveBeenCalledTimes(1);
+      const [rows, options] = extensionBulkCreate.mock.calls[0];
+      expect(rows.map((row) => row.user_id)).toEqual([56, 57]);
+      expect(rows.every((row) => row.reason === 'snow day' && row.granted_by === 2)).toBe(true);
+      expect(options).toEqual({ updateOnDuplicate: ['extended_due_date', 'reason', 'granted_by'] });
+      // only students whose deadline moved get a grade recompute
+      expect(recomputeAssignmentGrade.mock.calls.map(([args]) => args.userId)).toEqual([56, 57]);
+    });
+
+    it('returns zero counts and skips writes when the course has no students', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3 });
+      findOne.mockResolvedValueOnce({ role: 'instructor' });
+      findAll.mockResolvedValueOnce([]);
+
+      const handlers = getRouteHandlers('/assignments/:id/extensions/classwide', 'post');
+      const res = await runHandlers(
+        handlers,
+        request({ extended_due_date: '2026-05-01T00:00:00Z' }),
+        createRes()
+      );
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toEqual({ updated: 0, preserved: 0, total: 0 });
+      expect(extensionBulkCreate).not.toHaveBeenCalled();
+      expect(recomputeAssignmentGrade).not.toHaveBeenCalled();
+    });
+
+    it.each(['', 'not-a-date', '2026-13-45'])('rejects invalid extended_due_date %p', async (value) => {
+      const handlers = getRouteHandlers('/assignments/:id/extensions/classwide', 'post');
+      const res = await runHandlers(handlers, request({ extended_due_date: value }), createRes());
+
+      expect(res.statusCode).toBe(400);
+      expect(assignmentFindByPk).not.toHaveBeenCalled();
+      expect(extensionBulkCreate).not.toHaveBeenCalled();
+    });
+
+    it('rejects a reason longer than 500 characters', async () => {
+      const handlers = getRouteHandlers('/assignments/:id/extensions/classwide', 'post');
+      const res = await runHandlers(
+        handlers,
+        request({ extended_due_date: '2026-05-01T00:00:00Z', reason: 'x'.repeat(501) }),
+        createRes()
+      );
+
+      expect(res.statusCode).toBe(400);
+      expect(extensionBulkCreate).not.toHaveBeenCalled();
+    });
+
+    it('requires course instructor access', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3 });
+      findOne.mockResolvedValueOnce({ role: 'ta' });
+
+      const handlers = getRouteHandlers('/assignments/:id/extensions/classwide', 'post');
+      const res = await runHandlers(
+        handlers,
+        request({ extended_due_date: '2026-05-01T00:00:00Z' }),
+        createRes()
+      );
+
+      expect(res.statusCode).toBe(403);
+      expect(extensionBulkCreate).not.toHaveBeenCalled();
+    });
+
+    it('is exposed as PUT with the same handler', () => {
+      const postHandlers = getRouteHandlers('/assignments/:id/extensions/classwide', 'post');
+      const putHandlers = getRouteHandlers('/assignments/:id/extensions/classwide', 'put');
+      expect(putHandlers).toEqual(postHandlers);
+    });
+  });
+
+  describe('GET /assignments/:id/extensions', () => {
+    it('serializes the student and granting instructor and sorts by username', async () => {
+      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3 });
+      findByPk.mockResolvedValueOnce({ is_system_admin: false });
+      findOne.mockResolvedValueOnce({ role: 'instructor' });
+      extensionFindAll.mockResolvedValueOnce([
+        {
+          id: 1, assignment_id: 9, user_id: 56, extended_due_date: '2026-05-01T00:00:00Z',
+          reason: null, created_at: '2026-04-01T00:00:00Z',
+          User: { id: 56, username: 'zoe', password_hash: 'x' }, grantedBy: { id: 2, username: 'prof' },
+        },
+        {
+          id: 2, assignment_id: 9, user_id: 55, extended_due_date: '2026-05-02T00:00:00Z',
+          reason: 'illness', created_at: '2026-04-02T00:00:00Z',
+          User: { id: 55, username: 'Adam' }, grantedBy: null,
+        },
+      ]);
+
+      const handlers = getRouteHandlers('/assignments/:id/extensions', 'get');
+      const res = await runHandlers(handlers, { params: { id: '9' }, user: { id: 2 } }, createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.map((row) => row.User.username)).toEqual(['Adam', 'zoe']);
+      expect(res.body[1]).toEqual({
+        id: 1, assignment_id: 9, user_id: 56, extended_due_date: '2026-05-01T00:00:00Z',
+        reason: null, created_at: '2026-04-01T00:00:00Z',
+        User: { id: 56, username: 'zoe' }, grantedBy: { id: 2, username: 'prof' },
+      });
+      expect(res.body[0].grantedBy).toBeNull();
     });
   });
 });
