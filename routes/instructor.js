@@ -461,6 +461,7 @@ router.post('/assignments/:id/extensions', individualExtensionValidators, async 
       extended_due_date: extendedDueDate,
       reason: normalizeExtensionReason(req.body.reason),
       granted_by: userId,
+      created_at: new Date(),
     };
 
     const existing = await AssignmentExtension.findOne({
