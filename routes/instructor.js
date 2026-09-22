@@ -493,6 +493,9 @@ function normalizeOverrideReason(value) {
   return typeof value === 'string' ? value.trim().slice(0, 500) || null : null;
 }
 
+// blocks bogus values
+const MAX_EXTRA_ATTEMPTS = 100;
+
 router.get('/assignment-questions/:id/overrides', [
   param('id').isInt({ gt: 0 }).toInt().withMessage('assignment_question_id is required'),
   handleValidationResult,
@@ -522,7 +525,7 @@ router.get('/assignment-questions/:id/overrides', [
 router.post('/assignment-questions/:id/overrides', [
   param('id').isInt({ gt: 0 }).toInt().withMessage('assignment_question_id is required'),
   body('user_id').isInt({ gt: 0 }).toInt().withMessage('user_id is required'),
-  body('extra_attempts').isInt({ min: 0 }).toInt().withMessage('extra_attempts is required'),
+  body('extra_attempts').isInt({ min: 0, max: MAX_EXTRA_ATTEMPTS }).toInt().withMessage('extra_attempts is required'),
   body('reason').optional({ nullable: true, checkFalsy: true }).isString().isLength({ max: 500 }),
   handleValidationResult,
 ], async (req, res, next) => {
@@ -539,11 +542,17 @@ router.post('/assignment-questions/:id/overrides', [
 
     const targetUserId = Number(req.body.user_id);
     const extraAttempts = Number(req.body.extra_attempts);
-    await requireEnrollmentForCourse(
-      targetUserId,
-      question.Assignment?.course_id,
-      'target user not enrolled in this course'
-    );
+
+    // overrides are student-only
+    const targetEnrollment = await CourseEnrollment.findOne({
+      where: { user_id: targetUserId, course_id: question.Assignment?.course_id },
+    });
+    if (!targetEnrollment) {
+      return res.status(403).json({ message: 'target user not enrolled in this course' });
+    }
+    if (targetEnrollment.role !== 'student') {
+      return res.status(403).json({ message: 'extra attempts can only be granted to students' });
+    }
 
     const payload = {
       assignment_question_id: assignmentQuestionId,
@@ -553,12 +562,11 @@ router.post('/assignment-questions/:id/overrides', [
       granted_by: userId,
     };
 
-    const existing = await AssignmentQuestionOverride.findOne({
-      where: { assignment_question_id: assignmentQuestionId, user_id: targetUserId },
+    // upsert avoids the find-then-create race
+    const [record, created] = await AssignmentQuestionOverride.upsert(payload, {
+      conflictFields: ['assignment_question_id', 'user_id'],
     });
-
-    const record = existing ? await existing.update(payload) : await AssignmentQuestionOverride.create(payload);
-    res.status(existing ? 200 : 201).json(record);
+    res.status(created ? 201 : 200).json(record);
   } catch (error) {
     next(error);
   }
@@ -654,13 +662,12 @@ const SUBMISSION_SUMMARY_ATTRIBUTES = [
   'is_correct',
   'auto_submitted',
   'submitted_at',
-  'validated_at',
 ];
 const submissionListValidators = [
   assignmentIdParam,
   userIdOptionalQuery,
-  // summary=true drops submission_data so a whole-class listing stays small.
-  // the default keeps every column because the per-student answer viewer needs it
+  /* summary=true drops submission_data so a whole-class listing stays small,
+     default keeps every column since the per-student answer viewer needs it */
   query('summary').optional().isBoolean().toBoolean(),
   handleValidationResult,
 ];
