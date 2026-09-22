@@ -433,6 +433,33 @@ describe('instructor routes', () => {
       expect(res.statusCode).toBe(201);
       expect(extensionCreate).toHaveBeenCalledTimes(1);
     });
+
+    it.each(['', 'not-a-date', '2026-13-45'])('rejects invalid extended_due_date %p', async (value) => {
+      const handlers = getRouteHandlers('/assignments/:id/extensions', 'post');
+      const req = {
+        params: { id: '9' },
+        body: { user_id: 55, extended_due_date: value },
+        user: { id: 2 },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(400);
+      expect(assignmentFindByPk).not.toHaveBeenCalled();
+      expect(extensionCreate).not.toHaveBeenCalled();
+    });
+
+    it('rejects a reason longer than 500 characters', async () => {
+      const handlers = getRouteHandlers('/assignments/:id/extensions', 'post');
+      const req = {
+        params: { id: '9' },
+        body: { user_id: 55, extended_due_date: '2026-05-01T00:00:00Z', reason: 'x'.repeat(501) },
+        user: { id: 2 },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(400);
+      expect(extensionCreate).not.toHaveBeenCalled();
+    });
   });
 
   describe('POST /assignment-questions/:id/overrides', () => {
@@ -586,7 +613,11 @@ describe('instructor routes', () => {
       const [rows, options] = extensionBulkCreate.mock.calls[0];
       expect(rows.map((row) => row.user_id)).toEqual([56, 57]);
       expect(rows.every((row) => row.reason === 'snow day' && row.granted_by === 2)).toBe(true);
-      expect(options).toEqual({ updateOnDuplicate: ['extended_due_date', 'reason', 'granted_by'] });
+      // created_at should update too
+      expect(rows.every((row) => row.created_at instanceof Date)).toBe(true);
+      expect(options).toEqual({
+        updateOnDuplicate: ['extended_due_date', 'reason', 'granted_by', 'created_at'],
+      });
       // only students whose deadline moved get a grade recompute
       expect(recomputeAssignmentGrade.mock.calls.map(([args]) => args.userId)).toEqual([56, 57]);
     });
