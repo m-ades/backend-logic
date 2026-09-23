@@ -390,4 +390,88 @@ describe('derivation-calgary checker', () => {
     expect(result.isCorrect).toBe(true);
     expect(result.score).toBe(100);
   });
+
+  it('allows reusing a fresh witness constant across independent vE branches once they are properly nested as siblings', async () => {
+    // constant "a" is reused in both branches - legal since neither branch nests inside the other
+    const question = { prems: ['∃yFy ∨ ∃xGx'], conc: '∃x(Fx ∨ Gx)' };
+    const proof = buildNestedProof({
+      conclusion: '∃x(Fx ∨ Gx)',
+      premises: ['∃yFy ∨ ∃xGx'],
+      parts: [
+        { n: '1', s: '∃yFy ∨ ∃xGx', j: 'Pr' },
+        {
+          parts: [
+            { n: '2', s: '∃yFy', j: 'AS' },
+            {
+              parts: [
+                { n: '3', s: 'Fa', j: 'AS' },
+                { n: '4', s: 'Fa ∨ Ga', j: '∨I 3' },
+                { n: '5', s: '∃x(Fx ∨ Gx)', j: '∃I 4' },
+              ],
+            },
+            { n: '6', s: '∃x(Fx ∨ Gx)', j: '∃E 2,3-5' },
+          ],
+        },
+        {
+          parts: [
+            { n: '7', s: '∃xGx', j: 'AS' },
+            {
+              parts: [
+                { n: '8', s: 'Ga', j: 'AS' },
+                { n: '9', s: 'Fa ∨ Ga', j: '∨I 8' },
+                { n: '10', s: '∃x(Fx ∨ Gx)', j: '∃I 9' },
+              ],
+            },
+            { n: '11', s: '∃x(Fx ∨ Gx)', j: '∃E 7,8-10' },
+          ],
+        },
+        { n: '12', s: '∃x(Fx ∨ Gx)', j: '∨E 1,2-6,7-11' },
+      ],
+    });
+
+    const result = await checkDerivation(question, proof, proof, false, false, { notation: 'calgary' });
+
+    expect(result.errors).toEqual({});
+    expect(result.successstatus).toBe('correct');
+  });
+
+  it('accepts a properly discharged assumption that opens on line 1 with no premises', async () => {
+    const proof = buildNestedProof({
+      conclusion: 'P → P',
+      parts: [
+        { parts: [
+          { n: '1', s: 'P', j: 'AS' },
+          { n: '2', s: 'P', j: 'R 1' },
+        ] },
+        { n: '3', s: 'P → P', j: '→I 1-2' },
+      ],
+    });
+
+    const result = await checkDerivation({ prems: [], conc: 'P → P' }, null, proof, false, false, { notation: 'calgary' });
+
+    expect(result.errors).toEqual({});
+    expect(result.successstatus).toBe('correct');
+  });
+
+  it('rejects a forged nested isMainConclusion marker used to hide an undischarged assumption', async () => {
+    // isMainConclusion is client-submitted and forgeable - must not gate assumption scope
+    const proof = buildNestedProof({
+      conclusion: 'P',
+      parts: [
+        { parts: [
+          { n: '1', s: 'P', j: 'AS' },
+          {
+            showline: { s: 'P', j: '', isMainConclusion: true, n: '' },
+            parts: [
+              { n: '2', s: 'P', j: 'R 1' },
+            ],
+          },
+        ] },
+      ],
+    });
+
+    const result = await checkDerivation({ prems: [], conc: 'P' }, null, proof, false, false, { notation: 'calgary' });
+
+    expect(result.successstatus).toBe('incorrect');
+  });
 });

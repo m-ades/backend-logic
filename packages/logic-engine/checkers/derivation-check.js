@@ -613,8 +613,9 @@ export default class DerivationCheck {
             let subderiv = line?.mysubderiv;
             while (subderiv && subderiv !== this.deriv) {
                 const assumptionLine = subderiv.lines?.[0];
+                // lines[0] can alias the same line across ancestors (analyze() merges upward) - only count it if owned directly
                 const ruleName = this.resolveRuleName(assumptionLine);
-                if (assumptionLine && this.rules?.[ruleName]?.assumptionrule) {
+                if (assumptionLine && assumptionLine.mysubderiv === subderiv && this.rules?.[ruleName]?.assumptionrule) {
                     assumptions.unshift(assumptionLine);
                 }
                 subderiv = subderiv.parentderiv;
