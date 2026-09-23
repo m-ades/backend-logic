@@ -390,4 +390,48 @@ describe('derivation-calgary checker', () => {
     expect(result.isCorrect).toBe(true);
     expect(result.score).toBe(100);
   });
+
+  it('allows reusing a fresh witness constant across independent vE branches once they are properly nested as siblings', async () => {
+    // constant "a" is reused in both branches - legal since neither branch nests inside the other
+    const question = { prems: ['∃yFy ∨ ∃xGx'], conc: '∃x(Fx ∨ Gx)' };
+    const proof = buildNestedProof({
+      conclusion: '∃x(Fx ∨ Gx)',
+      premises: ['∃yFy ∨ ∃xGx'],
+      parts: [
+        { n: '1', s: '∃yFy ∨ ∃xGx', j: 'Pr' },
+        {
+          parts: [
+            { n: '2', s: '∃yFy', j: 'AS' },
+            {
+              parts: [
+                { n: '3', s: 'Fa', j: 'AS' },
+                { n: '4', s: 'Fa ∨ Ga', j: '∨I 3' },
+                { n: '5', s: '∃x(Fx ∨ Gx)', j: '∃I 4' },
+              ],
+            },
+            { n: '6', s: '∃x(Fx ∨ Gx)', j: '∃E 2,3-5' },
+          ],
+        },
+        {
+          parts: [
+            { n: '7', s: '∃xGx', j: 'AS' },
+            {
+              parts: [
+                { n: '8', s: 'Ga', j: 'AS' },
+                { n: '9', s: 'Fa ∨ Ga', j: '∨I 8' },
+                { n: '10', s: '∃x(Fx ∨ Gx)', j: '∃I 9' },
+              ],
+            },
+            { n: '11', s: '∃x(Fx ∨ Gx)', j: '∃E 7,8-10' },
+          ],
+        },
+        { n: '12', s: '∃x(Fx ∨ Gx)', j: '∨E 1,2-6,7-11' },
+      ],
+    });
+
+    const result = await checkDerivation(question, proof, proof, false, false, { notation: 'calgary' });
+
+    expect(result.errors).toEqual({});
+    expect(result.successstatus).toBe('correct');
+  });
 });

@@ -611,7 +611,8 @@ export default class DerivationCheck {
         for (const line of this.deriv.lines) {
             const assumptions = [];
             let subderiv = line?.mysubderiv;
-            while (subderiv && subderiv !== this.deriv) {
+            // the main-conclusion wrapper isn't a real assumption box, stop the climb there too (mirrors the isMainScope check above)
+            while (subderiv && subderiv !== this.deriv && !subderiv.showline?.isMainConclusion) {
                 const assumptionLine = subderiv.lines?.[0];
                 const ruleName = this.resolveRuleName(assumptionLine);
                 if (assumptionLine && this.rules?.[ruleName]?.assumptionrule) {
