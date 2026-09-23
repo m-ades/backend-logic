@@ -10,6 +10,7 @@ import getRules from './rules/forallx-rules.js';
 import DerivationCheck from './derivation-check.js';
 import { justParse } from '../justification-parse.js';
 import getFormulaClass from '../symbolic/formula.js';
+import { normalizeRuleSymbolName } from '../symbolic/libsyntax.js';
 import {
     addRequiredRuleErrors,
     applyRuleFilters,
@@ -25,7 +26,7 @@ if ((typeof process != "undefined") && (process?.appsettings?.defaultnotation)) 
 function normalizeRuleName(rule, notationname = defaultnotation) {
     if (!rule) return '';
     const syntax = getFormulaClass(notationname).syntax;
-    const normalized = DerivationCheck.normalizeRuleSymbolName(rule, syntax);
+    const normalized = normalizeRuleSymbolName(rule, syntax);
     return DerivationCheck.ruleAliases?.[normalized] ||
         DerivationCheck.ruleAliases?.[rule] ||
         normalized;

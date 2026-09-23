@@ -125,6 +125,24 @@ function symbolfix(s) {
     return rv;
 }
 
+// shared between the derivation checker and the frontend's live rule-name
+// display, so a rule like "->e" normalizes to "→E" in both places
+export function normalizeRuleSymbolName(rule, syntax) {
+    const raw = String(rule ?? '').trim();
+    const match = raw.match(/^(.+)([iIeE])$/);
+    if (!match) { return raw; }
+    let connective = match[1];
+    if (/^v$/i.test(connective)) {
+        connective = syntax?.symbols?.OR ?? '∨';
+    } else if (connective === '-' || connective === '–') {
+        connective = syntax?.symbols?.NOT ?? '¬';
+    } else if (syntax?.symbolfix) {
+        connective = syntax.symbolfix(connective);
+    }
+    if (/^[A-Za-z]+$/.test(connective)) { return raw; }
+    return connective + match[2].toUpperCase();
+}
+
 // changes to input string you'd be all right applying even to
 // input fields, here we remove redundant spaces
 function inputfix(s) {
