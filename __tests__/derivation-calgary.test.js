@@ -434,4 +434,44 @@ describe('derivation-calgary checker', () => {
     expect(result.errors).toEqual({});
     expect(result.successstatus).toBe('correct');
   });
+
+  it('accepts a properly discharged assumption that opens on line 1 with no premises', async () => {
+    const proof = buildNestedProof({
+      conclusion: 'P → P',
+      parts: [
+        { parts: [
+          { n: '1', s: 'P', j: 'AS' },
+          { n: '2', s: 'P', j: 'R 1' },
+        ] },
+        { n: '3', s: 'P → P', j: '→I 1-2' },
+      ],
+    });
+
+    const result = await checkDerivation({ prems: [], conc: 'P → P' }, null, proof, false, false, { notation: 'calgary' });
+
+    expect(result.errors).toEqual({});
+    expect(result.successstatus).toBe('correct');
+  });
+
+  it('rejects a forged nested isMainConclusion marker used to hide an undischarged assumption', async () => {
+    // isMainConclusion is client-submitted and forgeable - must not gate assumption scope
+    const proof = buildNestedProof({
+      conclusion: 'P',
+      parts: [
+        { parts: [
+          { n: '1', s: 'P', j: 'AS' },
+          {
+            showline: { s: 'P', j: '', isMainConclusion: true, n: '' },
+            parts: [
+              { n: '2', s: 'P', j: 'R 1' },
+            ],
+          },
+        ] },
+      ],
+    });
+
+    const result = await checkDerivation({ prems: [], conc: 'P' }, null, proof, false, false, { notation: 'calgary' });
+
+    expect(result.successstatus).toBe('incorrect');
+  });
 });

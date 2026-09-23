@@ -611,11 +611,11 @@ export default class DerivationCheck {
         for (const line of this.deriv.lines) {
             const assumptions = [];
             let subderiv = line?.mysubderiv;
-            // the main-conclusion wrapper isn't a real assumption box, stop the climb there too (mirrors the isMainScope check above)
-            while (subderiv && subderiv !== this.deriv && !subderiv.showline?.isMainConclusion) {
+            while (subderiv && subderiv !== this.deriv) {
                 const assumptionLine = subderiv.lines?.[0];
+                // lines[0] can alias the same line across ancestors (analyze() merges upward) - only count it if owned directly
                 const ruleName = this.resolveRuleName(assumptionLine);
-                if (assumptionLine && this.rules?.[ruleName]?.assumptionrule) {
+                if (assumptionLine && assumptionLine.mysubderiv === subderiv && this.rules?.[ruleName]?.assumptionrule) {
                     assumptions.unshift(assumptionLine);
                 }
                 subderiv = subderiv.parentderiv;
