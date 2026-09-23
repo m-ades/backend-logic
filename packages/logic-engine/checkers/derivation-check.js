@@ -7,6 +7,7 @@
 ////////////////////////////////////////////////////////////////////////
 
 import getFormulaClass from '../symbolic/formula.js';
+import { normalizeRuleSymbolName } from '../symbolic/libsyntax.js';
 import { justParse } from '../justification-parse.js';
 import { arrayUnion, perms } from '../misc.js';
 
@@ -54,22 +55,6 @@ export default class DerivationCheck {
         'aip': 'AIP', 'Aip': 'AIP', 'AiP': 'AIP', 'aIp': 'AIP', 'aiP': 'AIP',
     };
 
-    static normalizeRuleSymbolName(rule, syntax) {
-        const raw = String(rule ?? '').trim();
-        const match = raw.match(/^(.+)([iIeE])$/);
-        if (!match) { return raw; }
-        let connective = match[1];
-        if (/^v$/i.test(connective)) {
-            connective = syntax?.symbols?.OR ?? '∨';
-        } else if (connective === '-' || connective === '–') {
-            connective = syntax?.symbols?.NOT ?? '¬';
-        } else if (syntax?.symbolfix) {
-            connective = syntax.symbolfix(connective);
-        }
-        if (/^[A-Za-z]+$/.test(connective)) { return raw; }
-        return connective + match[2].toUpperCase();
-    }
-
     constructor(rules, deriv, prems, conc, options = {}) {
         const Formula = getFormulaClass(options.notation);
         this.Formula = Formula;
@@ -107,7 +92,7 @@ export default class DerivationCheck {
     normalizeRuleName(rule) {
         const raw = String(rule ?? '').trim();
         if (!raw) { return ''; }
-        const normalized = DerivationCheck.normalizeRuleSymbolName(raw, this.syntax);
+        const normalized = normalizeRuleSymbolName(raw, this.syntax);
         if (normalized in DerivationCheck.ruleAliases) {
             return DerivationCheck.ruleAliases[normalized];
         }
