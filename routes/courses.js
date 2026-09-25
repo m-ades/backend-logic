@@ -69,6 +69,8 @@ async function requireTextbookCourse(req, res, next) {
 // instructors may update courses they control
 // only system administrators may permanently delete courses
 const router = createCrudRouter(Course, {
+  // course list is open to any logged in user
+  authorizeList: () => true,
   authorizeCreate: (req) => requireInstructorInAnyCourseOrAdmin(req.user),
   authorizeRecord: (req, record, action) => {
     if (action === 'read') {
