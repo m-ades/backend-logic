@@ -11,44 +11,12 @@ import tr from '../translate.js';
 import { getDerivationCheckerForLogicSystem } from './derivation-by-logic-system.js';
 import getFormulaClass from '../symbolic/formula.js';
 import { equivtest } from '../symbolic/libequivalence.js';
+import { parseArgumentLine, resolveExpectedArgument } from '../argumentLine.js';
 
 let defaultnotation = 'cambridge';
 if ((typeof process !== 'undefined') && process?.appsettings?.defaultnotation) {
     defaultnotation = process.appsettings.defaultnotation;
 }
-
-const parseArgumentLine = (line) => {
-    if (!line || typeof line !== 'string') return { error: tr('Enter the argument as a single line.') };
-    const parts = line.split('//');
-    if (parts.length !== 2) {
-        return { error: tr('Use "//" to separate premises from the conclusion.') };
-    }
-    const premisesPart = parts[0].trim();
-    const conclusion = parts[1].trim();
-    if (!premisesPart) return { error: tr('Enter at least one premise before "//".') };
-    if (!conclusion) return { error: tr('Enter a conclusion after "//".') };
-    const premises = premisesPart
-        .split('/')
-        .map((premise) => premise.trim())
-        .filter(Boolean);
-    if (premises.length === 0) return { error: tr('Enter at least one premise before "//".') };
-    return { premises, conclusion };
-};
-
-const resolveExpected = (answer) => {
-    if (answer?.argument || answer?.argumentLine) {
-        return parseArgumentLine(answer.argument ?? answer.argumentLine);
-    }
-    if (Array.isArray(answer?.premises) && answer?.conclusion) {
-        return { premises: answer.premises, conclusion: answer.conclusion };
-    }
-    if (Array.isArray(answer?.translations) && Number.isInteger(answer?.index)) {
-        const conclusion = answer.translations[answer.index] ?? '';
-        const premises = answer.translations.filter((_, idx) => idx !== answer.index);
-        return { premises, conclusion };
-    }
-    return { error: tr('No expected argument found.') };
-};
 
 export default async function(
     question, answer, givenans, partialcredit, cheat, options
@@ -61,7 +29,7 @@ export default async function(
     let correct = true;
     const messages = [];
     let derivErrors = null;
-    const expectedArg = resolveExpected(answer);
+    const expectedArg = resolveExpectedArgument(answer);
     const expectedTransCount = ((expectedArg?.premises?.length ?? 0) + (expectedArg?.conclusion ? 1 : 0)) || 1;
     const transTtl = expectedTransCount;
     let derivationScore = 0;
