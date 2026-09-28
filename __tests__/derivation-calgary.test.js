@@ -229,6 +229,35 @@ describe('derivation-calgary checker', () => {
     expect(result.score).toBe(100);
   });
 
+  it('accepts "==" as an ascii alias for the biconditional rule connective', async () => {
+    const proof = buildNestedProof({
+      conclusion: 'P ↔ P',
+      parts: [
+        { parts: [
+          { n: '1', s: 'P', j: 'AS' },
+          { n: '2', s: 'P', j: 'R 1' },
+        ] },
+        { parts: [
+          { n: '3', s: 'P', j: 'AS' },
+          { n: '4', s: 'P', j: 'R 3' },
+        ] },
+        { n: '5', s: 'P ↔ P', j: '==I 1-2,3-4' },
+      ],
+    });
+
+    const result = await checkDerivation(
+      { prems: [], conc: 'P ↔ P' },
+      null,
+      proof,
+      false,
+      false,
+      {}
+    );
+
+    expect(result.successstatus).toBe('correct');
+    expect(result.score).toBe(100);
+  });
+
   it('rejects bare connective names when the rule requires an intro or elim suffix', async () => {
     const proof = buildNestedProof({
       premises: ['J → ¬J'],
