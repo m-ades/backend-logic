@@ -285,10 +285,13 @@ describe('question snapshot boundaries', () => {
       where: { id: [21], assignment_id: assignment.id },
       transaction: databaseTransaction,
     });
+    expect(lockAssignmentGrades).toHaveBeenCalledTimes(1);
     expect(lockAssignmentGrades).toHaveBeenCalledWith({
       assignmentId: assignment.id,
       transaction: databaseTransaction,
     });
+    expect(lockAssignmentGrades.mock.invocationCallOrder[0])
+      .toBeLessThan(assignmentQuestionDestroy.mock.invocationCallOrder[0]);
     // one batched recompute covers every student instead of one call each
     expect(recomputeAssignmentGrades).toHaveBeenCalledTimes(1);
     expect(recomputeAssignmentGrades).toHaveBeenCalledWith({

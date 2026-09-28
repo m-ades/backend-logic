@@ -76,12 +76,14 @@ returns the number deleted and rolls the deletion back if grading fails
 */
 async function deleteQuestionsAndRecomputeGrades(assignmentId, ids) {
   return sequelize.transaction(async (transaction) => {
+    // lock first or a student insert waiting on a deleted row deadlocks against this lock
+    await lockAssignmentGrades({ assignmentId, transaction });
     const deleted = await AssignmentQuestion.destroy({
       where: { id: ids, assignment_id: assignmentId },
       transaction,
     });
     if (deleted) {
-      await recomputeGradesAfterQuestionChange(assignmentId, transaction);
+      await recomputeAssignmentGrades({ assignmentIds: [assignmentId], transaction });
     }
     return deleted;
   });
