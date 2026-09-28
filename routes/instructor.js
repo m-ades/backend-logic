@@ -128,6 +128,19 @@ const sanitizeUser = (user) => {
   return data;
 };
 
+// account and enrollment commit together so a failed enrollment leaves no orphan username
+function createEnrolledStudent({ courseId, username, passwordHash }) {
+  return sequelize.transaction(async (transaction) => {
+    const user = await User.create({ username, password_hash: passwordHash }, { transaction });
+    await CourseEnrollment.create({
+      course_id: courseId,
+      user_id: user.id,
+      role: 'student',
+    }, { transaction });
+    return user;
+  });
+}
+
 router.post(
   '/courses/:id/students/bulk',
   [
@@ -160,12 +173,18 @@ router.post(
       students: [],
     };
 
-    for (const student of students) {
-      const username = String(student.username || '').trim();
+    const usernames = students.map((student) => String(student.username || '').trim());
+    const existingUsers = await User.findAll({
+      where: { username: usernames },
+      attributes: ['username'],
+    });
+    const takenUsernames = new Set(existingUsers.map((user) => user.username));
+
+    for (const [index, student] of students.entries()) {
+      const username = usernames[index];
       const password = student.password;
 
-      const existing = await User.findOne({ where: { username } });
-      if (existing) {
+      if (takenUsernames.has(username)) {
         results.skipped += 1;
         results.errors.push({ username, reason: 'Username already in use' });
         results.success = false;
@@ -173,14 +192,9 @@ router.post(
       }
 
       try {
-        const password_hash = await hashPassword(password);
-        const newUser = await User.create({ username, password_hash });
-
-        await CourseEnrollment.create({
-          course_id: courseId,
-          user_id: newUser.id,
-          role: 'student',
-        });
+        const passwordHash = await hashPassword(password);
+        const newUser = await createEnrolledStudent({ courseId, username, passwordHash });
+        takenUsernames.add(username);
 
         results.imported += 1;
         results.students.push(sanitizeUser(newUser));
@@ -230,17 +244,8 @@ router.post(
       return res.status(409).json({ message: 'Username already in use' });
     }
 
-    const password_hash = await hashPassword(password);
-    const newUser = await User.create({
-      username,
-      password_hash,
-    });
-
-    await CourseEnrollment.create({
-      course_id: courseId,
-      user_id: newUser.id,
-      role: 'student',
-    });
+    const passwordHash = await hashPassword(password);
+    const newUser = await createEnrolledStudent({ courseId, username, passwordHash });
 
     res.status(201).json({ user: sanitizeUser(newUser) });
   } catch (error) {

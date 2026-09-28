@@ -33,6 +33,17 @@ describe('errorHandler', () => {
     expect(res.body).toEqual({ message: 'forbidden' });
   });
 
+  it('maps a lost unique key race to a conflict', () => {
+    const res = createResponse();
+    const error = new Error('Validation error');
+    error.name = 'SequelizeUniqueConstraintError';
+
+    errorHandler(error, {}, res, () => {});
+
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toEqual({ message: 'conflict' });
+  });
+
   it('falls back to 500 for unknown errors', () => {
     const res = createResponse();
 
