@@ -52,8 +52,14 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Server is running' });
+// reports unhealthy when the database is unreachable so a deploy check can't pass without it
+app.get('/health', async (req, res) => {
+  try {
+    await sequelize.query('SELECT 1');
+    res.json({ status: 'ok', message: 'Server is running' });
+  } catch {
+    res.status(503).json({ status: 'error', message: 'database unavailable' });
+  }
 });
 
 // check origin before auth on unsafe api requests
@@ -86,9 +92,15 @@ app.use('/api/instructor', instructorRouter);
 
 app.use(errorHandler);
 
-app.listen(PORT);
+const server = app.listen(PORT);
+const SHUTDOWN_TIMEOUT_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS) || 10000;
 
-process.on('SIGTERM', async () => {
-  await sequelize.close();
-  process.exit(0);
+// stop taking requests and let in flight ones finish before the pool closes
+process.on('SIGTERM', () => {
+  setTimeout(() => process.exit(1), SHUTDOWN_TIMEOUT_MS).unref();
+  server.close(async () => {
+    await sequelize.close();
+    process.exit(0);
+  });
+  server.closeIdleConnections?.();
 });
