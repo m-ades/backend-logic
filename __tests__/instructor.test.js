@@ -13,6 +13,7 @@ jest.unstable_mockModule('../models/index.js', () => ({
   Submission: {},
   CourseEnrollment: { findOne },
   User: { findByPk },
+  sequelize: {},
 }));
 
 const { requireInstructor, requireInstructorOrAdmin } = await import('../routes/instructor.js');

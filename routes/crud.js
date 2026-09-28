@@ -10,6 +10,9 @@ export function createCrudRouter(model, options = {}) {
     sanitize,
     beforeCreate,
     beforeUpdate,
+    // after hooks share the write's transaction so both commit or neither does
+    afterCreate,
+    afterUpdate,
     disableGetById = false,
     authorizeList,
     listFilter,
@@ -59,7 +62,13 @@ export function createCrudRouter(model, options = {}) {
           return res.status(403).json({ message: 'Forbidden' });
         }
         const payload = beforeCreate ? await beforeCreate(req, req.body) : req.body;
-        const record = await model.create(payload);
+        const record = afterCreate
+          ? await model.sequelize.transaction(async (transaction) => {
+            const created = await model.create(payload, { transaction });
+            await afterCreate(req, created, { transaction });
+            return created;
+          })
+          : await model.create(payload);
         res.status(201).json(sanitize ? sanitize(record) : record);
       } catch (error) {
         next(error);
@@ -77,7 +86,17 @@ export function createCrudRouter(model, options = {}) {
         return res.status(403).json({ message: 'Forbidden' });
       }
       const payload = beforeUpdate ? await beforeUpdate(req, req.body, record) : req.body;
-      await record.update(payload);
+      if (afterUpdate) {
+        await model.sequelize.transaction(async (transaction) => {
+          record.set(payload);
+          // sequelize compares old and new values so unchanged fields are left out
+          const changed = record.changed() || [];
+          await record.save({ transaction });
+          await afterUpdate(req, record, { changed, transaction });
+        });
+      } else {
+        await record.update(payload);
+      }
       res.json(sanitize ? sanitize(record) : record);
     } catch (error) {
       next(error);

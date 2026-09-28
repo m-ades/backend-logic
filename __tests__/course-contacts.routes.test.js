@@ -22,6 +22,7 @@ jest.unstable_mockModule('../models/index.js', () => ({
   CourseEnrollment: { findOne: enrollmentFindOne },
   Submission: {},
   User: { findByPk: userFindByPk },
+  sequelize: {},
 }));
 
 const router = (await import('../routes/course-contacts.js')).default;

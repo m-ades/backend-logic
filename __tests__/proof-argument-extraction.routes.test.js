@@ -6,7 +6,6 @@ const assignmentQuestionBulkCreate = jest.fn();
 const assignmentQuestionCreate = jest.fn();
 const assignmentQuestionDestroy = jest.fn();
 const assignmentQuestionFindByPk = jest.fn();
-const assignmentGradeFindAll = jest.fn();
 const accommodationFindOne = jest.fn();
 const courseEnrollmentFindOne = jest.fn();
 const extensionFindOne = jest.fn();
@@ -14,7 +13,9 @@ const overrideFindOne = jest.fn();
 const submissionCount = jest.fn();
 const submissionCreate = jest.fn();
 const requireInstructorOrAdmin = jest.fn();
-const recomputeAssignmentGrade = jest.fn();
+const recomputeAssignmentGrades = jest.fn();
+const lockAssignmentGrades = jest.fn();
+const lockStudentGrades = jest.fn();
 const databaseTransaction = {};
 const transaction = jest.fn(async (callback) => callback(databaseTransaction));
 
@@ -22,12 +23,12 @@ jest.unstable_mockModule('../models/index.js', () => ({
   Accommodation: { findOne: accommodationFindOne },
   Assignment: { findByPk: assignmentFindByPk },
   AssignmentExtension: { findOne: extensionFindOne },
-  AssignmentGrade: { findAll: assignmentGradeFindAll },
   AssignmentQuestion: {
     bulkCreate: assignmentQuestionBulkCreate,
     create: assignmentQuestionCreate,
     destroy: assignmentQuestionDestroy,
     findByPk: assignmentQuestionFindByPk,
+    sequelize: { transaction },
   },
   AssignmentQuestionOverride: { findOne: overrideFindOne },
   Course: {},
@@ -42,8 +43,10 @@ jest.unstable_mockModule('../routes/instructor.js', () => ({
 }));
 
 jest.unstable_mockModule('../utils/grades.js', () => ({
-  ensureZeroGradesForPastDue: jest.fn(),
-  recomputeAssignmentGrade,
+  ensureZeroGradesForPastDue: jest.fn().mockResolvedValue(undefined),
+  lockAssignmentGrades,
+  lockStudentGrades,
+  recomputeAssignmentGrades,
 }));
 
 const assignmentQuestionsRouter = (await import('../routes/assignment-questions.js')).default;
@@ -222,14 +225,52 @@ describe('question snapshot boundaries', () => {
     expect(res.statusCode).toBe(201);
     expect(assignmentQuestionCreate).toHaveBeenCalledWith(expect.objectContaining({
       attempt_limit: 3,
-    }));
+    }), { transaction: databaseTransaction });
+    // a new question raises max_score so the assignment's grades follow in the same transaction
+    expect(lockAssignmentGrades).toHaveBeenCalledWith({
+      assignmentId: assignment.id,
+      transaction: databaseTransaction,
+    });
+    expect(recomputeAssignmentGrades).toHaveBeenCalledWith({
+      assignmentIds: [assignment.id],
+      transaction: databaseTransaction,
+    });
+  });
+
+  it('recomputes grades in the same transaction as a bulk question add', async () => {
+    assignmentFindByPk.mockResolvedValue(assignment);
+    assignmentQuestionBulkCreate.mockResolvedValue([{ id: 30 }]);
+    const handlers = getRouteHandlers(assignmentQuestionsRouter, '/bulk', 'post');
+    const req = {
+      body: {
+        assignment_id: assignment.id,
+        questions: [{ question_snapshot: validQuestion, order_index: 0 }],
+      },
+      user: { id: 7 },
+    };
+
+    const res = await runHandlers(handlers, req, createRes());
+
+    expect(res.statusCode).toBe(201);
+    expect(assignmentQuestionBulkCreate.mock.calls[0][1]).toEqual({
+      returning: true,
+      transaction: databaseTransaction,
+    });
+    expect(recomputeAssignmentGrades).toHaveBeenCalledWith({
+      assignmentIds: [assignment.id],
+      transaction: databaseTransaction,
+    });
+  });
+
+  it('does not expose a single question delete that would skip grading', () => {
+    const crudRouter = getCrudRouter(assignmentQuestionsRouter);
+    expect(() => getRouteHandlers(crudRouter, '/:id', 'delete')).toThrow('route not found');
   });
 
   it('recomputes persisted grades after deleting a question', async () => {
     assignmentFindByPk.mockResolvedValue(assignment);
-    assignmentGradeFindAll.mockResolvedValue([{ user_id: 7 }, { user_id: 8 }]);
     assignmentQuestionDestroy.mockResolvedValue(1);
-    recomputeAssignmentGrade.mockResolvedValue({});
+    recomputeAssignmentGrades.mockResolvedValue([]);
     const handlers = getRouteHandlers(assignmentQuestionsRouter, '/', 'delete');
     const req = {
       body: { assignment_id: assignment.id, ids: [21] },
@@ -244,10 +285,14 @@ describe('question snapshot boundaries', () => {
       where: { id: [21], assignment_id: assignment.id },
       transaction: databaseTransaction,
     });
-    expect(recomputeAssignmentGrade).toHaveBeenCalledTimes(2);
-    expect(recomputeAssignmentGrade).toHaveBeenCalledWith({
+    expect(lockAssignmentGrades).toHaveBeenCalledWith({
       assignmentId: assignment.id,
-      userId: 7,
+      transaction: databaseTransaction,
+    });
+    // one batched recompute covers every student instead of one call each
+    expect(recomputeAssignmentGrades).toHaveBeenCalledTimes(1);
+    expect(recomputeAssignmentGrades).toHaveBeenCalledWith({
+      assignmentIds: [assignment.id],
       transaction: databaseTransaction,
     });
   });
@@ -376,5 +421,76 @@ describe('question snapshot boundaries', () => {
     expect(res.statusCode).toBe(403);
     expect(res.body).toEqual({ message: 'assignment is locked' });
     expect(accommodationFindOne).not.toHaveBeenCalled();
+  });
+  describe('graded submission writes', () => {
+    const submitRequest = () => ({
+      body: {
+        assignment_question_id: 21,
+        user_id: 7,
+        submission_data: {
+          argumentLine: 'P ∧ Q ∴ P',
+          justifications: ['∧E 1'],
+        },
+      },
+      user: { id: 7 },
+    });
+
+    beforeEach(() => {
+      assignmentQuestionFindByPk.mockResolvedValue({
+        id: 21,
+        attempt_limit: 3,
+        question_snapshot: validQuestion,
+        Assignment: { ...assignment, is_locked: false, kind: 'assignment' },
+      });
+      accommodationFindOne.mockResolvedValue(null);
+      extensionFindOne.mockResolvedValue(null);
+      overrideFindOne.mockResolvedValue(null);
+      courseEnrollmentFindOne.mockResolvedValue({ id: 5 });
+    });
+
+    it('recounts inserts and regrades inside one locked transaction', async () => {
+      submissionCount.mockResolvedValue(1);
+      submissionCreate.mockImplementation(async (payload) => ({ id: 40, ...payload }));
+      const handlers = getRouteHandlers(validateRouter, '/submission', 'post');
+
+      const res = await runHandlers(handlers, submitRequest(), createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.submission).toEqual(expect.objectContaining({ id: 40, attempt: 2 }));
+      expect(transaction).toHaveBeenCalledTimes(1);
+      expect(lockStudentGrades).toHaveBeenCalledWith({
+        assignmentIds: [assignment.id],
+        userId: 7,
+        transaction: databaseTransaction,
+      });
+      expect(submissionCount).toHaveBeenLastCalledWith({
+        where: { assignment_question_id: 21, user_id: 7 },
+        transaction: databaseTransaction,
+      });
+      expect(submissionCreate.mock.calls[0][1]).toEqual({ transaction: databaseTransaction });
+      expect(recomputeAssignmentGrades).toHaveBeenCalledWith({
+        assignmentIds: [assignment.id],
+        userIds: [7],
+        transaction: databaseTransaction,
+      });
+      // the lock is taken before the recount and the grade is written after the insert
+      expect(lockStudentGrades.mock.invocationCallOrder[0])
+        .toBeLessThan(submissionCount.mock.invocationCallOrder[1]);
+      expect(submissionCreate.mock.invocationCallOrder[0])
+        .toBeLessThan(recomputeAssignmentGrades.mock.invocationCallOrder[0]);
+    });
+
+    it('rejects a concurrent duplicate attempt with a conflict instead of a server error', async () => {
+      // the precheck saw no attempts but another request committed one before the lock
+      submissionCount.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+      const handlers = getRouteHandlers(validateRouter, '/submission', 'post');
+
+      const res = await runHandlers(handlers, submitRequest(), createRes());
+
+      expect(res.statusCode).toBe(409);
+      expect(res.body).toEqual({ message: 'this attempt was already submitted' });
+      expect(submissionCreate).not.toHaveBeenCalled();
+      expect(recomputeAssignmentGrades).not.toHaveBeenCalled();
+    });
   });
 });

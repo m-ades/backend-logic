@@ -9,11 +9,16 @@ import {
   Course,
   CourseEnrollment,
   Submission,
+  sequelize,
 } from '../models/index.js';
 import { validateLogicProblem, resolveSnapshotPartialCredit } from '../validators/logic-engine.js';
 import { LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '@logic-app/logic-engine/logicSystems.js';
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
-import { recomputeAssignmentGrade, ensureZeroGradesForPastDue } from '../utils/grades.js';
+import {
+  ensureZeroGradesForPastDue,
+  lockStudentGrades,
+  recomputeAssignmentGrades,
+} from '../utils/grades.js';
 import { handleValidationResult } from '../middleware/validation.js';
 import { ensureSelfOrAdmin } from '../utils/authorization.js';
 import { isAssignmentLocked } from '../utils/publicationPolicy.js';
@@ -136,19 +141,37 @@ router.post(
       options,
     });
 
-    // save the graded submission
-    const submission = await Submission.create({
-      assignment_question_id,
-      user_id,
-      attempt: attemptToUse,
-      submission_data,
-      score: validation.score,
-      is_correct: validation.isCorrect,
-      validated_at: new Date(),
-      validation_version: validation_version || 'logic-engine-v1',
-    });
+    // attempt recount submission and grade commit together under the student's grade lock
+    const submission = await sequelize.transaction(async (transaction) => {
+      await lockStudentGrades({ assignmentIds: [assignment.id], userId: user_id, transaction });
+      const committedAttempts = await Submission.count({
+        where: { assignment_question_id, user_id },
+        transaction,
+      });
+      if (committedAttempts !== existingAttempts) {
+        const error = new Error('this attempt was already submitted');
+        error.status = 409;
+        throw error;
+      }
 
-    await recomputeAssignmentGrade({ assignmentId: assignment.id, userId: user_id });
+      const created = await Submission.create({
+        assignment_question_id,
+        user_id,
+        attempt: attemptToUse,
+        submission_data,
+        score: validation.score,
+        is_correct: validation.isCorrect,
+        validated_at: new Date(),
+        validation_version: validation_version || 'logic-engine-v1',
+      }, { transaction });
+
+      await recomputeAssignmentGrades({
+        assignmentIds: [assignment.id],
+        userIds: [user_id],
+        transaction,
+      });
+      return created;
+    });
 
     // backfill zeros for past-due work. not on GET.
     ensureZeroGradesForPastDue({ userId: user_id }).catch((err) => {
