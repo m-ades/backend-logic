@@ -65,10 +65,12 @@ async function requireTextbookCourse(req, res, next) {
   }
 }
 
-// course reads require enrollment unless the user is a system administrator
-// unenrolled users receive an empty list and forbidden individual reads
-// instructors may update courses they control
-// only system administrators may permanently delete courses
+/*
+course reads require enrollment unless the user is a system administrator
+unenrolled users receive an empty list and forbidden individual reads
+instructors may update courses they control
+only system administrators may permanently delete courses
+*/
 const router = createCrudRouter(Course, {
   listFilter: (req) => (isSystemAdmin(req.user) ? {} : {
     include: [{
