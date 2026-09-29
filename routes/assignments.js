@@ -149,9 +149,13 @@ const router = createCrudRouter(Assignment, {
   },
   beforeUpdate: async (req, body) => normalizeAssignmentUpdate(body),
   // stored late penalties follow the new deadline instead of waiting for the next submission
-  afterUpdate: async (_req, record, { changed, transaction }) => {
-    if (!changed.some((field) => DEADLINE_FIELDS.includes(field))) return;
+  aroundUpdate: async (_req, record, { changed, transaction }, write) => {
+    if (!changed.some((field) => DEADLINE_FIELDS.includes(field))) {
+      await write();
+      return;
+    }
     await lockAssignmentGrades({ assignmentId: record.id, transaction });
+    await write();
     await recomputeAssignmentGrades({ assignmentIds: [record.id], transaction });
   },
   authorizeCreate: async (req) => {

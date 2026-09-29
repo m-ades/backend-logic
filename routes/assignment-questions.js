@@ -64,10 +64,12 @@ function normalizeAttemptLimit(value) {
   return Number.isInteger(limit) && limit >= 1 ? limit : 3;
 }
 
-// the question count sets max_score so every grade on the assignment follows it
-async function recomputeGradesAfterQuestionChange(assignmentId, transaction) {
+// the question count sets max_score so every grade on the assignment follows a question write
+async function writeQuestionGrades(assignmentId, transaction, write) {
   await lockAssignmentGrades({ assignmentId, transaction });
+  const result = await write();
   await recomputeAssignmentGrades({ assignmentIds: [assignmentId], transaction });
+  return result;
 }
 
 /*
@@ -139,11 +141,11 @@ router.post(
       await assertValidSnapshotForAssignment(item.question_snapshot, assignment);
     }
 
-    const created = await sequelize.transaction(async (transaction) => {
-      const rows = await AssignmentQuestion.bulkCreate(payload, { returning: true, transaction });
-      await recomputeGradesAfterQuestionChange(assignmentId, transaction);
-      return rows;
-    });
+    const created = await sequelize.transaction((transaction) => (
+      writeQuestionGrades(assignmentId, transaction, () => (
+        AssignmentQuestion.bulkCreate(payload, { returning: true, transaction })
+      ))
+    ));
     res.status(201).json(created);
   } catch (error) {
     next(error);
@@ -244,8 +246,8 @@ router.use(
         attempt_limit: normalizeAttemptLimit(body.attempt_limit),
       };
     },
-    afterCreate: (_req, record, { transaction }) => (
-      recomputeGradesAfterQuestionChange(record.assignment_id, transaction)
+    aroundCreate: (_req, payload, { transaction }, write) => (
+      writeQuestionGrades(payload.assignment_id, transaction, write)
     ),
     beforeUpdate: async (req, body, record) => {
       const payload = {}

@@ -32,6 +32,7 @@ const {
   lockAssignmentGrades,
   lockStudentGrades,
   recomputeAssignmentGrades,
+  writeStudentGrades,
 } = await import('../utils/grades.js');
 
 const transaction = { id: 'tx' };
@@ -285,6 +286,31 @@ describe('grade locks', () => {
       'SELECT pg_advisory_xact_lock(:assignmentId::bigint)',
       expect.objectContaining({ replacements: { assignmentId: 9 }, transaction })
     );
+  });
+
+  it('locks a student before a grade changing write and regrades after it', async () => {
+    const order = [];
+    sequelizeQuery.mockImplementation(async (query) => {
+      order.push(query.includes('advisory') ? 'lock' : 'grade');
+      return [];
+    });
+    assignmentFindAll.mockImplementation(async () => {
+      order.push('grade');
+      return [];
+    });
+    const write = jest.fn(async () => {
+      order.push('write');
+      return 'saved';
+    });
+
+    const result = await writeStudentGrades({ assignmentIds: [9], userId: 7, transaction }, write);
+
+    expect(result).toBe('saved');
+    expect(order).toEqual(['lock', 'lock', 'write', 'grade']);
+    expect(assignmentFindAll).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: [9] },
+      transaction,
+    }));
   });
 
   it('refuses to lock outside a transaction', async () => {

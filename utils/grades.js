@@ -54,6 +54,14 @@ export async function lockAssignmentGrades({ assignmentId, transaction }) {
   });
 }
 
+// locks before the write so it never holds a row that a lock holder is waiting on
+export async function writeStudentGrades({ assignmentIds, userId, transaction }, write) {
+  await lockStudentGrades({ assignmentIds, userId, transaction });
+  const result = await write();
+  await recomputeAssignmentGrades({ assignmentIds, userIds: [userId], transaction });
+  return result;
+}
+
 /*
 recomputes persisted grades for these assignments in a fixed number of queries
 null userIds means everyone holding a grade or a submission on them
