@@ -1,4 +1,4 @@
-import { getCompositeSubquestions } from '@logic-app/logic-engine/multiple-choice-utils.js';
+import { getCompositeSubquestions, getStandaloneAnswerKey } from '@logic-app/logic-engine/multiple-choice-utils.js';
 import { checkers as CHECKERS } from '@logic-app/logic-engine/checkers.js';
 import getFormulaClass from '@logic-app/logic-engine/symbolic/formula.js';
 import { libtf } from '@logic-app/logic-engine/symbolic/libsemantics.js';
@@ -377,14 +377,7 @@ function computeAnswer(question, options) {
     if (subquestions.length > 0) {
       return subquestions;
     }
-    return pickDefined(
-      question?.multipleChoice?.answerIndices,
-      question?.multipleChoice?.answerIndex,
-      question?.multipleChoice?.correctIndex,
-      question?.answerIndex,
-      question?.answerIndices,
-      question?.answer
-    );
+    return getStandaloneAnswerKey(question);
   }
 
   if (type === 'indirect-truth-table') {

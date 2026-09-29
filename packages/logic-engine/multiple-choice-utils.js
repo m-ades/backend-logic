@@ -14,6 +14,19 @@ export const hasNonEmptyAnswerIndices = (subq) => (
   Array.isArray(subq?.answerIndices) && subq.answerIndices.length > 0
 )
 
+/*
+resolves a standalone question's answer key checking nested fields before top level ones
+a nonempty answer list beats any single index so a stale answerIndex beside it is ignored
+*/
+export function getStandaloneAnswerKey(question) {
+  const nested = question?.multipleChoice
+  if (hasNonEmptyAnswerIndices(nested)) return nested.answerIndices
+  const nestedSingle = nested?.answerIndex ?? nested?.correctIndex
+  if (nestedSingle != null) return nestedSingle
+  if (hasNonEmptyAnswerIndices(question)) return question.answerIndices
+  return question?.answerIndex ?? question?.answer
+}
+
 export const isMultiSelectSubquestion = (subq) => (
   subq?.type === 'multi-select'
   || Boolean(subq?.multiSelect)

@@ -15,6 +15,7 @@ import {
 } from '../validators/common.js';
 import { assertValidQuestionSnapshot } from '../validators/question-snapshot.js';
 import { LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '@logic-app/logic-engine/logicSystems.js';
+import { hasNonEmptyAnswerIndices } from '@logic-app/logic-engine/multiple-choice-utils.js';
 import { lockAssignmentGrades, recomputeAssignmentGrades } from '../utils/grades.js';
 import { requireInstructorOrAdmin } from './instructor.js';
 
@@ -260,6 +261,10 @@ router.use(
         const t = merged?.type ?? merged?.logic_problem_type
         if (t === 'single-row-truth-table' && merged && typeof merged === 'object') {
           delete merged.singleRowTruthTable
+        }
+        // the merge can't drop keys and the answer list is the key once present
+        if (t === 'multiple-choice' && hasNonEmptyAnswerIndices(merged)) {
+          delete merged.answerIndex
         }
         await assertValidSnapshotForAssignment(merged, record.assignment_id)
         payload.question_snapshot = merged
