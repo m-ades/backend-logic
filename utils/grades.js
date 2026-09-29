@@ -267,7 +267,30 @@ export async function fetchEffectiveGrades(userId) {
 
 export async function ensureZeroGradesForPastDue({ userId }) {
   if (!userId) return;
-  await sequelize.query(
+  await sequelize.transaction(async (transaction) => {
+    // without the locks a question change can regrade around this insert and leave a stale max_score
+    const assignments = await sequelize.query(
+      `
+        SELECT a.id
+        FROM assignments a
+        JOIN course_enrollments ce ON ce.course_id = a.course_id AND ce.user_id = :userId
+        WHERE a.kind = 'assignment'
+          AND a.due_date IS NOT NULL
+      `,
+      { type: QueryTypes.SELECT, replacements: { userId }, transaction }
+    );
+    if (!assignments.length) return;
+    await lockStudentGrades({
+      assignmentIds: assignments.map((assignment) => assignment.id),
+      userId,
+      transaction,
+    });
+    await insertPastDueZeroGrades({ userId, transaction });
+  });
+}
+
+function insertPastDueZeroGrades({ userId, transaction }) {
+  return sequelize.query(
     `
       WITH enrolled_courses AS (
         SELECT course_id
@@ -326,6 +349,7 @@ export async function ensureZeroGradesForPastDue({ userId }) {
     {
       type: QueryTypes.INSERT,
       replacements: { userId },
+      transaction,
     }
   );
 }

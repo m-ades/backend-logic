@@ -21,8 +21,10 @@ jest.unstable_mockModule('../models/index.js', () => ({
   AssignmentQuestion: { findAll: assignmentQuestionFindAll },
 }));
 
+const sequelizeTransaction = jest.fn();
+
 jest.unstable_mockModule('../config/sequelize.js', () => ({
-  sequelize: { query: sequelizeQuery },
+  sequelize: { query: sequelizeQuery, transaction: sequelizeTransaction },
 }));
 
 const {
@@ -33,6 +35,7 @@ const {
 } = await import('../utils/grades.js');
 
 const transaction = { id: 'tx' };
+sequelizeTransaction.mockImplementation(async (callback) => callback(transaction));
 
 const submissionRow = (userId, questionId, score, submittedAt) => ({
   user_id: userId,
@@ -219,14 +222,37 @@ describe('assignment grade recomputation', () => {
   });
 
   it('does not create past due zero grades before publication', async () => {
+    sequelizeQuery.mockResolvedValueOnce([{ id: 9 }]).mockResolvedValue([]);
+
+    await ensureZeroGradesForPastDue({ userId: 7 });
+
+    const [query] = sequelizeQuery.mock.calls.at(-1);
+    expect(query).toContain('INSERT INTO assignment_grades');
+    expect(query).toContain('a.publish_at IS NULL AND a.is_locked = false');
+    expect(query).toContain('OR a.publish_at <= NOW()');
+    expect(query).toContain('AND a.due_date IS NOT NULL');
+  });
+
+  it('zero fills under the student grade locks in one transaction', async () => {
+    sequelizeQuery.mockResolvedValueOnce([{ id: 12 }, { id: 4 }]).mockResolvedValue([]);
+
+    await ensureZeroGradesForPastDue({ userId: 7 });
+
+    const queries = sequelizeQuery.mock.calls.map(([query]) => query);
+    expect(queries).toHaveLength(4);
+    expect(queries[1]).toContain('pg_advisory_xact_lock_shared');
+    expect(sequelizeQuery.mock.calls[1][1].replacements).toEqual({ ids: [4, 12] });
+    expect(queries[2]).toBe('SELECT pg_advisory_xact_lock(:space, :userId)');
+    expect(queries[3]).toContain('INSERT INTO assignment_grades');
+    expect(sequelizeQuery.mock.calls.every(([, options]) => options.transaction === transaction)).toBe(true);
+  });
+
+  it('skips the zero fill when the student has no graded assignments', async () => {
     sequelizeQuery.mockResolvedValueOnce([]);
 
     await ensureZeroGradesForPastDue({ userId: 7 });
 
-    const [query] = sequelizeQuery.mock.calls[0];
-    expect(query).toContain('a.publish_at IS NULL AND a.is_locked = false');
-    expect(query).toContain('OR a.publish_at <= NOW()');
-    expect(query).toContain('AND a.due_date IS NOT NULL');
+    expect(sequelizeQuery).toHaveBeenCalledTimes(1);
   });
 });
 
