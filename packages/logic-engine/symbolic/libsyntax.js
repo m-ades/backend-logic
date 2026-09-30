@@ -110,6 +110,7 @@ function symbolfix(s) {
     rv = rv.replace(/<->/g, this.symbols.IFF);
     rv = rv.replace(/<–>/g, this.symbols.IFF);
     rv = rv.replace(/<=>/g, this.symbols.IFF);
+    rv = rv.replace(/==/g, this.symbols.IFF);
     rv = rv.replace(/->/g, this.symbols.IFTHEN);
     rv = rv.replace(/–>/g, this.symbols.IFTHEN);
     rv = rv.replace(/=>/g, this.symbols.IFTHEN);
@@ -120,7 +121,7 @@ function symbolfix(s) {
     rv = rv.replace(/[|]/g, this.symbols.OR);
     rv = rv.replace(/[↔≡]/g, this.symbols.IFF);
     rv = rv.replace(/[→⇒⊃]/g, this.symbols.IFTHEN);
-    rv = rv.replace(/[~¬]/g, this.symbols.NOT);
+    rv = rv.replace(/[~¬!]/g, this.symbols.NOT);
     rv = rv.replace(/[⊥✖]/g, this.symbols.FALSUM);
     return rv;
 }
@@ -153,8 +154,7 @@ function inputfix(s) {
     rv = rv.replace(/([A-Za-z0-9_)\]\}])v([A-Za-z(\[\{])/g,
         `$1${this.symbols.OR}$2`);
     rv = rv.replace(/\ball\b/gi, this.symbols.FORALL); // 'all' becomes ∀
-    rv = rv.replace(/\bsome\b/gi, this.symbols.EXISTS); // 'some' becomes ∃ 
-    rv = rv.replace(/==/g, this.symbols.IFF); // '==' becomes ≡
+    rv = rv.replace(/\bsome\b/gi, this.symbols.EXISTS); // 'some' becomes ∃
     
     // spaces only surround binary operators …
     for (const op in symbolcat) {
