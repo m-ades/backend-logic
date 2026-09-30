@@ -22,6 +22,10 @@ import {
   normalizePublicationWrite,
 } from '../utils/publicationPolicy.js';
 import { projectQuestionForStudent } from '../utils/questionVisibility.js';
+import { lockAssignmentGrades, recomputeAssignmentGrades } from '../utils/grades.js';
+
+// fields that move a student's effective deadline or late penalty
+const DEADLINE_FIELDS = ['due_date', 'late_window_days', 'late_penalty_percent'];
 
 function sanitizeAssignment(record) {
   const data = record?.toJSON ? record.toJSON() : record;
@@ -144,6 +148,16 @@ const router = createCrudRouter(Assignment, {
     return payload;
   },
   beforeUpdate: async (req, body) => normalizeAssignmentUpdate(body),
+  // stored late penalties follow the new deadline instead of waiting for the next submission
+  aroundUpdate: async (_req, record, { changed, transaction }, write) => {
+    if (!changed.some((field) => DEADLINE_FIELDS.includes(field))) {
+      await write();
+      return;
+    }
+    await lockAssignmentGrades({ assignmentId: record.id, transaction });
+    await write();
+    await recomputeAssignmentGrades({ assignmentIds: [record.id], transaction });
+  },
   authorizeCreate: async (req) => {
     const courseId = Number(req.body?.course_id);
     if (!Number.isFinite(courseId)) {

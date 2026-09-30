@@ -3,7 +3,6 @@ import { body } from 'express-validator';
 import { createCrudRouter } from './crud.js';
 import {
   Assignment,
-  AssignmentGrade,
   AssignmentQuestion,
   Course,
   sequelize,
@@ -16,7 +15,7 @@ import {
 } from '../validators/common.js';
 import { assertValidQuestionSnapshot } from '../validators/question-snapshot.js';
 import { LEGACY_LOGIC_SYSTEM, normalizeLogicSystem } from '@logic-app/logic-engine/logicSystems.js';
-import { recomputeAssignmentGrade } from '../utils/grades.js';
+import { lockAssignmentGrades, recomputeAssignmentGrades } from '../utils/grades.js';
 import { requireInstructorOrAdmin } from './instructor.js';
 
 const router = express.Router();
@@ -65,29 +64,28 @@ function normalizeAttemptLimit(value) {
   return Number.isInteger(limit) && limit >= 1 ? limit : 3;
 }
 
-// deletes assignment questions and restores every persisted grade in one transaction
-// returns the number of questions deleted
-// leaves grades unchanged when no matching question exists
-// rolls back deletion when any grade cannot be restored
+// the question count sets max_score so every grade on the assignment follows a question write
+async function writeQuestionGrades(assignmentId, transaction, write) {
+  await lockAssignmentGrades({ assignmentId, transaction });
+  const result = await write();
+  await recomputeAssignmentGrades({ assignmentIds: [assignmentId], transaction });
+  return result;
+}
+
+/*
+deletes questions and recomputes the assignment's grades in one transaction
+returns the number deleted and rolls the deletion back if grading fails
+*/
 async function deleteQuestionsAndRecomputeGrades(assignmentId, ids) {
   return sequelize.transaction(async (transaction) => {
-    const gradeRows = await AssignmentGrade.findAll({
-      where: { assignment_id: assignmentId },
-      attributes: ['user_id'],
-      transaction,
-    });
+    // lock first or a student insert waiting on a deleted row deadlocks against this lock
+    await lockAssignmentGrades({ assignmentId, transaction });
     const deleted = await AssignmentQuestion.destroy({
       where: { id: ids, assignment_id: assignmentId },
       transaction,
     });
-    if (!deleted) return 0;
-
-    for (const grade of gradeRows) {
-      await recomputeAssignmentGrade({
-        assignmentId,
-        userId: grade.user_id,
-        transaction,
-      });
+    if (deleted) {
+      await recomputeAssignmentGrades({ assignmentIds: [assignmentId], transaction });
     }
     return deleted;
   });
@@ -143,9 +141,11 @@ router.post(
       await assertValidSnapshotForAssignment(item.question_snapshot, assignment);
     }
 
-    const created = await sequelize.transaction(async (transaction) => {
-      return AssignmentQuestion.bulkCreate(payload, { returning: true, transaction });
-    });
+    const created = await sequelize.transaction((transaction) => (
+      writeQuestionGrades(assignmentId, transaction, () => (
+        AssignmentQuestion.bulkCreate(payload, { returning: true, transaction })
+      ))
+    ));
     res.status(201).json(created);
   } catch (error) {
     next(error);
@@ -237,6 +237,8 @@ router.delete(
 router.use(
   '/',
   createCrudRouter(AssignmentQuestion, {
+    // deletes go through the bulk route above so grades are recomputed with them
+    allowDelete: false,
     beforeCreate: async (_req, body) => {
       await assertValidSnapshotForAssignment(body.question_snapshot, body.assignment_id);
       return {
@@ -244,6 +246,9 @@ router.use(
         attempt_limit: normalizeAttemptLimit(body.attempt_limit),
       };
     },
+    aroundCreate: (_req, payload, { transaction }, write) => (
+      writeQuestionGrades(payload.assignment_id, transaction, write)
+    ),
     beforeUpdate: async (req, body, record) => {
       const payload = {}
       if (body.question_snapshot !== undefined) {

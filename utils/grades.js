@@ -12,110 +12,200 @@ import { EFFECTIVELY_PUBLISHED_SQL, isAssignmentLocked } from './publicationPoli
 
 const toNumber = (value) => (value === null || value === undefined ? 0 : Number(value));
 
-// recomputes one persisted grade from the remaining questions and submissions
-// returns null only when the assignment or its questions no longer exist
-// removes the persisted grade when no questions remain
-// writes a zero grade when no submissions remain and a grade already exists
-// uses the supplied transaction for every read and write
-export async function recomputeAssignmentGrade({ assignmentId, userId, transaction = null }) {
-  const queryOptions = transaction ? { transaction } : {};
-  const assignment = await Assignment.findByPk(assignmentId, queryOptions);
-  if (!assignment) {
-    return null;
+// first key of the per student lock in postgres's two int advisory key space
+const STUDENT_GRADE_LOCK_SPACE = 1;
+const GRADE_UPDATE_FIELDS = ['raw_score', 'max_score', 'penalty_percent', 'final_score', 'graded_at', 'graded_by'];
+
+// a missing transaction would silently release the xact locks and borrow a second pool connection
+function requireTransaction(transaction) {
+  if (!transaction) {
+    throw new Error('grade writes require a transaction');
   }
+}
+
+/*
+student level writers share each assignment lock in id order then take the student lock
+assignment level writers take the assignment lock exclusively
+one global order means lock waits can't form a cycle
+*/
+export async function lockStudentGrades({ assignmentIds, userId, transaction }) {
+  requireTransaction(transaction);
+  const ids = [...new Set(assignmentIds.map(Number))].sort((a, b) => a - b);
+  if (ids.length) {
+    // postgres runs volatile select items after order by so these lock in id order
+    await sequelize.query(
+      'SELECT pg_advisory_xact_lock_shared(t.id::bigint) FROM unnest(ARRAY[:ids]::int[]) AS t(id) ORDER BY t.id',
+      { type: QueryTypes.SELECT, replacements: { ids }, transaction }
+    );
+  }
+  await sequelize.query('SELECT pg_advisory_xact_lock(:space, :userId)', {
+    type: QueryTypes.SELECT,
+    replacements: { space: STUDENT_GRADE_LOCK_SPACE, userId: Number(userId) },
+    transaction,
+  });
+}
+
+export async function lockAssignmentGrades({ assignmentId, transaction }) {
+  requireTransaction(transaction);
+  await sequelize.query('SELECT pg_advisory_xact_lock(:assignmentId::bigint)', {
+    type: QueryTypes.SELECT,
+    replacements: { assignmentId: Number(assignmentId) },
+    transaction,
+  });
+}
+
+// locks before the write so it never holds a row that a lock holder is waiting on
+export async function writeStudentGrades({ assignmentIds, userId, transaction }, write) {
+  await lockStudentGrades({ assignmentIds, userId, transaction });
+  const result = await write();
+  await recomputeAssignmentGrades({ assignmentIds, userIds: [userId], transaction });
+  return result;
+}
+
+/*
+recomputes persisted grades for these assignments in a fixed number of queries
+null userIds means everyone holding a grade or a submission on them
+assignments without questions lose their grades and students with neither get none
+*/
+export async function recomputeAssignmentGrades({ assignmentIds, userIds = null, transaction }) {
+  requireTransaction(transaction);
+  if (!assignmentIds.length || userIds?.length === 0) return [];
+  const byUser = userIds ? { user_id: userIds } : {};
+
+  const assignments = await Assignment.findAll({
+    where: { id: assignmentIds },
+    attributes: ['id', 'course_id', 'due_date', 'late_window_days', 'late_penalty_percent'],
+    transaction,
+  });
+  if (!assignments.length) return [];
 
   const questions = await AssignmentQuestion.findAll({
-    where: { assignment_id: assignmentId },
-    attributes: ['id'],
-    ...queryOptions,
+    where: { assignment_id: assignments.map((assignment) => assignment.id) },
+    attributes: ['id', 'assignment_id'],
+    transaction,
   });
-  if (!questions.length) {
-    await AssignmentGrade.destroy({
-      where: { assignment_id: assignmentId, user_id: userId },
-      ...queryOptions,
-    });
-    return null;
+  const questionCountByAssignment = new Map(assignments.map((assignment) => [assignment.id, 0]));
+  const assignmentIdByQuestion = new Map();
+  for (const question of questions) {
+    questionCountByAssignment.set(
+      question.assignment_id,
+      questionCountByAssignment.get(question.assignment_id) + 1
+    );
+    assignmentIdByQuestion.set(question.id, question.assignment_id);
   }
 
-  const questionIds = questions.map((question) => question.id);
-  const submissionRows = await sequelize.query(
+  const emptyAssignmentIds = assignments
+    .filter((assignment) => !questionCountByAssignment.get(assignment.id))
+    .map((assignment) => assignment.id);
+  if (emptyAssignmentIds.length) {
+    await AssignmentGrade.destroy({
+      where: { assignment_id: emptyAssignmentIds, ...byUser },
+      transaction,
+    });
+  }
+  const gradable = assignments.filter((assignment) => questionCountByAssignment.get(assignment.id));
+  if (!gradable.length) return [];
+  const gradableIds = gradable.map((assignment) => assignment.id);
+
+  // earliest submission reaching each question's best score decides lateness
+  const bestRows = await sequelize.query(
     `
-      SELECT DISTINCT ON (assignment_question_id)
+      SELECT DISTINCT ON (user_id, assignment_question_id)
+        user_id,
         assignment_question_id,
         score AS best_score,
         submitted_at AS best_submitted_at
       FROM submissions
-      WHERE user_id = :userId
-        AND assignment_question_id IN (:questionIds)
-      ORDER BY assignment_question_id, score DESC, submitted_at ASC, id ASC
+      WHERE assignment_question_id IN (:questionIds)
+        ${userIds ? 'AND user_id IN (:userIds)' : ''}
+      ORDER BY user_id, assignment_question_id, score DESC, submitted_at ASC, id ASC
     `,
     {
       type: QueryTypes.SELECT,
-      replacements: { userId, questionIds },
-      ...queryOptions,
+      replacements: { questionIds: [...assignmentIdByQuestion.keys()], userIds },
+      transaction,
     }
   );
-  const existing = await AssignmentGrade.findOne({
-    where: { assignment_id: assignmentId, user_id: userId },
-    ...queryOptions,
+  const existing = await AssignmentGrade.findAll({
+    where: { assignment_id: gradableIds, ...byUser },
+    attributes: ['assignment_id', 'user_id'],
+    transaction,
   });
-  if (!submissionRows.length && !existing) {
-    return null;
-  }
 
-  const scoreByQuestion = new Map();
-  let latestBestSubmissionAt = null;
-  for (const row of submissionRows) {
-    scoreByQuestion.set(row.assignment_question_id, toNumber(row.best_score));
+  const pairs = new Map();
+  const pairFor = (assignmentId, userId) => {
+    const key = `${assignmentId}:${userId}`;
+    if (!pairs.has(key)) {
+      pairs.set(key, { assignmentId, userId, rawScore: 0, latestBestAt: null });
+    }
+    return pairs.get(key);
+  };
+  for (const grade of existing) {
+    pairFor(grade.assignment_id, grade.user_id);
+  }
+  for (const row of bestRows) {
+    const pair = pairFor(assignmentIdByQuestion.get(row.assignment_question_id), row.user_id);
+    pair.rawScore += toNumber(row.best_score);
     if (row.best_submitted_at) {
-      const candidateDate = new Date(row.best_submitted_at);
-      if (!latestBestSubmissionAt || candidateDate > latestBestSubmissionAt) {
-        latestBestSubmissionAt = candidateDate;
+      const submittedAt = new Date(row.best_submitted_at);
+      if (!pair.latestBestAt || submittedAt > pair.latestBestAt) {
+        pair.latestBestAt = submittedAt;
       }
     }
   }
+  if (!pairs.size) return [];
 
-  const rawScore = questions.reduce(
-    (sum, question) => sum + (scoreByQuestion.get(question.id) || 0),
-    0
+  const studentIds = [...new Set([...pairs.values()].map((pair) => pair.userId))];
+  const extensions = await AssignmentExtension.findAll({
+    where: { assignment_id: gradableIds, user_id: studentIds },
+    attributes: ['assignment_id', 'user_id', 'extended_due_date'],
+    transaction,
+  });
+  const accommodations = await Accommodation.findAll({
+    where: {
+      course_id: [...new Set(gradable.map((assignment) => assignment.course_id))],
+      user_id: studentIds,
+    },
+    attributes: ['course_id', 'user_id', 'extra_late_days', 'late_penalty_waived'],
+    transaction,
+  });
+  const assignmentById = new Map(gradable.map((assignment) => [assignment.id, assignment]));
+  const extensionByKey = new Map(
+    extensions.map((extension) => [`${extension.assignment_id}:${extension.user_id}`, extension])
   );
-  const maxScore = questions.length * 100;
-
-  const extension = await AssignmentExtension.findOne({
-    where: { assignment_id: assignmentId, user_id: userId },
-    ...queryOptions,
-  });
-  const accommodation = await Accommodation.findOne({
-    where: { course_id: assignment.course_id, user_id: userId },
-    ...queryOptions,
-  });
-  const policy = computeDeadlinePolicy({ assignment, extension, accommodation });
-
-  let penaltyPercent = 0;
-  if (policy.due_at && latestBestSubmissionAt && latestBestSubmissionAt > policy.due_at) {
-    penaltyPercent = policy.late_penalty_percent ?? 0;
-  }
-
-  const finalScore = Math.max(
-    0,
-    Math.round(rawScore * (1 - penaltyPercent / 100))
+  const accommodationByKey = new Map(
+    accommodations.map((accommodation) => [`${accommodation.course_id}:${accommodation.user_id}`, accommodation])
   );
 
-  const payload = {
-    assignment_id: assignmentId,
-    user_id: userId,
-    raw_score: rawScore,
-    max_score: maxScore,
-    penalty_percent: penaltyPercent,
-    final_score: finalScore,
-    graded_at: new Date(),
-    graded_by: null,
-  };
+  const gradedAt = new Date();
+  const rows = [...pairs.entries()].map(([key, pair]) => {
+    const assignment = assignmentById.get(pair.assignmentId);
+    const policy = computeDeadlinePolicy({
+      assignment,
+      extension: extensionByKey.get(key) ?? null,
+      accommodation: accommodationByKey.get(`${assignment.course_id}:${pair.userId}`) ?? null,
+    });
+    const isLate = policy.due_at && pair.latestBestAt && pair.latestBestAt > policy.due_at;
+    const penaltyPercent = isLate ? policy.late_penalty_percent ?? 0 : 0;
+    return {
+      assignment_id: pair.assignmentId,
+      user_id: pair.userId,
+      raw_score: pair.rawScore,
+      max_score: questionCountByAssignment.get(pair.assignmentId) * 100,
+      penalty_percent: penaltyPercent,
+      final_score: Math.max(0, Math.round(pair.rawScore * (1 - penaltyPercent / 100))),
+      graded_at: gradedAt,
+      graded_by: null,
+    };
+  });
+  // a fixed row order keeps concurrent upserts from locking rows in different orders
+  rows.sort((a, b) => a.assignment_id - b.assignment_id || a.user_id - b.user_id);
 
-  const grade = existing
-    ? await existing.update(payload, queryOptions)
-    : await AssignmentGrade.create(payload, queryOptions);
-  return grade;
+  return AssignmentGrade.bulkCreate(rows, {
+    conflictAttributes: ['assignment_id', 'user_id'],
+    updateOnDuplicate: GRADE_UPDATE_FIELDS,
+    transaction,
+  });
 }
 
 /**
@@ -185,7 +275,30 @@ export async function fetchEffectiveGrades(userId) {
 
 export async function ensureZeroGradesForPastDue({ userId }) {
   if (!userId) return;
-  await sequelize.query(
+  await sequelize.transaction(async (transaction) => {
+    // without the locks a question change can regrade around this insert and leave a stale max_score
+    const assignments = await sequelize.query(
+      `
+        SELECT a.id
+        FROM assignments a
+        JOIN course_enrollments ce ON ce.course_id = a.course_id AND ce.user_id = :userId
+        WHERE a.kind = 'assignment'
+          AND a.due_date IS NOT NULL
+      `,
+      { type: QueryTypes.SELECT, replacements: { userId }, transaction }
+    );
+    if (!assignments.length) return;
+    await lockStudentGrades({
+      assignmentIds: assignments.map((assignment) => assignment.id),
+      userId,
+      transaction,
+    });
+    await insertPastDueZeroGrades({ userId, transaction });
+  });
+}
+
+function insertPastDueZeroGrades({ userId, transaction }) {
+  return sequelize.query(
     `
       WITH enrolled_courses AS (
         SELECT course_id
@@ -244,6 +357,7 @@ export async function ensureZeroGradesForPastDue({ userId }) {
     {
       type: QueryTypes.INSERT,
       replacements: { userId },
+      transaction,
     }
   );
 }

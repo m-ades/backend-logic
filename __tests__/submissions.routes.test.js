@@ -4,10 +4,18 @@ import errorHandler from '../middleware/error-handler.js';
 const findAll = jest.fn();
 const findByPk = jest.fn();
 const create = jest.fn();
+const questionFindByPk = jest.fn();
+const databaseTransaction = { id: 'tx' };
+const transaction = jest.fn(async (callback) => callback(databaseTransaction));
+// runs the write so tests see it land inside the regrade
+const writeStudentGrades = jest.fn(async (_scope, write) => write());
 
 jest.unstable_mockModule('../models/index.js', () => ({
-  Submission: { findAll, findByPk, create },
+  AssignmentQuestion: { findByPk: questionFindByPk },
+  Submission: { findAll, findByPk, create, sequelize: { transaction } },
 }));
+
+jest.unstable_mockModule('../utils/grades.js', () => ({ writeStudentGrades }));
 
 jest.unstable_mockModule('../utils/authorization.js', () => ({
   isSystemAdmin: (user) => Boolean(user?.is_system_admin),
@@ -77,7 +85,12 @@ describe('submission routes', () => {
     findAll.mockReset();
     findByPk.mockReset();
     create.mockReset();
+    questionFindByPk.mockReset().mockResolvedValue({ assignment_id: 3 });
+    writeStudentGrades.mockClear();
+    transaction.mockClear();
   });
+
+  const regradeScope = { assignmentIds: [3], userId: 42, transaction: databaseTransaction };
 
   it('limits student lists to their own submissions', async () => {
     findAll.mockResolvedValueOnce([]);
@@ -164,13 +177,23 @@ describe('submission routes', () => {
     const res = await runHandlers(handlers, req, createRes());
 
     expect(res.statusCode).toBe(201);
-    expect(create).toHaveBeenCalledWith(payload);
+    expect(create).toHaveBeenCalledWith(payload, { transaction: databaseTransaction });
     expect(res.body).toBe(saved);
+    expect(questionFindByPk).toHaveBeenCalledWith(10, expect.objectContaining({ transaction: databaseTransaction }));
+    expect(writeStudentGrades).toHaveBeenCalledWith(regradeScope, expect.any(Function));
+  });
+
+  const editableSubmission = () => ({
+    id: 9,
+    user_id: 42,
+    assignment_question_id: 10,
+    set: jest.fn(),
+    changed: jest.fn(() => ['score']),
+    save: jest.fn().mockResolvedValue(undefined),
   });
 
   it('allows system administrators to update submissions', async () => {
-    const update = jest.fn().mockResolvedValueOnce();
-    const submission = { id: 9, user_id: 42, update };
+    const submission = editableSubmission();
     findByPk.mockResolvedValueOnce(submission);
     const handlers = getRouteHandlers('/:id', 'put');
     const payload = { score: 75, is_correct: false };
@@ -182,13 +205,32 @@ describe('submission routes', () => {
     const res = await runHandlers(handlers, req, createRes());
 
     expect(res.statusCode).toBe(200);
-    expect(update).toHaveBeenCalledWith(payload);
+    expect(submission.set).toHaveBeenCalledWith(payload);
+    expect(submission.save).toHaveBeenCalledWith({ transaction: databaseTransaction });
+    expect(writeStudentGrades).toHaveBeenCalledWith(regradeScope, expect.any(Function));
     expect(res.body).toBe(submission);
+  });
+
+  it('keeps a submission on the student and question whose grade it feeds', async () => {
+    const submission = editableSubmission();
+    findByPk.mockResolvedValueOnce(submission);
+    const handlers = getRouteHandlers('/:id', 'put');
+    const req = {
+      params: { id: '9' },
+      body: { user_id: 43 },
+      user: { id: 1, is_system_admin: true },
+    };
+    const res = await runHandlers(handlers, req, createRes());
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({ message: 'user_id cannot change' });
+    expect(submission.save).not.toHaveBeenCalled();
+    expect(writeStudentGrades).not.toHaveBeenCalled();
   });
 
   it('allows system administrators to delete submissions', async () => {
     const destroy = jest.fn().mockResolvedValueOnce();
-    findByPk.mockResolvedValueOnce({ id: 9, user_id: 42, destroy });
+    findByPk.mockResolvedValueOnce({ id: 9, user_id: 42, assignment_question_id: 10, destroy });
     const handlers = getRouteHandlers('/:id', 'delete');
     const req = {
       params: { id: '9' },
@@ -197,7 +239,8 @@ describe('submission routes', () => {
     const res = await runHandlers(handlers, req, createRes());
 
     expect(res.statusCode).toBe(204);
-    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(destroy).toHaveBeenCalledWith({ transaction: databaseTransaction });
+    expect(writeStudentGrades).toHaveBeenCalledWith(regradeScope, expect.any(Function));
     expect(res.ended).toBe(true);
   });
 });

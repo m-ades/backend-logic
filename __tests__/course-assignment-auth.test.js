@@ -17,10 +17,18 @@ const sequelizeCol = jest.fn((value) => value);
 const sequelizeQuery = jest.fn();
 const assignmentExtensionFindAll = jest.fn();
 const accommodationFindOne = jest.fn();
+const lockAssignmentGrades = jest.fn();
+const recomputeAssignmentGrades = jest.fn();
+const databaseTransaction = { id: 'tx' };
+const transaction = jest.fn(async (callback) => callback(databaseTransaction));
 
 jest.unstable_mockModule('../models/index.js', () => ({
   Course: { findByPk: courseFindByPk, create: courseCreate },
-  Assignment: { findByPk: assignmentFindByPk, create: assignmentCreate },
+  Assignment: {
+    findByPk: assignmentFindByPk,
+    create: assignmentCreate,
+    sequelize: { transaction },
+  },
   AssignmentDraft: { findOne: assignmentDraftFindOne },
   AssignmentExtension: { findOne: jest.fn(), findAll: assignmentExtensionFindAll },
   AssignmentGrade: {},
@@ -50,6 +58,20 @@ jest.unstable_mockModule('../routes/instructor.js', () => ({
 jest.unstable_mockModule('../utils/autoSubmit.js', () => ({
   autoSubmitIfPastDeadline,
 }));
+
+jest.unstable_mockModule('../utils/grades.js', () => ({
+  lockAssignmentGrades,
+  recomputeAssignmentGrades,
+}));
+
+// a loaded row whose set and save run inside the update transaction
+const editableAssignment = (changedFields) => ({
+  id: 9,
+  course_id: 3,
+  set: jest.fn(),
+  changed: jest.fn(() => changedFields),
+  save: jest.fn().mockResolvedValue(undefined),
+});
 
 const coursesRouter = (await import('../routes/courses.js')).default;
 const assignmentsRouter = (await import('../routes/assignments.js')).default;
@@ -126,6 +148,9 @@ describe('course and assignment auth', () => {
     submissionFindAll.mockReset();
     requireInstructorOrAdmin.mockReset();
     autoSubmitIfPastDeadline.mockReset();
+    lockAssignmentGrades.mockReset().mockResolvedValue(undefined);
+    recomputeAssignmentGrades.mockReset().mockResolvedValue([]);
+    transaction.mockClear();
     sequelizeFn.mockClear();
     sequelizeCol.mockClear();
     sequelizeQuery.mockReset();
@@ -324,8 +349,8 @@ describe('course and assignment auth', () => {
     });
 
     it('rejects assignment updates for non-instructors', async () => {
-      const update = jest.fn();
-      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3, update });
+      const record = editableAssignment([]);
+      assignmentFindByPk.mockResolvedValueOnce(record);
       requireInstructorOrAdmin.mockResolvedValueOnce(false);
 
       const handlers = getRouteHandlers(assignmentsRouter, '/:id', 'put');
@@ -333,12 +358,12 @@ describe('course and assignment auth', () => {
       const res = await runHandlers(handlers, req, createRes());
 
       expect(res.statusCode).toBe(403);
-      expect(update).not.toHaveBeenCalled();
+      expect(record.save).not.toHaveBeenCalled();
     });
 
     it('keeps course ownership unchanged during instructor updates', async () => {
-      const update = jest.fn().mockResolvedValueOnce();
-      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3, update });
+      const record = editableAssignment(['title']);
+      assignmentFindByPk.mockResolvedValueOnce(record);
       requireInstructorOrAdmin.mockResolvedValueOnce(true);
 
       const handlers = getRouteHandlers(assignmentsRouter, '/:id', 'put');
@@ -351,12 +376,42 @@ describe('course and assignment auth', () => {
 
       expect(res.statusCode).toBe(200);
       expect(requireInstructorOrAdmin).toHaveBeenCalledWith(3, 7);
-      expect(update).toHaveBeenCalledWith({ title: 'New title' });
+      expect(record.set).toHaveBeenCalledWith({ title: 'New title' });
+      expect(record.save).toHaveBeenCalledWith({ transaction: databaseTransaction });
+      // a title change leaves grades alone
+      expect(lockAssignmentGrades).not.toHaveBeenCalled();
+      expect(recomputeAssignmentGrades).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['due_date', { due_date: '2026-02-01T23:59:00-05:00' }],
+      ['late_window_days', { late_window_days: 5 }],
+      ['late_penalty_percent', { late_penalty_percent: 10 }],
+    ])('recomputes stored grades when %s changes', async (field, body) => {
+      const record = editableAssignment([field]);
+      assignmentFindByPk.mockResolvedValueOnce(record);
+      requireInstructorOrAdmin.mockResolvedValueOnce(true);
+
+      const handlers = getRouteHandlers(assignmentsRouter, '/:id', 'put');
+      const req = { params: { id: '9' }, body, user: { id: 7, is_system_admin: false } };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(200);
+      expect(lockAssignmentGrades).toHaveBeenCalledWith({
+        assignmentId: 9,
+        transaction: databaseTransaction,
+      });
+      expect(recomputeAssignmentGrades).toHaveBeenCalledWith({
+        assignmentIds: [9],
+        transaction: databaseTransaction,
+      });
+      expect(record.save.mock.invocationCallOrder[0])
+        .toBeLessThan(recomputeAssignmentGrades.mock.invocationCallOrder[0]);
     });
 
     it('clears an old schedule when an instructor manually locks an assignment', async () => {
-      const update = jest.fn().mockResolvedValueOnce();
-      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3, update });
+      const record = editableAssignment(['is_locked', 'publish_at']);
+      assignmentFindByPk.mockResolvedValueOnce(record);
       requireInstructorOrAdmin.mockResolvedValueOnce(true);
 
       const handlers = getRouteHandlers(assignmentsRouter, '/:id', 'put');
@@ -368,12 +423,13 @@ describe('course and assignment auth', () => {
       const res = await runHandlers(handlers, req, createRes());
 
       expect(res.statusCode).toBe(200);
-      expect(update).toHaveBeenCalledWith({ is_locked: true, publish_at: null });
+      expect(record.set).toHaveBeenCalledWith({ is_locked: true, publish_at: null });
+      expect(recomputeAssignmentGrades).not.toHaveBeenCalled();
     });
 
     it('rejects an ambiguous new york schedule before updating the assignment', async () => {
-      const update = jest.fn();
-      assignmentFindByPk.mockResolvedValueOnce({ id: 9, course_id: 3, update });
+      const record = editableAssignment([]);
+      assignmentFindByPk.mockResolvedValueOnce(record);
       requireInstructorOrAdmin.mockResolvedValueOnce(true);
 
       const handlers = getRouteHandlers(assignmentsRouter, '/:id', 'put');
@@ -388,7 +444,7 @@ describe('course and assignment auth', () => {
       expect(res.body).toEqual({
         message: 'publish_at must be a valid New York timestamp',
       });
-      expect(update).not.toHaveBeenCalled();
+      expect(record.save).not.toHaveBeenCalled();
     });
 
     it('rejects assignment list reads for non-admins', async () => {

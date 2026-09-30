@@ -11,9 +11,14 @@ import {
   AssignmentQuestion,
   Submission,
   User,
+  sequelize,
 } from '../models/index.js';
 import { addDays, computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
-import { recomputeAssignmentGrade } from '../utils/grades.js';
+import {
+  lockAssignmentGrades,
+  lockStudentGrades,
+  recomputeAssignmentGrades,
+} from '../utils/grades.js';
 import { requireEnrollmentForCourse } from '../utils/enrollment.js';
 import { formatDueDateEastern, parseDueDateForStorage } from '../utils/easternDate.js';
 import {
@@ -123,6 +128,19 @@ const sanitizeUser = (user) => {
   return data;
 };
 
+// account and enrollment commit together so a failed enrollment leaves no orphan username
+function createEnrolledStudent({ courseId, username, passwordHash }) {
+  return sequelize.transaction(async (transaction) => {
+    const user = await User.create({ username, password_hash: passwordHash }, { transaction });
+    await CourseEnrollment.create({
+      course_id: courseId,
+      user_id: user.id,
+      role: 'student',
+    }, { transaction });
+    return user;
+  });
+}
+
 router.post(
   '/courses/:id/students/bulk',
   [
@@ -155,12 +173,18 @@ router.post(
       students: [],
     };
 
-    for (const student of students) {
-      const username = String(student.username || '').trim();
+    const usernames = students.map((student) => String(student.username || '').trim());
+    const existingUsers = await User.findAll({
+      where: { username: usernames },
+      attributes: ['username'],
+    });
+    const takenUsernames = new Set(existingUsers.map((user) => user.username));
+
+    for (const [index, student] of students.entries()) {
+      const username = usernames[index];
       const password = student.password;
 
-      const existing = await User.findOne({ where: { username } });
-      if (existing) {
+      if (takenUsernames.has(username)) {
         results.skipped += 1;
         results.errors.push({ username, reason: 'Username already in use' });
         results.success = false;
@@ -168,14 +192,9 @@ router.post(
       }
 
       try {
-        const password_hash = await hashPassword(password);
-        const newUser = await User.create({ username, password_hash });
-
-        await CourseEnrollment.create({
-          course_id: courseId,
-          user_id: newUser.id,
-          role: 'student',
-        });
+        const passwordHash = await hashPassword(password);
+        const newUser = await createEnrolledStudent({ courseId, username, passwordHash });
+        takenUsernames.add(username);
 
         results.imported += 1;
         results.students.push(sanitizeUser(newUser));
@@ -225,17 +244,8 @@ router.post(
       return res.status(409).json({ message: 'Username already in use' });
     }
 
-    const password_hash = await hashPassword(password);
-    const newUser = await User.create({
-      username,
-      password_hash,
-    });
-
-    await CourseEnrollment.create({
-      course_id: courseId,
-      user_id: newUser.id,
-      role: 'student',
-    });
+    const passwordHash = await hashPassword(password);
+    const newUser = await createEnrolledStudent({ courseId, username, passwordHash });
 
     res.status(201).json({ user: sanitizeUser(newUser) });
   } catch (error) {
@@ -377,19 +387,25 @@ router.post('/courses/:id/accommodations', courseAccessValidators, async (req, r
         : 0,
     };
 
-    const existing = await Accommodation.findOne({
-      where: { user_id: targetUserId, course_id: courseId },
-    });
-
-    const record = existing ? await existing.update(payload) : await Accommodation.create(payload);
     const assignments = await Assignment.findAll({
       where: { course_id: courseId, kind: 'assignment' },
       attributes: ['id'],
     });
-    for (const assignment of assignments) {
-      await recomputeAssignmentGrade({ assignmentId: assignment.id, userId: targetUserId });
-    }
-    res.status(existing ? 200 : 201).json(record);
+    const assignmentIds = assignments.map((assignment) => assignment.id);
+
+    const { record, created } = await sequelize.transaction(async (transaction) => {
+      await lockStudentGrades({ assignmentIds, userId: targetUserId, transaction });
+      const existing = await Accommodation.findOne({
+        where: { user_id: targetUserId, course_id: courseId },
+        transaction,
+      });
+      const saved = existing
+        ? await existing.update(payload, { transaction })
+        : await Accommodation.create(payload, { transaction });
+      await recomputeAssignmentGrades({ assignmentIds, userIds: [targetUserId], transaction });
+      return { record: saved, created: !existing };
+    });
+    res.status(created ? 201 : 200).json(record);
   } catch (error) {
     next(error);
   }
@@ -464,13 +480,23 @@ router.post('/assignments/:id/extensions', individualExtensionValidators, async 
       created_at: new Date(),
     };
 
-    const existing = await AssignmentExtension.findOne({
-      where: { assignment_id: assignmentId, user_id: targetUserId },
+    const { record, created } = await sequelize.transaction(async (transaction) => {
+      await lockStudentGrades({ assignmentIds: [assignment.id], userId: targetUserId, transaction });
+      const existing = await AssignmentExtension.findOne({
+        where: { assignment_id: assignmentId, user_id: targetUserId },
+        transaction,
+      });
+      const saved = existing
+        ? await existing.update(payload, { transaction })
+        : await AssignmentExtension.create(payload, { transaction });
+      await recomputeAssignmentGrades({
+        assignmentIds: [assignment.id],
+        userIds: [targetUserId],
+        transaction,
+      });
+      return { record: saved, created: !existing };
     });
-
-    const record = existing ? await existing.update(payload) : await AssignmentExtension.create(payload);
-    await recomputeAssignmentGrade({ assignmentId: assignment.id, userId: targetUserId });
-    res.status(existing ? 200 : 201).json(record);
+    res.status(created ? 201 : 200).json(record);
   } catch (error) {
     next(error);
   }
@@ -601,49 +627,55 @@ async function classwideExtensionHandler(req, res, next) {
     }
 
     const studentIds = enrollments.map((enrollment) => enrollment.user_id);
-    const existingRows = await AssignmentExtension.findAll({
-      where: { assignment_id: assignmentId, user_id: { [Op.in]: studentIds } },
-    });
-    const existingByUser = new Map(existingRows.map((row) => [row.user_id, row]));
-
     const reason = normalizeExtensionReason(req.body.reason);
-    const payload = [];
-    let preserved = 0;
     // same timestamp for the whole batch
     const grantedAt = new Date();
 
-    for (const { user_id: targetUserId } of enrollments) {
-      const existing = existingByUser.get(targetUserId);
-      // a student who already has a later individual extension keeps it
-      const existingMs = existing ? new Date(existing.extended_due_date).getTime() : NaN;
-      if (Number.isFinite(existingMs) && existingMs > classwideMs) {
-        preserved += 1;
-        continue;
+    const { updated, preserved } = await sequelize.transaction(async (transaction) => {
+      await lockAssignmentGrades({ assignmentId: assignment.id, transaction });
+      const existingRows = await AssignmentExtension.findAll({
+        where: { assignment_id: assignmentId, user_id: { [Op.in]: studentIds } },
+        transaction,
+      });
+      const existingByUser = new Map(existingRows.map((row) => [row.user_id, row]));
+
+      const payload = [];
+      let keptLater = 0;
+      for (const { user_id: targetUserId } of enrollments) {
+        const existing = existingByUser.get(targetUserId);
+        // a student who already has a later individual extension keeps it
+        const existingMs = existing ? new Date(existing.extended_due_date).getTime() : NaN;
+        if (Number.isFinite(existingMs) && existingMs > classwideMs) {
+          keptLater += 1;
+          continue;
+        }
+        payload.push({
+          assignment_id: assignmentId,
+          user_id: targetUserId,
+          extended_due_date: extendedDueDate,
+          reason,
+          granted_by: userId,
+          created_at: grantedAt,
+        });
       }
-      payload.push({
-        assignment_id: assignmentId,
-        user_id: targetUserId,
-        extended_due_date: extendedDueDate,
-        reason,
-        granted_by: userId,
-        created_at: grantedAt,
-      });
-    }
 
-    if (payload.length > 0) {
-      // no updated_at column; created_at tracks last grant
-      await AssignmentExtension.bulkCreate(payload, {
-        updateOnDuplicate: ['extended_due_date', 'reason', 'granted_by', 'created_at'],
-      });
-    }
+      if (payload.length > 0) {
+        // no updated_at column; created_at tracks last grant
+        await AssignmentExtension.bulkCreate(payload, {
+          updateOnDuplicate: ['extended_due_date', 'reason', 'granted_by', 'created_at'],
+          transaction,
+        });
+        // only students whose deadline actually moved need a grade recompute
+        await recomputeAssignmentGrades({
+          assignmentIds: [assignment.id],
+          userIds: payload.map((row) => row.user_id),
+          transaction,
+        });
+      }
+      return { updated: payload.length, preserved: keptLater };
+    });
 
-    // only students whose deadline actually moved need a grade recompute;
-    // run them one at a time so a large class can't exhaust the db pool
-    for (const { user_id: targetUserId } of payload) {
-      await recomputeAssignmentGrade({ assignmentId: assignment.id, userId: targetUserId });
-    }
-
-    res.status(200).json({ updated: payload.length, preserved, total });
+    res.status(200).json({ updated, preserved, total });
   } catch (error) {
     next(error);
   }

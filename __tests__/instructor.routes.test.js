@@ -19,7 +19,12 @@ const extensionBulkCreate = jest.fn();
 const assignmentQuestionFindByPk = jest.fn();
 const overrideUpsert = jest.fn();
 const overrideFindAll = jest.fn();
-const recomputeAssignmentGrade = jest.fn();
+const recomputeAssignmentGrades = jest.fn();
+const lockStudentGrades = jest.fn();
+const lockAssignmentGrades = jest.fn();
+const userFindAll = jest.fn();
+const databaseTransaction = { id: 'tx' };
+const transaction = jest.fn(async (callback) => callback(databaseTransaction));
 const submissionFindAll = jest.fn();
 
 jest.unstable_mockModule('../models/index.js', () => ({
@@ -36,7 +41,8 @@ jest.unstable_mockModule('../models/index.js', () => ({
   AssignmentQuestionOverride: { findAll: overrideFindAll, upsert: overrideUpsert },
   Submission: { findAll: submissionFindAll },
   CourseEnrollment: { findOne, findAll, create: createEnrollment },
-  User: { findByPk, findOne: userFindOne, create: userCreate },
+  User: { findByPk, findOne: userFindOne, findAll: userFindAll, create: userCreate },
+  sequelize: { transaction },
 }));
 
 jest.unstable_mockModule('../utils/passwords.js', () => ({
@@ -48,7 +54,9 @@ jest.unstable_mockModule('../utils/passwords.js', () => ({
 }));
 
 jest.unstable_mockModule('../utils/grades.js', () => ({
-  recomputeAssignmentGrade,
+  lockAssignmentGrades,
+  lockStudentGrades,
+  recomputeAssignmentGrades,
 }));
 
 const instructorRouter = (await import('../routes/instructor.js')).default;
@@ -130,7 +138,11 @@ describe('instructor routes', () => {
     assignmentQuestionFindByPk.mockReset();
     overrideUpsert.mockReset();
     overrideFindAll.mockReset();
-    recomputeAssignmentGrade.mockReset().mockResolvedValue(undefined);
+    recomputeAssignmentGrades.mockReset().mockResolvedValue([]);
+    lockStudentGrades.mockReset().mockResolvedValue(undefined);
+    lockAssignmentGrades.mockReset().mockResolvedValue(undefined);
+    userFindAll.mockReset().mockResolvedValue([]);
+    transaction.mockClear();
     submissionFindAll.mockReset();
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   });
@@ -312,9 +324,7 @@ describe('instructor routes', () => {
   describe('POST /courses/:id/students/bulk', () => {
     it('imports students and skips duplicates', async () => {
       findByPk.mockResolvedValueOnce({ is_system_admin: true });
-      userFindOne
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ id: 12, username: 'dupe' });
+      userFindAll.mockResolvedValueOnce([{ username: 'dupe' }]);
       hashPassword.mockResolvedValue('hashed');
       userCreate.mockResolvedValueOnce({ id: 21, username: 'alice', password_hash: 'hashed' });
       createEnrollment.mockResolvedValueOnce({});
@@ -337,6 +347,76 @@ describe('instructor routes', () => {
       expect(res.body.skipped).toBe(1);
       expect(res.body.students).toEqual([{ id: 21, username: 'alice' }]);
       expect(res.body.errors).toEqual([{ username: 'dupe', reason: 'Username already in use' }]);
+      // one lookup for the whole batch instead of one per student
+      expect(userFindAll).toHaveBeenCalledTimes(1);
+      expect(userFindOne).not.toHaveBeenCalled();
+      // account and enrollment share one transaction so neither survives alone
+      expect(userCreate).toHaveBeenCalledWith(
+        { username: 'alice', password_hash: 'hashed' },
+        { transaction: databaseTransaction }
+      );
+      expect(createEnrollment).toHaveBeenCalledWith(
+        { course_id: 1, user_id: 21, role: 'student' },
+        { transaction: databaseTransaction }
+      );
+    });
+
+    it('reports a failed enrollment without keeping the account and flags repeats in the batch', async () => {
+      findByPk.mockResolvedValueOnce({ is_system_admin: true });
+      hashPassword.mockResolvedValue('hashed');
+      userCreate
+        .mockResolvedValueOnce({ id: 21, username: 'alice', password_hash: 'hashed' })
+        .mockResolvedValueOnce({ id: 22, username: 'bob', password_hash: 'hashed' });
+      createEnrollment
+        .mockResolvedValueOnce({})
+        .mockRejectedValueOnce(new Error('enrollment failed'));
+
+      const handlers = getRouteHandlers('/courses/:id/students/bulk', 'post');
+      const req = {
+        params: { id: '1' },
+        body: {
+          students: [
+            { username: 'alice', password: 'pw' },
+            { username: 'alice', password: 'pw' },
+            { username: 'bob', password: 'pw' },
+          ],
+        },
+        user: { id: 99 },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(201);
+      expect(res.body.imported).toBe(1);
+      expect(res.body.errors).toEqual([
+        { username: 'alice', reason: 'Username already in use' },
+        { username: 'bob', reason: 'enrollment failed' },
+      ]);
+      // each student gets its own transaction so bob's rollback leaves alice in place
+      expect(transaction).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('POST /courses/:id/students', () => {
+    it('creates the account and enrollment in one transaction', async () => {
+      findByPk.mockResolvedValueOnce({ is_system_admin: true });
+      userFindOne.mockResolvedValueOnce(null);
+      hashPassword.mockResolvedValue('hashed');
+      userCreate.mockResolvedValueOnce({ id: 21, username: 'alice', password_hash: 'hashed' });
+      createEnrollment.mockResolvedValueOnce({});
+
+      const handlers = getRouteHandlers('/courses/:id/students', 'post');
+      const req = {
+        params: { id: '1' },
+        body: { username: 'alice', password: 'pw' },
+        user: { id: 99 },
+      };
+      const res = await runHandlers(handlers, req, createRes());
+
+      expect(res.statusCode).toBe(201);
+      expect(res.body).toEqual({ user: { id: 21, username: 'alice' } });
+      expect(transaction).toHaveBeenCalledTimes(1);
+      expect(userCreate.mock.calls[0][1]).toEqual({ transaction: databaseTransaction });
+      expect(createEnrollment.mock.calls[0][1]).toEqual({ transaction: databaseTransaction });
     });
   });
 
@@ -380,7 +460,7 @@ describe('instructor routes', () => {
         .mockResolvedValueOnce({ id: 1 });
       accommodationFindOne.mockResolvedValueOnce(null);
       accommodationCreate.mockResolvedValueOnce({ id: 10, user_id: 55, course_id: 3 });
-      assignmentFindAll.mockResolvedValueOnce([]);
+      assignmentFindAll.mockResolvedValueOnce([{ id: 12 }, { id: 4 }]);
 
       const handlers = getRouteHandlers('/courses/:id/accommodations', 'post');
       const req = {
@@ -392,6 +472,19 @@ describe('instructor routes', () => {
 
       expect(res.statusCode).toBe(201);
       expect(accommodationCreate).toHaveBeenCalledTimes(1);
+      expect(accommodationCreate.mock.calls[0][1]).toEqual({ transaction: databaseTransaction });
+      expect(lockStudentGrades).toHaveBeenCalledWith({
+        assignmentIds: [12, 4],
+        userId: 55,
+        transaction: databaseTransaction,
+      });
+      // one batched recompute across the course instead of one per assignment
+      expect(recomputeAssignmentGrades).toHaveBeenCalledTimes(1);
+      expect(recomputeAssignmentGrades).toHaveBeenCalledWith({
+        assignmentIds: [12, 4],
+        userIds: [55],
+        transaction: databaseTransaction,
+      });
     });
   });
 
@@ -432,6 +525,17 @@ describe('instructor routes', () => {
 
       expect(res.statusCode).toBe(201);
       expect(extensionCreate).toHaveBeenCalledTimes(1);
+      expect(extensionCreate.mock.calls[0][1]).toEqual({ transaction: databaseTransaction });
+      expect(lockStudentGrades).toHaveBeenCalledWith({
+        assignmentIds: [9],
+        userId: 55,
+        transaction: databaseTransaction,
+      });
+      expect(recomputeAssignmentGrades).toHaveBeenCalledWith({
+        assignmentIds: [9],
+        userIds: [55],
+        transaction: databaseTransaction,
+      });
     });
 
     it.each(['', 'not-a-date', '2026-13-45'])('rejects invalid extended_due_date %p', async (value) => {
@@ -713,9 +817,19 @@ describe('instructor routes', () => {
       expect(rows.every((row) => row.created_at instanceof Date)).toBe(true);
       expect(options).toEqual({
         updateOnDuplicate: ['extended_due_date', 'reason', 'granted_by', 'created_at'],
+        transaction: databaseTransaction,
       });
-      // only students whose deadline moved get a grade recompute
-      expect(recomputeAssignmentGrade.mock.calls.map(([args]) => args.userId)).toEqual([56, 57]);
+      expect(lockAssignmentGrades).toHaveBeenCalledWith({
+        assignmentId: 9,
+        transaction: databaseTransaction,
+      });
+      // only students whose deadline moved get a grade recompute, batched in one call
+      expect(recomputeAssignmentGrades).toHaveBeenCalledTimes(1);
+      expect(recomputeAssignmentGrades).toHaveBeenCalledWith({
+        assignmentIds: [9],
+        userIds: [56, 57],
+        transaction: databaseTransaction,
+      });
     });
 
     it('returns zero counts and skips writes when the course has no students', async () => {
@@ -733,7 +847,7 @@ describe('instructor routes', () => {
       expect(res.statusCode).toBe(200);
       expect(res.body).toEqual({ updated: 0, preserved: 0, total: 0 });
       expect(extensionBulkCreate).not.toHaveBeenCalled();
-      expect(recomputeAssignmentGrade).not.toHaveBeenCalled();
+      expect(recomputeAssignmentGrades).not.toHaveBeenCalled();
     });
 
     it.each(['', 'not-a-date', '2026-13-45'])('rejects invalid extended_due_date %p', async (value) => {
