@@ -368,6 +368,7 @@ export async function fetchInstructorAssignmentStats(sequelize, courseId) {
 
 /*
 fetch assignment averages and medians for a course
+due date is the original assignment deadline without student adjustments
 assignments without current questions stay visible with null averages and medians
 database failures throw contextual errors
 */
@@ -409,7 +410,6 @@ export async function fetchAssignmentGradeSummary(sequelize, courseId) {
         a.id,
         a.title,
         a.due_date,
-        a.due_date AS due_at,
         a.late_window_days,
         a.is_locked,
         a.publish_at,

@@ -65,15 +65,27 @@ async function requireTextbookCourse(req, res, next) {
   }
 }
 
-// course mutation contract
-// instructors may update courses they control
-// only system administrators may permanently delete courses
+/*
+course reads require enrollment unless the user is a system administrator
+unenrolled users receive an empty list and forbidden individual reads
+instructors may update courses they control
+only system administrators may permanently delete courses
+*/
 const router = createCrudRouter(Course, {
-  // course list is open to any logged in user
-  authorizeList: () => true,
+  listFilter: (req) => (isSystemAdmin(req.user) ? {} : {
+    include: [{
+      model: CourseEnrollment,
+      attributes: [],
+      where: { user_id: req.user.id },
+      required: true,
+    }],
+  }),
   authorizeCreate: (req) => requireInstructorInAnyCourseOrAdmin(req.user),
-  authorizeRecord: (req, record, action) => {
+  authorizeRecord: async (req, record, action) => {
     if (action === 'read') {
+      if (!isSystemAdmin(req.user)) {
+        await requireEnrollmentForCourse(req.user.id, record.id, 'Enrollment required');
+      }
       return true;
     }
     if (action === 'delete') {
