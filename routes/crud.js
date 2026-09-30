@@ -16,6 +16,16 @@ export function createCrudRouter(model, options = {}) {
     authorizeCreate,
     authorizeRecord,
   } = options;
+  // fail closed so a forgotten hook crashes on boot instead of exposing every row
+  if (!authorizeRecord) {
+    throw new Error(`crud router for ${model.name} needs authorizeRecord`);
+  }
+  if (allowCreate && !authorizeCreate) {
+    throw new Error(`crud router for ${model.name} needs authorizeCreate or allowCreate: false`);
+  }
+  if (!authorizeList && !listFilter) {
+    throw new Error(`crud router for ${model.name} needs authorizeList or listFilter`);
+  }
   const router = express.Router();
   const idValidators = [
     param('id').isInt({ gt: 0 }).toInt().withMessage('id must be a positive integer'),
@@ -42,7 +52,7 @@ export function createCrudRouter(model, options = {}) {
         if (!record) {
           return res.status(404).json({ message: 'Not found' });
         }
-        if (authorizeRecord && !(await authorizeRecord(req, record, 'read'))) {
+        if (!(await authorizeRecord(req, record, 'read'))) {
           return res.status(403).json({ message: 'Forbidden' });
         }
         res.json(sanitize ? sanitize(record) : record);
@@ -55,7 +65,7 @@ export function createCrudRouter(model, options = {}) {
   if (allowCreate) {
     router.post('/', async (req, res, next) => {
       try {
-        if (authorizeCreate && !(await authorizeCreate(req))) {
+        if (!(await authorizeCreate(req))) {
           return res.status(403).json({ message: 'Forbidden' });
         }
         const payload = beforeCreate ? await beforeCreate(req, req.body) : req.body;
@@ -73,7 +83,7 @@ export function createCrudRouter(model, options = {}) {
       if (!record) {
         return res.status(404).json({ message: 'Not found' });
       }
-      if (authorizeRecord && !(await authorizeRecord(req, record, 'update'))) {
+      if (!(await authorizeRecord(req, record, 'update'))) {
         return res.status(403).json({ message: 'Forbidden' });
       }
       const payload = beforeUpdate ? await beforeUpdate(req, req.body, record) : req.body;
@@ -91,7 +101,7 @@ export function createCrudRouter(model, options = {}) {
         if (!record) {
           return res.status(404).json({ message: 'Not found' });
         }
-        if (authorizeRecord && !(await authorizeRecord(req, record, 'delete'))) {
+        if (!(await authorizeRecord(req, record, 'delete'))) {
           return res.status(403).json({ message: 'Forbidden' });
         }
         await record.destroy();
