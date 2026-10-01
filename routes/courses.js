@@ -123,6 +123,8 @@ router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (r
       return res.status(403).json({ message: 'Enrollment required' });
     }
     const canSeeLocked = isCourseStaff(req.user, enrollment);
+    // tas get the student practice page so only instructors need completions
+    const canSeeCompletions = admin || enrollment?.role === 'instructor';
     // one query. assignments and counts.
     const rows = await sequelize.query(
       `
@@ -167,6 +169,32 @@ router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (r
     const visibleRows = canSeeLocked
       ? rows
       : rows.filter((row) => !isAssignmentLocked(row));
+    // students who answered every question of each practice
+    const completionRows = canSeeCompletions && rows.some((row) => row.kind === 'practice')
+      ? await sequelize.query(
+        `
+        SELECT assignment_id, COUNT(*)::int AS completions
+        FROM (
+          SELECT aq.assignment_id
+          FROM assignments a
+          JOIN assignment_questions aq ON aq.assignment_id = a.id
+          JOIN submissions s ON s.assignment_question_id = aq.id
+          JOIN course_enrollments ce
+            ON ce.course_id = a.course_id AND ce.user_id = s.user_id AND ce.role = 'student'
+          WHERE a.course_id = :courseId AND a.kind = 'practice'
+          GROUP BY aq.assignment_id, s.user_id
+          HAVING COUNT(DISTINCT aq.id) = (
+            SELECT COUNT(*) FROM assignment_questions WHERE assignment_id = aq.assignment_id
+          )
+        ) finished
+        GROUP BY assignment_id
+        `,
+        { replacements: { courseId }, type: QueryTypes.SELECT }
+      )
+      : [];
+    const completionsByAssignment = new Map(
+      completionRows.map((row) => [row.assignment_id, row.completions])
+    );
     const accommodation = userId
       ? await Accommodation.findOne({
         where: { course_id: courseId, user_id: userId },
@@ -232,6 +260,9 @@ router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (r
         answered_count,
         completed,
         policy,
+        ...(canSeeCompletions && row.kind === 'practice'
+          ? { completions: completionsByAssignment.get(row.id) ?? 0 }
+          : {}),
       };
       return data;
     });
