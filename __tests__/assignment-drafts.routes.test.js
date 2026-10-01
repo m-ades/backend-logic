@@ -89,6 +89,43 @@ describe('assignment draft routes', () => {
     courseEnrollmentFindOne.mockReset().mockResolvedValue({ id: 1 });
   });
 
+  it('lists only the caller\'s own drafts even for a system administrator', async () => {
+    findAll.mockResolvedValue([]);
+    const res = await runHandlers(getRouteHandlers('/', 'get'), {
+      query: {},
+      user: { id: 1, is_system_admin: true },
+    }, createRes());
+
+    expect(res.statusCode).toBe(200);
+    expect(findAll).toHaveBeenCalledWith(expect.objectContaining({ where: { user_id: 1 } }));
+    expect(findAll.mock.calls[0][0].include).toBeUndefined();
+  });
+
+  it('narrows the draft list to one assignment', async () => {
+    findAll.mockResolvedValue([]);
+    await runHandlers(getRouteHandlers('/', 'get'), {
+      query: { assignmentId: '178' },
+      user: { id: 48, is_system_admin: false },
+    }, createRes());
+
+    const options = findAll.mock.calls[0][0];
+    expect(options.where).toEqual({ user_id: 48 });
+    expect(options.include).toEqual([expect.objectContaining({
+      where: { assignment_id: 178 },
+      required: true,
+    })]);
+  });
+
+  it('rejects a draft list filtered by a malformed assignment id', async () => {
+    const res = await runHandlers(getRouteHandlers('/', 'get'), {
+      query: { assignmentId: 'abc' },
+      user: { id: 48, is_system_admin: false },
+    }, createRes());
+
+    expect(res.statusCode).toBe(400);
+    expect(findAll).not.toHaveBeenCalled();
+  });
+
   it('updates an existing draft without creating a duplicate row', async () => {
     // the common autosave path should stay on update and skip insert
     const saved = { id: 9, assignment_question_id: 237, user_id: 48 };

@@ -65,6 +65,18 @@ async function requireTextbookCourse(req, res, next) {
   }
 }
 
+// same visibility as the roster so admins see every count and instructors only their own courses
+function studentCountAttribute(user) {
+  const count = `(SELECT COUNT(*)::int FROM course_enrollments ce
+    WHERE ce.course_id = "Course"."id" AND ce.role = 'student')`;
+  if (isSystemAdmin(user)) {
+    return [sequelize.literal(count), 'student_count'];
+  }
+  return [sequelize.literal(`CASE WHEN EXISTS (SELECT 1 FROM course_enrollments me
+    WHERE me.course_id = "Course"."id" AND me.user_id = ${sequelize.escape(user.id)}
+    AND me.role = 'instructor') THEN ${count} END`), 'student_count'];
+}
+
 /*
 course reads require enrollment unless the user is a system administrator
 unenrolled users receive an empty list and forbidden individual reads
@@ -72,13 +84,16 @@ instructors may update courses they control
 only system administrators may permanently delete courses
 */
 const router = createCrudRouter(Course, {
-  listFilter: (req) => (isSystemAdmin(req.user) ? {} : {
-    include: [{
-      model: CourseEnrollment,
-      attributes: [],
-      where: { user_id: req.user.id },
-      required: true,
-    }],
+  listFilter: (req) => ({
+    attributes: { include: [studentCountAttribute(req.user)] },
+    ...(isSystemAdmin(req.user) ? {} : {
+      include: [{
+        model: CourseEnrollment,
+        attributes: [],
+        where: { user_id: req.user.id },
+        required: true,
+      }],
+    }),
   }),
   authorizeCreate: (req) => requireInstructorInAnyCourseOrAdmin(req.user),
   authorizeRecord: async (req, record, action) => {
