@@ -15,3 +15,7 @@ export function ensureSelfOrAdmin(req, res, targetUserId) {
   res.status(403).json({ message: 'Forbidden' });
   return false;
 }
+
+export function isCourseStaff(user, enrollment) {
+  return isSystemAdmin(user) || enrollment?.role === 'instructor' || enrollment?.role === 'ta';
+}

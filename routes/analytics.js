@@ -32,7 +32,7 @@ import {
 } from '../queries/analytics.js';
 import { computeDeadlinePolicy } from '../utils/assignmentPolicy.js';
 import { isAssignmentLocked } from '../utils/publicationPolicy.js';
-import { ensureSelfOrAdmin, isSystemAdmin } from '../utils/authorization.js';
+import { ensureSelfOrAdmin, isCourseStaff, isSystemAdmin } from '../utils/authorization.js';
 import { requireInstructorOrAdmin } from './instructor.js';
 
 const router = express.Router();
@@ -462,9 +462,7 @@ router.get('/gradebook-summary', [courseIdParam, handleValidationResult], async 
       is_locked: isAssignmentLocked(row),
     }));
     const class_avg_with_drop = await computeClassAvgWithDrop(courseId, effectiveRows);
-    const canSeeLocked = isSystemAdmin(req.user)
-      || enrollment?.role === 'instructor'
-      || enrollment?.role === 'ta';
+    const canSeeLocked = isCourseStaff(req.user, enrollment);
     const visibleRows = canSeeLocked
       ? effectiveRows
       : effectiveRows.filter((row) => !row.is_locked);

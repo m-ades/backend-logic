@@ -409,6 +409,7 @@ describe('question snapshot boundaries', () => {
         kind: 'assignment',
       },
     });
+    courseEnrollmentFindOne.mockResolvedValue({ id: 5, role: 'student' });
     const handlers = getRouteHandlers(validateRouter, '/submission', 'post');
     const req = {
       body: {
