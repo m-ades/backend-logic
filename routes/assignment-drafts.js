@@ -5,12 +5,32 @@ import {
   assignmentQuestionIdBody,
   userIdBody,
 } from '../validators/common.js';
-import { AssignmentDraft } from '../models/index.js';
+import { AssignmentDraft, AssignmentQuestion } from '../models/index.js';
 import { ensureSelfOrAdmin, isSystemAdmin } from '../utils/authorization.js';
 import { requireEnrollmentForAssignmentQuestion } from '../utils/enrollment.js';
 
+function ownDraftsFilter(req) {
+  const own = { where: { user_id: req.user.id } };
+  if (req.query.assignmentId === undefined) {
+    return own;
+  }
+  const assignmentId = Number(req.query.assignmentId);
+  if (!Number.isInteger(assignmentId) || assignmentId <= 0) {
+    throw Object.assign(new Error('assignmentId must be a positive integer'), { status: 400 });
+  }
+  return {
+    ...own,
+    include: [{
+      model: AssignmentQuestion,
+      attributes: [],
+      where: { assignment_id: assignmentId },
+      required: true,
+    }],
+  };
+}
+
 const router = createCrudRouter(AssignmentDraft, {
-  listFilter: (req) => (isSystemAdmin(req.user) ? {} : { where: { user_id: req.user.id } }),
+  listFilter: ownDraftsFilter,
   authorizeRecord: (req, record) => (
     isSystemAdmin(req.user) || Number(record.user_id) === Number(req.user?.id)
   ),
