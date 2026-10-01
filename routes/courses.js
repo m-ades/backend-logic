@@ -18,7 +18,7 @@ import {
   textbookPracticeLinksBody,
   textbookStructureBody,
 } from '../validators/textbook.js';
-import { isSystemAdmin } from '../utils/authorization.js';
+import { isCourseStaff, isSystemAdmin } from '../utils/authorization.js';
 import { requireEnrollmentForCourse } from '../utils/enrollment.js';
 import { DEFAULT_LOGIC_SYSTEM, normalizeLogicSystem } from '@logic-app/logic-engine/logicSystems.js';
 import { requireInstructorOrAdmin } from './instructor.js';
@@ -122,7 +122,7 @@ router.get('/:id/assignments', [courseIdParam, handleValidationResult], async (r
     if (!admin && !enrollment) {
       return res.status(403).json({ message: 'Enrollment required' });
     }
-    const canSeeLocked = admin || enrollment?.role === 'instructor' || enrollment?.role === 'ta';
+    const canSeeLocked = isCourseStaff(req.user, enrollment);
     // one query. assignments and counts.
     const rows = await sequelize.query(
       `

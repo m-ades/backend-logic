@@ -20,7 +20,7 @@ import {
   recomputeAssignmentGrades,
 } from '../utils/grades.js';
 import { handleValidationResult } from '../middleware/validation.js';
-import { ensureSelfOrAdmin } from '../utils/authorization.js';
+import { ensureSelfOrAdmin, isCourseStaff } from '../utils/authorization.js';
 import { isAssignmentLocked } from '../utils/publicationPolicy.js';
 
 const router = express.Router();
@@ -58,12 +58,28 @@ router.post(
       return res.status(404).json({ message: 'quetsion not found' });
     }
 
-    if (isAssignmentLocked(assignmentQuestion.Assignment)) {
+    const assignment = assignmentQuestion.Assignment;
+
+    // submitter is enrolled in the course
+    const enrollment = await CourseEnrollment.findOne({
+      where: {
+        user_id,
+        course_id: assignment.course_id,
+      },
+    });
+
+    if (!enrollment) {
+      return res.status(403).json({ message: 'user not enrolled in this course' });
+    }
+
+    // staff can test grading before release and after the cutoff
+    const isStaff = isCourseStaff(req.user, enrollment);
+
+    if (!isStaff && isAssignmentLocked(assignment)) {
       return res.status(403).json({ message: 'assignment is locked' });
     }
 
     // apply due date, extensions, and accommodations for non-practice work
-    const assignment = assignmentQuestion.Assignment;
     const accommodation = await Accommodation.findOne({
       where: { course_id: assignment.course_id, user_id },
     });
@@ -74,7 +90,7 @@ router.post(
       where: { assignment_question_id, user_id },
     });
 
-    if (assignment?.kind !== 'practice' && assignment?.due_date) {
+    if (!isStaff && assignment?.kind !== 'practice' && assignment?.due_date) {
       const policy = computeDeadlinePolicy({
         assignment,
         extension,
@@ -85,18 +101,6 @@ router.post(
       if (policy.cutoff_at && new Date() > policy.cutoff_at) {
         return res.status(403).json({ message: 'submission window has closed' });
       }
-    }
-
-    // student is enrolled in the course
-    const enrollment = await CourseEnrollment.findOne({
-      where: {
-        user_id,
-        course_id: assignment.course_id,
-      },
-    });
-
-    if (!enrollment) {
-      return res.status(403).json({ message: 'user not enrolled in this course' });
     }
 
     // count how many submission the student made for this question
