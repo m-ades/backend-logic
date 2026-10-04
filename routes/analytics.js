@@ -231,7 +231,6 @@ router.get(
     });
 
     const safeTime = {
-      avg_minutes_per_question: null,
       median_minutes_per_question: null,
       p75_minutes_per_question: null,
       cohort_median_minutes_per_question: null,
@@ -266,8 +265,8 @@ router.get(
 
 /**
  * Instructor dashboard analytics for one course: class grade summary, per-assignment
- * submission stats (scores, attempts, correctness, time per question, difficulty hints),
- * and average time-on-task by problem category.
+ * submission stats (scores, attempts, first-try correctness, median time per question),
+ * and median time per question by problem category.
  * Query: courseId (required).
  */
 router.get(['/instructor', '/instructor-dashboard'], [courseIdParam, handleValidationResult], async (req, res, next) => {

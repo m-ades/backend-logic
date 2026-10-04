@@ -224,7 +224,6 @@ export async function fetchStudentTime(sequelize, userId, courseId) {
         GROUP BY qs.assignment_question_id
       )
       SELECT
-        (SELECT AVG(minutes)::float FROM student_durations) AS avg_minutes_per_question,
         (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY minutes)
            FROM student_durations) AS median_minutes_per_question,
         (SELECT percentile_cont(0.75) WITHIN GROUP (ORDER BY minutes)
@@ -286,7 +285,6 @@ export async function fetchInstructorAssignmentStats(sequelize, courseId) {
       WITH student_question_minutes AS (
         SELECT
           aq.assignment_id,
-          COALESCE(aq.question_snapshot->>'logic_problem_type', '') AS question_type,
           SUM(EXTRACT(EPOCH FROM (qs.ended_at - qs.started_at)) / 60.0) AS minutes
         FROM question_sessions qs
         JOIN assignment_questions aq ON aq.id = qs.assignment_question_id
@@ -299,25 +297,12 @@ export async function fetchInstructorAssignmentStats(sequelize, courseId) {
           AND qs.ended_at IS NOT NULL
         GROUP BY aq.id, qs.user_id
       ),
-      question_type_medians AS (
-        SELECT
-          question_type,
-          percentile_cont(0.5) WITHIN GROUP (ORDER BY minutes) AS median_minutes
-        FROM student_question_minutes
-        GROUP BY question_type
-      ),
       time_stats AS (
         SELECT
-          sqm.assignment_id,
-          AVG(sqm.minutes)::float AS avg_minutes_per_question,
-          percentile_cont(0.5) WITHIN GROUP (ORDER BY sqm.minutes) AS median_minutes_per_question,
-          -- 1 means as long as the course median for the same question type
-          percentile_cont(0.5) WITHIN GROUP (
-            ORDER BY sqm.minutes / NULLIF(qtm.median_minutes, 0)
-          ) AS relative_time
-        FROM student_question_minutes sqm
-        JOIN question_type_medians qtm USING (question_type)
-        GROUP BY sqm.assignment_id
+          assignment_id,
+          percentile_cont(0.5) WITHIN GROUP (ORDER BY minutes) AS median_minutes_per_question
+        FROM student_question_minutes
+        GROUP BY assignment_id
       )
       SELECT
         a.id,
@@ -328,14 +313,10 @@ export async function fetchInstructorAssignmentStats(sequelize, courseId) {
         COUNT(s.id)::float
           / NULLIF(COUNT(DISTINCT (s.user_id, s.assignment_question_id)) FILTER (WHERE s.id IS NOT NULL), 0)
           AS avg_attempt,
-        SUM(CASE WHEN s.is_correct THEN 1 ELSE 0 END) AS correct_count,
-        CASE WHEN COUNT(s.id) > 0
-          THEN SUM(CASE WHEN s.is_correct THEN 1 ELSE 0 END)::float / COUNT(s.id)
-          ELSE NULL
-        END AS correct_rate,
-        ts.avg_minutes_per_question,
-        ts.median_minutes_per_question,
-        ts.relative_time
+        -- auto submitted drafts are unfinished work not a student's answer
+        (AVG(s.is_correct::int) FILTER (WHERE s.attempt = 1 AND NOT s.auto_submitted))::float
+          AS first_try_correct_rate,
+        ts.median_minutes_per_question
       FROM assignments a
       LEFT JOIN assignment_questions aq ON aq.assignment_id = a.id
       LEFT JOIN submissions s ON s.assignment_question_id = aq.id
@@ -346,28 +327,14 @@ export async function fetchInstructorAssignmentStats(sequelize, courseId) {
       LEFT JOIN time_stats ts ON ts.assignment_id = a.id
       WHERE a.course_id = :courseId
         AND (ce.id IS NOT NULL OR s.id IS NULL)
-      GROUP BY a.id, ts.avg_minutes_per_question, ts.median_minutes_per_question, ts.relative_time
+      GROUP BY a.id, ts.median_minutes_per_question
       ORDER BY a.due_date NULLS LAST, a.id;
     `;
 
     const [assignmentStats] = await sequelize.query(assignmentStatsQuery, {
       replacements: { courseId },
     });
-    if (!Array.isArray(assignmentStats) || assignmentStats.length === 0) {
-      return assignmentStats;
-    }
-
-    const classifyDifficulty = ({ relative_time: relativeTime, correct_rate: correctRate }) => {
-      if (!Number.isFinite(relativeTime) || !Number.isFinite(correctRate)) return null;
-      if (correctRate <= 0.5) return relativeTime < 0.9 ? 'confusing' : 'too_hard';
-      if (relativeTime < 0.7 && correctRate >= 0.85) return 'too_easy';
-      return 'balanced';
-    };
-
-    return assignmentStats.map((row) => ({
-      ...row,
-      difficulty_label: classifyDifficulty(row),
-    }));
+    return assignmentStats;
   } catch (error) {
     throw new Error(`failed to fetch assignment stats for course ${courseId}: ${error.message}`);
   }
