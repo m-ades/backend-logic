@@ -18,7 +18,9 @@ export async function fetchAssignmentAnalytics(sequelize, courseId) {
         a.course_id,
         COUNT(s.id) AS submission_count,
         AVG(s.score)::float AS avg_score,
-        AVG(s.attempt)::float AS avg_attempt,
+        COUNT(s.id)::float
+          / NULLIF(COUNT(DISTINCT (s.user_id, s.assignment_question_id)) FILTER (WHERE s.id IS NOT NULL), 0)
+          AS avg_attempt,
         SUM(CASE WHEN s.is_correct THEN 1 ELSE 0 END) AS correct_count
       FROM assignments a
       LEFT JOIN assignment_questions aq ON aq.assignment_id = a.id
@@ -100,9 +102,10 @@ export async function fetchStudentPerformance(sequelize, userId, courseId) {
     const performanceQuery = `
       SELECT
         AVG(s.score)::float AS avg_score,
-        AVG(s.attempt)::float AS avg_attempt,
+        COUNT(*)::float / NULLIF(COUNT(DISTINCT s.assignment_question_id), 0) AS avg_attempt,
         SUM(CASE WHEN s.is_correct THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) AS correct_rate,
-        SUM(CASE WHEN s.is_correct AND s.attempt = 1 THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0)
+        SUM(CASE WHEN s.is_correct AND s.attempt = 1 THEN 1 ELSE 0 END)::float
+          / NULLIF(COUNT(DISTINCT s.assignment_question_id), 0)
           AS first_try_correct_rate
       FROM submissions s
       JOIN assignment_questions aq ON aq.id = s.assignment_question_id
@@ -202,10 +205,11 @@ export async function fetchStudentSubmittedAssignments(sequelize, userId, course
  */
 export async function fetchStudentTime(sequelize, userId, courseId) {
   try {
+    // sessions split on every idle timeout and tab switch so total them per question first
     const timeQuery = `
       WITH student_durations AS (
         SELECT
-          EXTRACT(EPOCH FROM (qs.ended_at - qs.started_at)) / 60.0 AS minutes
+          SUM(EXTRACT(EPOCH FROM (qs.ended_at - qs.started_at)) / 60.0) AS minutes
         FROM question_sessions qs
         JOIN assignment_questions aq ON aq.id = qs.assignment_question_id
         JOIN assignments a ON a.id = aq.assignment_id
@@ -217,6 +221,7 @@ export async function fetchStudentTime(sequelize, userId, courseId) {
           AND qs.user_id = :userId
           AND qs.started_at >= NOW() - make_interval(days => :recentWindowDays)
           AND (:courseId::int IS NULL OR a.course_id = :courseId::int)
+        GROUP BY qs.assignment_question_id
       )
       SELECT
         (SELECT AVG(minutes)::float FROM student_durations) AS avg_minutes_per_question,
@@ -276,14 +281,13 @@ export async function fetchInstructorGradeSummary(sequelize, courseId) {
  */
 export async function fetchInstructorAssignmentStats(sequelize, courseId) {
   try {
+    // sessions split on every idle timeout and tab switch so total them per student question first
     const assignmentStatsQuery = `
-      WITH time_stats AS (
+      WITH student_question_minutes AS (
         SELECT
           aq.assignment_id,
-          AVG(EXTRACT(EPOCH FROM (qs.ended_at - qs.started_at)) / 60.0)::float AS avg_minutes_per_question,
-          percentile_cont(0.5) WITHIN GROUP (
-            ORDER BY EXTRACT(EPOCH FROM (qs.ended_at - qs.started_at)) / 60.0
-          ) AS median_minutes_per_question
+          COALESCE(aq.question_snapshot->>'logic_problem_type', '') AS question_type,
+          SUM(EXTRACT(EPOCH FROM (qs.ended_at - qs.started_at)) / 60.0) AS minutes
         FROM question_sessions qs
         JOIN assignment_questions aq ON aq.id = qs.assignment_question_id
         JOIN assignments a ON a.id = aq.assignment_id
@@ -293,21 +297,45 @@ export async function fetchInstructorAssignmentStats(sequelize, courseId) {
           AND ce.role = 'student'
         WHERE a.course_id = :courseId
           AND qs.ended_at IS NOT NULL
-        GROUP BY aq.assignment_id
+        GROUP BY aq.id, qs.user_id
+      ),
+      question_type_medians AS (
+        SELECT
+          question_type,
+          percentile_cont(0.5) WITHIN GROUP (ORDER BY minutes) AS median_minutes
+        FROM student_question_minutes
+        GROUP BY question_type
+      ),
+      time_stats AS (
+        SELECT
+          sqm.assignment_id,
+          AVG(sqm.minutes)::float AS avg_minutes_per_question,
+          percentile_cont(0.5) WITHIN GROUP (ORDER BY sqm.minutes) AS median_minutes_per_question,
+          -- 1 means as long as the course median for the same question type
+          percentile_cont(0.5) WITHIN GROUP (
+            ORDER BY sqm.minutes / NULLIF(qtm.median_minutes, 0)
+          ) AS relative_time
+        FROM student_question_minutes sqm
+        JOIN question_type_medians qtm USING (question_type)
+        GROUP BY sqm.assignment_id
       )
       SELECT
         a.id,
         a.title,
         COUNT(DISTINCT s.user_id) AS students_submitted,
         AVG(s.score)::float AS avg_score,
-        AVG(s.attempt)::float AS avg_attempt,
+        -- attempts per student question, not the mean attempt number
+        COUNT(s.id)::float
+          / NULLIF(COUNT(DISTINCT (s.user_id, s.assignment_question_id)) FILTER (WHERE s.id IS NOT NULL), 0)
+          AS avg_attempt,
         SUM(CASE WHEN s.is_correct THEN 1 ELSE 0 END) AS correct_count,
-        CASE WHEN COUNT(*) > 0
-          THEN SUM(CASE WHEN s.is_correct THEN 1 ELSE 0 END)::float / COUNT(*)
+        CASE WHEN COUNT(s.id) > 0
+          THEN SUM(CASE WHEN s.is_correct THEN 1 ELSE 0 END)::float / COUNT(s.id)
           ELSE NULL
         END AS correct_rate,
         ts.avg_minutes_per_question,
-        ts.median_minutes_per_question
+        ts.median_minutes_per_question,
+        ts.relative_time
       FROM assignments a
       LEFT JOIN assignment_questions aq ON aq.assignment_id = a.id
       LEFT JOIN submissions s ON s.assignment_question_id = aq.id
@@ -318,7 +346,7 @@ export async function fetchInstructorAssignmentStats(sequelize, courseId) {
       LEFT JOIN time_stats ts ON ts.assignment_id = a.id
       WHERE a.course_id = :courseId
         AND (ce.id IS NOT NULL OR s.id IS NULL)
-      GROUP BY a.id, ts.avg_minutes_per_question, ts.median_minutes_per_question
+      GROUP BY a.id, ts.avg_minutes_per_question, ts.median_minutes_per_question, ts.relative_time
       ORDER BY a.due_date NULLS LAST, a.id;
     `;
 
@@ -329,31 +357,10 @@ export async function fetchInstructorAssignmentStats(sequelize, courseId) {
       return assignmentStats;
     }
 
-    const medians = assignmentStats
-      .map((row) => row.median_minutes_per_question)
-      .filter((v) => typeof v === 'number' && Number.isFinite(v));
-    const courseMedian =
-      medians.length > 0
-        ? medians.slice().sort((a, b) => a - b)[Math.floor(medians.length / 2)]
-        : null;
-
-    const classifyDifficulty = (row) => {
-      const medianMinutes = typeof row.median_minutes_per_question === 'number'
-        ? row.median_minutes_per_question
-        : null;
-      const correctRate = typeof row.correct_rate === 'number'
-        ? row.correct_rate
-        : null;
-      if (medianMinutes == null || !Number.isFinite(medianMinutes) || courseMedian == null || !Number.isFinite(courseMedian)) {
-        return null;
-      }
-      const tRel = courseMedian > 0 ? medianMinutes / courseMedian : null;
-      if (tRel == null || !Number.isFinite(tRel) || correctRate == null) {
-        return null;
-      }
-      if (tRel < 0.7 && correctRate >= 0.85) return 'too_easy';
-      if (tRel > 1.5 && correctRate <= 0.5) return 'too_hard';
-      if (tRel < 0.9 && correctRate <= 0.5) return 'confusing';
+    const classifyDifficulty = ({ relative_time: relativeTime, correct_rate: correctRate }) => {
+      if (!Number.isFinite(relativeTime) || !Number.isFinite(correctRate)) return null;
+      if (correctRate <= 0.5) return relativeTime < 0.9 ? 'confusing' : 'too_hard';
+      if (relativeTime < 0.7 && correctRate >= 0.85) return 'too_easy';
       return 'balanced';
     };
 
@@ -443,28 +450,36 @@ export async function fetchAssignmentGradeSummary(sequelize, courseId) {
 }
 
 /**
- * fetch average time by question category for a course.
+ * fetch median time per question by question category for a course.
  * @param {import('sequelize').Sequelize} sequelize - db instance
  * @param {number} courseId - course id
  * @returns {Promise<Array>} time stats rows
  */
 export async function fetchInstructorTimeByCategory(sequelize, courseId) {
   try {
+    // median since sessions left open for days make the mean meaningless
     const timeByCategoryQuery = `
+      WITH student_question_minutes AS (
+        SELECT
+          aq.question_snapshot->>'logic_problem_type' AS category,
+          SUM(EXTRACT(EPOCH FROM (qs.ended_at - qs.started_at)) / 60.0) AS minutes
+        FROM question_sessions qs
+        JOIN assignment_questions aq ON aq.id = qs.assignment_question_id
+        JOIN assignments a ON a.id = aq.assignment_id
+        JOIN course_enrollments ce
+          ON ce.user_id = qs.user_id
+          AND ce.course_id = a.course_id
+          AND ce.role = 'student'
+        WHERE a.course_id = :courseId
+          AND qs.ended_at IS NOT NULL
+        GROUP BY aq.id, qs.user_id
+      )
       SELECT
-        aq.question_snapshot->>'logic_problem_type' AS category,
-        AVG(EXTRACT(EPOCH FROM (qs.ended_at - qs.started_at)) / 60)::float AS avg_minutes
-      FROM question_sessions qs
-      JOIN assignment_questions aq ON aq.id = qs.assignment_question_id
-      JOIN assignments a ON a.id = aq.assignment_id
-      JOIN course_enrollments ce
-        ON ce.user_id = qs.user_id
-        AND ce.course_id = a.course_id
-        AND ce.role = 'student'
-      WHERE a.course_id = :courseId
-        AND qs.ended_at IS NOT NULL
+        category,
+        percentile_cont(0.5) WITHIN GROUP (ORDER BY minutes) AS median_minutes
+      FROM student_question_minutes
       GROUP BY category
-      ORDER BY avg_minutes DESC NULLS LAST;
+      ORDER BY median_minutes DESC NULLS LAST;
     `;
 
     const [timeByCategory] = await sequelize.query(timeByCategoryQuery, {

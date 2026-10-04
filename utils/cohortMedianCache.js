@@ -14,7 +14,7 @@ async function computeCohortMedian(sequelize, courseId) {
   const query = `
     SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY minutes) AS cohort_median_minutes_per_question
     FROM (
-      SELECT EXTRACT(EPOCH FROM (qs.ended_at - qs.started_at)) / 60.0 AS minutes
+      SELECT SUM(EXTRACT(EPOCH FROM (qs.ended_at - qs.started_at)) / 60.0) AS minutes
       FROM question_sessions qs
       JOIN assignment_questions aq ON aq.id = qs.assignment_question_id
       JOIN assignments a ON a.id = aq.assignment_id
@@ -25,6 +25,8 @@ async function computeCohortMedian(sequelize, courseId) {
       WHERE qs.ended_at IS NOT NULL
         AND qs.started_at >= NOW() - make_interval(days => :recentWindowDays)
         AND (:courseId::int IS NULL OR a.course_id = :courseId::int)
+      -- one value per student question to match the student's own median
+      GROUP BY qs.user_id, qs.assignment_question_id
     ) cohort_durations;
   `;
   const [[row]] = await sequelize.query(query, {
