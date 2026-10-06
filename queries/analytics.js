@@ -309,6 +309,10 @@ export async function fetchInstructorAssignmentStats(sequelize, courseId) {
         a.title,
         COUNT(DISTINCT s.user_id) AS students_submitted,
         AVG(s.score)::float AS avg_score,
+        CASE WHEN COUNT(s.id) > 0
+          THEN SUM(CASE WHEN s.is_correct THEN 1 ELSE 0 END)::float / COUNT(s.id)
+          ELSE NULL
+        END AS correct_rate,
         -- attempts per student question, not the mean attempt number
         COUNT(s.id)::float
           / NULLIF(COUNT(DISTINCT (s.user_id, s.assignment_question_id)) FILTER (WHERE s.id IS NOT NULL), 0)
@@ -334,7 +338,47 @@ export async function fetchInstructorAssignmentStats(sequelize, courseId) {
     const [assignmentStats] = await sequelize.query(assignmentStatsQuery, {
       replacements: { courseId },
     });
-    return assignmentStats;
+    const medians = assignmentStats
+      .map((row) => row.median_minutes_per_question)
+      .filter((value) => value !== null && value !== undefined)
+      .map(Number)
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b);
+    const courseMedian = medians.length
+      ? medians[Math.floor(medians.length / 2)]
+      : null;
+
+    const classifyDifficulty = (row) => {
+      if (
+        row.median_minutes_per_question === null ||
+        row.median_minutes_per_question === undefined ||
+        row.correct_rate === null ||
+        row.correct_rate === undefined
+      ) {
+        return null;
+      }
+      const medianMinutes = Number(row.median_minutes_per_question);
+      const correctRate = Number(row.correct_rate);
+      if (
+        !Number.isFinite(medianMinutes) ||
+        !Number.isFinite(correctRate) ||
+        courseMedian == null ||
+        courseMedian <= 0
+      ) {
+        return null;
+      }
+
+      const relativeTime = medianMinutes / courseMedian;
+      if (relativeTime < 0.7 && correctRate >= 0.85) return 'too_easy';
+      if (relativeTime > 1.5 && correctRate <= 0.5) return 'too_hard';
+      if (relativeTime < 0.9 && correctRate <= 0.5) return 'confusing';
+      return 'balanced';
+    };
+
+    return assignmentStats.map((row) => ({
+      ...row,
+      difficulty_label: classifyDifficulty(row),
+    }));
   } catch (error) {
     throw new Error(`failed to fetch assignment stats for course ${courseId}: ${error.message}`);
   }
