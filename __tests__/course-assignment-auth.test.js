@@ -33,6 +33,12 @@ jest.unstable_mockModule('../models/index.js', () => ({
     upsert: jest.fn(),
     destroy: jest.fn(),
   },
+  CourseTextbookSource: {
+    findByPk: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    destroy: jest.fn(),
+  },
   CourseTextbookPracticeLinks: {
     findByPk: jest.fn(),
     upsert: jest.fn(),

@@ -6,6 +6,7 @@ import {
   Course,
   CourseEnrollment,
   CourseTextbookPracticeLinks,
+  CourseTextbookSource,
   CourseTextbookStructure,
   User,
   sequelize,
@@ -16,6 +17,7 @@ import { handleValidationResult } from '../middleware/validation.js';
 import { courseIdParam } from '../validators/common.js';
 import {
   textbookPracticeLinksBody,
+  textbookSourceBody,
   textbookStructureBody,
 } from '../validators/textbook.js';
 import { isSystemAdmin } from '../utils/authorization.js';
@@ -230,7 +232,14 @@ router.get('/:id/enrollments', [courseIdParam, handleValidationResult], async (r
 // reads require enrollment and writes require instructor access
 // saves require the updatedat returned by the latest read or save
 // stale saves return conflict without changing the resource
-function registerTextbookResourceRoutes({ path, model, valueKey, bodyValidators }) {
+function registerTextbookResourceRoutes({
+  path,
+  model,
+  valueKey,
+  bodyValidators,
+  // Most of these resources are lists; a scalar one supplies its own coercion.
+  normalizeValue = (raw) => (Array.isArray(raw) ? raw : []),
+}) {
   router.get(
     path,
     [courseIdParam, handleValidationResult, requireTextbookCourse],
@@ -270,7 +279,7 @@ function registerTextbookResourceRoutes({ path, model, valueKey, bodyValidators 
           return res.status(403).json({ message: 'Instructor or admin access required' });
         }
 
-        const values = Array.isArray(req.body[valueKey]) ? req.body[valueKey] : [];
+        const values = normalizeValue(req.body[valueKey]);
         const expectedUpdatedAt = req.body.updatedAt ?? null;
         const updatedAt = new Date();
         const nextValues = {
@@ -363,6 +372,14 @@ registerTextbookResourceRoutes({
   model: CourseTextbookPracticeLinks,
   valueKey: 'links',
   bodyValidators: textbookPracticeLinksBody,
+});
+
+registerTextbookResourceRoutes({
+  path: '/:id/textbook-source',
+  model: CourseTextbookSource,
+  valueKey: 'baseUrl',
+  bodyValidators: textbookSourceBody,
+  normalizeValue: (raw) => String(raw).trim(),
 });
 
 export default router;

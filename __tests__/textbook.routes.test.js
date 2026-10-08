@@ -11,6 +11,10 @@ const linksFindByPk = jest.fn();
 const linksCreate = jest.fn();
 const linksUpdate = jest.fn();
 const linksDestroy = jest.fn();
+const sourceFindByPk = jest.fn();
+const sourceCreate = jest.fn();
+const sourceUpdate = jest.fn();
+const sourceDestroy = jest.fn();
 const requireInstructorOrAdmin = jest.fn();
 
 jest.unstable_mockModule('../models/index.js', () => ({
@@ -34,6 +38,12 @@ jest.unstable_mockModule('../models/index.js', () => ({
     create: linksCreate,
     update: linksUpdate,
     destroy: linksDestroy,
+  },
+  CourseTextbookSource: {
+    findByPk: sourceFindByPk,
+    create: sourceCreate,
+    update: sourceUpdate,
+    destroy: sourceDestroy,
   },
   Submission: {},
   User: {},
@@ -111,6 +121,10 @@ describe('textbook course routes', () => {
     linksCreate.mockReset();
     linksUpdate.mockReset();
     linksDestroy.mockReset();
+    sourceFindByPk.mockReset();
+    sourceCreate.mockReset();
+    sourceUpdate.mockReset();
+    sourceDestroy.mockReset();
     requireInstructorOrAdmin.mockReset();
   });
 
@@ -332,5 +346,111 @@ describe('textbook course routes', () => {
     );
 
     expect(res.statusCode).toBe(409);
+  });
+});
+
+describe('textbook-source route', () => {
+  const REMOTE = 'https://prof.github.io/forallx-yyc';
+
+  beforeEach(() => {
+    courseFindByPk.mockReset();
+    courseFindByPk.mockResolvedValue({ id: 3, logic_system: 'fitch' });
+    courseEnrollmentFindOne.mockReset();
+    courseEnrollmentFindOne.mockResolvedValue({ id: 1, role: 'instructor' });
+    sourceFindByPk.mockReset();
+    sourceCreate.mockReset();
+    sourceUpdate.mockReset();
+    sourceDestroy.mockReset();
+    requireInstructorOrAdmin.mockReset();
+    requireInstructorOrAdmin.mockResolvedValue(true);
+  });
+
+  const put = (baseUrl, updatedAt = null) =>
+    runHandlers(
+      getRouteHandlers(coursesRouter, '/:id/textbook-source', 'put'),
+      { params: { id: 3 }, user: { id: 9 }, body: { baseUrl, updatedAt } },
+      createRes()
+    );
+
+  test('a course with no row falls back to the deploy default', async () => {
+    sourceFindByPk.mockResolvedValue(null);
+    const res = await runHandlers(
+      getRouteHandlers(coursesRouter, '/:id/textbook-source', 'get'),
+      { params: { id: 3 }, user: { id: 9 } },
+      createRes()
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      courseId: 3,
+      baseUrl: null,
+      usingDefaults: true,
+      updatedAt: null,
+    });
+  });
+
+  test('an allowlisted bundle is stored', async () => {
+    sourceCreate.mockResolvedValue({ baseUrl: REMOTE, updated_at: new Date('2026-01-15T00:00:00Z') });
+    const res = await put(REMOTE);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.baseUrl).toBe(REMOTE);
+    expect(res.body.usingDefaults).toBe(false);
+    expect(sourceCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ course_id: 3, baseUrl: REMOTE, updated_by: 9 })
+    );
+  });
+
+  test('a bundle off the allowlist is refused before it reaches the database', async () => {
+    for (const rejected of [
+      'https://attacker.test/book',
+      'http://prof.github.io/forallx-yyc',
+      'https://prof.github.io/forallx-yyc/',
+      'https://prof.github.io/forallx-yyc?ref=x',
+      'javascript:alert(1)',
+      '',
+    ]) {
+      const res = await put(rejected);
+      expect(res.statusCode).toBe(400);
+      expect(sourceCreate).not.toHaveBeenCalled();
+      expect(sourceUpdate).not.toHaveBeenCalled();
+    }
+  });
+
+  test('a stale save is refused rather than overwriting a newer one', async () => {
+    sourceUpdate.mockResolvedValue([0, []]);
+    const res = await put(REMOTE, '2026-01-01T00:00:00.000Z');
+
+    expect(res.statusCode).toBe(409);
+  });
+
+  test('clearing the override returns the course to the deploy default', async () => {
+    sourceDestroy.mockResolvedValue(1);
+    const res = await runHandlers(
+      getRouteHandlers(coursesRouter, '/:id/textbook-source', 'delete'),
+      { params: { id: 3 }, user: { id: 9 } },
+      createRes()
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      courseId: 3,
+      baseUrl: null,
+      usingDefaults: true,
+      updatedAt: null,
+    });
+    expect(sourceDestroy).toHaveBeenCalledWith({ where: { course_id: 3 } });
+  });
+
+  test('textbook-source is unavailable for Hurley courses', async () => {
+    courseFindByPk.mockResolvedValue({ id: 3, logic_system: 'hurley' });
+    const res = await runHandlers(
+      getRouteHandlers(coursesRouter, '/:id/textbook-source', 'get'),
+      { params: { id: 3 }, user: { id: 9 } },
+      createRes()
+    );
+
+    expect(res.statusCode).toBe(404);
+    expect(sourceFindByPk).not.toHaveBeenCalled();
   });
 });
