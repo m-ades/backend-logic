@@ -103,6 +103,24 @@ describe('proof argument extraction', () => {
     expect(result.score).toBe(100);
   });
 
+  it('grades a theorem proved from zero premises', async () => {
+    const result = await validateLogicProblem({
+      question: {
+        type: 'proof-argument-extraction',
+        prems: [],
+        lines: ['P', 'P', 'P → P'],
+        assumptionScopes: [{ start: 0, end: 1 }],
+      },
+      submission: {
+        argumentLine: '∴ P → P',
+        justifications: ['AS', 'R 1', '→I 1-2'],
+      },
+      options: { logicSystem: 'fitch' },
+    });
+
+    expect(result.isCorrect).toBe(true);
+  });
+
   it('checks an assumption scope that begins after a top-level proof line', async () => {
     const result = await validateLogicProblem({
       question: {
