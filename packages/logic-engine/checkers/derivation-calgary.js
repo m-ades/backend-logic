@@ -94,7 +94,7 @@ export default async function(
         ansclone,
         question.prems,
         question.conc,
-        { notation: notationname, assumptionMode: 'nested' }
+        { notation: notationname, assumptionMode: 'nested', checkBlankJustifications: options?.checkBlankJustifications }
     ).report();
     addRequiredRuleErrors(checkResult, ansclone, require, requireAny, normalizeForNotation);
     // only correct if no errors

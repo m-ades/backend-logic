@@ -6,6 +6,7 @@ import {
     parseAssumptionScopes,
 } from '../proofArgumentExtractionScopes.js';
 import { parseExtractionArgument } from '../proofArgumentExtractionArgument.js';
+import { mergeProvidedJustification } from '../proofArgumentExtractionJustifications.js';
 
 function flattenProofLines(parts = []) {
     const lines = [];
@@ -19,9 +20,15 @@ function flattenProofLines(parts = []) {
     return lines;
 }
 
-function getSubmittedJustifications(givenans, premiseCount) {
-    if (Array.isArray(givenans?.justifications)) {
-        return givenans.justifications.map((value) => String(value ?? '').trim());
+// what the student entered for each proof line after the premises
+function getSubmittedLines(givenans, premiseCount) {
+    const formulas = Array.isArray(givenans?.formulas) ? givenans.formulas : [];
+    const justifications = Array.isArray(givenans?.justifications) ? givenans.justifications : [];
+    if (formulas.length || justifications.length) {
+        return Array.from({ length: Math.max(formulas.length, justifications.length) }, (_, index) => ({
+            formula: String(formulas[index] ?? '').trim(),
+            justification: String(justifications[index] ?? '').trim(),
+        }));
     }
     const proof = givenans?.proof
         ?? givenans?.derivationState?.ans
@@ -35,7 +42,10 @@ function getSubmittedJustifications(givenans, premiseCount) {
         : roots;
     return flattenProofLines(proofRoot)
         .slice(premiseCount)
-        .map((line) => String(line?.j ?? '').trim());
+        .map((line) => ({
+            formula: String(line?.s ?? '').trim(),
+            justification: String(line?.j ?? '').trim(),
+        }));
 }
 
 function getQuestionLines(question) {
@@ -44,7 +54,7 @@ function getQuestionLines(question) {
         ? question.justifications
         : [];
     return formulas.map((formula, index) => ({
-        formula,
+        formula: String(formula ?? '').trim(),
         justification: String(supplied[index] ?? '').trim(),
     }));
 }
@@ -111,29 +121,37 @@ function buildCanonicalProof(premises, lines, justifications, scopes) {
     };
 }
 
-// the question owns every formula and any supplied justification; the submission
-// owns only the missing citations and argument text
+/*
+the question owns every provided formula and justification part
+the submission owns only the blank formulas, the missing justification parts and the argument text
+*/
 export default async function(
     question, _answer, givenans, partialcredit, cheat, options = {}
 ) {
     const premises = Array.isArray(question?.prems) ? question.prems : [];
-    const lines = getQuestionLines(question);
-    const conclusion = lines.at(-1)?.formula ?? '';
-    if (!conclusion) {
+    const questionLines = getQuestionLines(question);
+    if (questionLines.length === 0) {
         return {
             successstatus: 'incorrect',
             score: 0,
-            message: 'This question has no conclusion line.',
+            message: 'This question has no proof lines.',
         };
     }
 
     const notation = options?.notation || 'hurley';
     const Formula = getFormulaClass(notation);
-    const submittedJustifications = getSubmittedJustifications(givenans, premises.length);
-    const justifications = lines.map((line, index) => (
-        line.justification || String(submittedJustifications[index] ?? '').trim()
-    ));
     const logicSystem = options?.logicSystem === 'fitch' ? 'fitch' : 'hurley';
+    const submittedLines = getSubmittedLines(givenans, premises.length);
+    const lines = questionLines.map((line, index) => ({
+        formula: line.formula || submittedLines[index]?.formula || '',
+    }));
+    // the last line is the conclusion even when the student writes it, so the argument is checked against it
+    const conclusion = lines.at(-1).formula;
+    const justifications = questionLines.map((line, index) => mergeProvidedJustification(
+        line.justification,
+        submittedLines[index]?.justification,
+        { rulesFirst: logicSystem === 'fitch' }
+    ));
     const parsedScopes = parseAssumptionScopes(
         question?.assumptionScopes,
         lines.length,
@@ -180,6 +198,7 @@ export default async function(
             `Each assumption scope must ${placement} ${unmetRequirement.rules.join(' or ')}.`
         );
     }
+    if (!conclusion) messages.push('The last line needs a conclusion.');
     if (!argumentCorrect) messages.push('The argument does not match the displayed proof.');
 
     const result = {

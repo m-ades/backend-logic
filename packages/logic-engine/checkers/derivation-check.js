@@ -66,6 +66,7 @@ export default class DerivationCheck {
         this.errors = {};
         this.allowOpenScopeCitations = Boolean(options.allowOpenScopeCitations);
         this.flatAssumptions = options.assumptionMode !== 'nested';
+        this.checkBlankJustifications = Boolean(options.checkBlankJustifications);
     }
 
     adderror(target, category, severity, desc) {
@@ -917,6 +918,11 @@ export default class DerivationCheck {
             } else {
                 if (line.s.trim() == '') {
                     this.adderror(line.n, "completion", "medium", "formula field left blank");
+                    // question validation still checks a blank line's citations but its rule waits for a formula
+                    if (this.checkBlankJustifications) {
+                        this.checkJustification(line);
+                        line.rulechecked = false;
+                    }
                     continue;
                 } else {
                     // todo? change "low" here?
