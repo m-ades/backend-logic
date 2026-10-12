@@ -89,10 +89,10 @@ export default class DerivationCheck {
         return this.errors;
     }
 
-    normalizeRuleName(rule) {
+    static normalizeRuleName(rule, syntax) {
         const raw = String(rule ?? '').trim();
         if (!raw) { return ''; }
-        const normalized = normalizeRuleSymbolName(raw, this.syntax);
+        const normalized = normalizeRuleSymbolName(raw, syntax);
         if (normalized in DerivationCheck.ruleAliases) {
             return DerivationCheck.ruleAliases[normalized];
         }
@@ -100,6 +100,10 @@ export default class DerivationCheck {
             return DerivationCheck.ruleAliases[raw];
         }
         return normalized;
+    }
+
+    normalizeRuleName(rule) {
+        return DerivationCheck.normalizeRuleName(rule, this.syntax);
     }
 
     resolveRuleName(line) {
