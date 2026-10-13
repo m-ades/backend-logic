@@ -1,4 +1,8 @@
 import { validateLogicProblem } from '../validators/logic-engine.js';
+import {
+  describeProvidedJustification,
+  mergeProvidedJustification,
+} from '@logic-app/logic-engine/proofArgumentExtractionJustifications.js';
 
 const question = {
   type: 'proof-argument-extraction',
@@ -85,6 +89,62 @@ describe('proof argument extraction', () => {
 
     expect(result.isCorrect).toBe(true);
     expect(result.score).toBe(100);
+  });
+
+  it('keeps provided rules and line(s) and only takes the missing parts from the submission', async () => {
+    const result = await validateLogicProblem({
+      question: {
+        ...question,
+        justifications: ['∧E', '1', '→E', '5'],
+      },
+      submission: {
+        argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
+        justifications: ['∨I 1', '∧E 3', '∧E 2,4', '∨I 2'],
+      },
+      options: { logicSystem: 'fitch' },
+    });
+
+    expect(result.isCorrect).toBe(true);
+    expect(result.score).toBe(100);
+  });
+
+  it('accepts a question that provides only the rule on every line', async () => {
+    const result = await validateLogicProblem({
+      question: {
+        ...question,
+        justifications: ['∧E', '∧E', '→E', '∨I'],
+      },
+      submission: {
+        argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
+        justifications: correctJustifications,
+      },
+      options: { logicSystem: 'fitch' },
+    });
+
+    expect(result.isCorrect).toBe(true);
+  });
+
+  it('rejects an unknown provided rule or provided line(s) that are not earlier', async () => {
+    const submission = {
+      argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
+      justifications: correctJustifications,
+    };
+    await expect(validateLogicProblem({
+      question: { ...question, justifications: ['', '', 'MPP', ''] },
+      submission,
+      options: { logicSystem: 'fitch' },
+    })).rejects.toMatchObject({
+      code: 'INVALID_QUESTION',
+      message: expect.stringContaining('Provided justification for line 5 is invalid'),
+    });
+    await expect(validateLogicProblem({
+      question: { ...question, justifications: ['', '', '2, 6', ''] },
+      submission,
+      options: { logicSystem: 'fitch' },
+    })).rejects.toMatchObject({
+      code: 'INVALID_QUESTION',
+      message: expect.stringContaining('line 5 is invalid: must cite earlier lines'),
+    });
   });
 
   it('accepts an argument-only submission when every justification is provided', async () => {
@@ -359,5 +419,99 @@ describe('proof argument extraction', () => {
       status: 422,
       message: expect.stringContaining('Provided justification for line 3 is invalid'),
     });
+  });
+});
+
+describe('proof lines left for the student', () => {
+  const partial = {
+    ...question,
+    lines: ['P', '', 'R', 'R ∨ E'],
+    justifications: ['∧E 1', '∧E', '', '∨I 5'],
+  };
+
+  it('grades the formula the student writes on a blank line and ignores edits to given formulas', async () => {
+    const result = await validateLogicProblem({
+      question: partial,
+      submission: {
+        argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
+        formulas: ['Q', 'S', 'Q', 'Q'],
+        justifications: ['', '∧E 1', '→E 2,4', ''],
+      },
+      options: { logicSystem: 'fitch' },
+    });
+
+    expect(result.isCorrect).toBe(true);
+  });
+
+  it('rejects a wrong formula on a blank line', async () => {
+    const result = await validateLogicProblem({
+      question: partial,
+      submission: {
+        argumentLine: 'P ∧ S, S → R ∴ R ∨ E',
+        formulas: ['', 'P', '', ''],
+        justifications: ['', '∧E 1', '→E 2,4', ''],
+      },
+      options: { logicSystem: 'fitch' },
+    });
+
+    expect(result.isCorrect).toBe(false);
+  });
+
+  it('accepts provided justifications that cite a line the student has to write', async () => {
+    const result = await validateLogicProblem({
+      question: { ...question, lines: ['P', '', 'R', 'R ∨ E'], justifications: correctJustifications },
+      submission: { argumentLine: 'P ∧ S, S → R ∴ R ∨ E', formulas: ['', 'S'] },
+      options: { logicSystem: 'fitch' },
+    });
+
+    expect(result.isCorrect).toBe(true);
+  });
+
+  it('rejects a provided justification on a blank line that cannot be right', async () => {
+    const save = (justification) => validateLogicProblem({
+      question: { ...question, lines: ['P', '', 'R', 'R ∨ E'], justifications: ['', justification, '', ''] },
+      submission: { argumentLine: 'P ∧ S, S → R ∴ R ∨ E' },
+      options: { logicSystem: 'fitch' },
+    });
+
+    await expect(save('banana')).rejects.toMatchObject({ message: expect.stringContaining('does not exist') });
+    await expect(save('∧E 6')).rejects.toMatchObject({ message: expect.stringContaining('later in the derivation') });
+  });
+
+  it('rejects a proof line with neither a formula nor a provided justification', async () => {
+    await expect(validateLogicProblem({
+      question: { ...question, lines: ['P', '', 'R', 'R ∨ E'], justifications: ['∧E 1', '', '→E 2, 4', '∨I 5'] },
+      submission: { argumentLine: 'P ∧ S, S → R ∴ R ∨ E' },
+      options: { logicSystem: 'fitch' },
+    })).rejects.toMatchObject({ message: expect.stringContaining('Proof line 2 needs a formula or a provided justification') });
+  });
+
+  it('checks the argument against the conclusion the student writes on the last line', async () => {
+    const theirs = (argumentLine) => validateLogicProblem({
+      question: { ...question, lines: ['P', 'S', 'R', ''], justifications: correctJustifications },
+      submission: { argumentLine, formulas: ['', '', '', 'R ∨ Q'] },
+      options: { logicSystem: 'fitch' },
+    });
+
+    expect((await theirs('P ∧ S, S → R ∴ R ∨ Q')).isCorrect).toBe(true);
+    expect((await theirs('P ∧ S, S → R ∴ R ∨ E')).isCorrect).toBe(false);
+  });
+});
+
+describe('provided justification parts', () => {
+  it('places the student part on the side each logic system expects', () => {
+    expect(mergeProvidedJustification('MP', '1,2', { rulesFirst: false })).toBe('1, 2 MP');
+    expect(mergeProvidedJustification('1, 2', 'MP 3', { rulesFirst: false })).toBe('1, 2 MP');
+    expect(mergeProvidedJustification('→E', '2,4', { rulesFirst: true })).toBe('→E 2, 4');
+    expect(mergeProvidedJustification('', '2,4 →E', { rulesFirst: true })).toBe('2,4 →E');
+  });
+
+  it('treats a rule that cites nothing as complete without line(s)', () => {
+    expect(describeProvidedJustification('AS', 'fitch').isComplete).toBe(true);
+    expect(describeProvidedJustification('=I', 'fitch').isComplete).toBe(true);
+    expect(describeProvidedJustification('ACP', 'hurley').isComplete).toBe(true);
+    expect(describeProvidedJustification('MP', 'hurley')).toEqual({ hasCitations: false, hasRule: true, isComplete: false });
+    expect(describeProvidedJustification('CP', 'hurley').isComplete).toBe(false);
+    expect(describeProvidedJustification('1, 2', 'hurley')).toEqual({ hasCitations: true, hasRule: false, isComplete: false });
   });
 });

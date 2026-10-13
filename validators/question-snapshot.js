@@ -6,6 +6,11 @@ import {
   getJustificationRule,
   parseAssumptionScopes,
 } from '@logic-app/logic-engine/proofArgumentExtractionScopes.js';
+import {
+  describeProvidedJustification,
+  findEmptyProofLine,
+} from '@logic-app/logic-engine/proofArgumentExtractionJustifications.js';
+import { justParse } from '@logic-app/logic-engine/justification-parse.js';
 
 /*
 signals invalid author owned question data with status code 422
@@ -24,22 +29,39 @@ function getQuestionType(question) {
   return question?.type || question?.problemType || question?.logic_problem_type;
 }
 
-function requireFormulaList(value, label, Formula, { allowEmpty = false } = {}) {
-  if (!Array.isArray(value) || (value.length === 0 && !allowEmpty)) {
-    throw new InvalidQuestionError(`${label} must be ${allowEmpty ? 'an' : 'a non-empty'} array.`);
+function requireFormulaList(value, label, Formula) {
+  if (!Array.isArray(value)) {
+    throw new InvalidQuestionError(`${label} must be an array.`);
   }
   value.forEach((formula, index) => {
     if (typeof formula !== 'string' || !formula.trim()) {
       throw new InvalidQuestionError(`${label} ${index + 1} must be a non-empty formula.`);
     }
-    try {
-      if (!Formula.from(formula).wellformed) {
-        throw new InvalidQuestionError(`${label} ${index + 1} is not a well-formed formula.`);
-      }
-    } catch (error) {
-      if (error instanceof InvalidQuestionError) throw error;
-      throw new InvalidQuestionError(`${label} ${index + 1} is not a well-formed formula.`);
+    requireWellFormed(formula, `${label} ${index + 1}`, Formula);
+  });
+}
+
+function requireWellFormed(formula, label, Formula) {
+  try {
+    if (!Formula.from(formula).wellformed) {
+      throw new InvalidQuestionError(`${label} is not a well-formed formula.`);
     }
+  } catch (error) {
+    if (error instanceof InvalidQuestionError) throw error;
+    throw new InvalidQuestionError(`${label} is not a well-formed formula.`);
+  }
+}
+
+// blank formulas, the conclusion included, are left for students to write
+function requireProofLines(lines, Formula) {
+  if (!Array.isArray(lines) || lines.length === 0) {
+    throw new InvalidQuestionError('Proof line must be a non-empty array.');
+  }
+  lines.forEach((formula, index) => {
+    if (formula != null && typeof formula !== 'string') {
+      throw new InvalidQuestionError(`Proof line ${index + 1} must be a formula or blank.`);
+    }
+    if (String(formula ?? '').trim()) requireWellFormed(formula, `Proof line ${index + 1}`, Formula);
   });
 }
 
@@ -61,9 +83,9 @@ function getProvidedJustifications(question, lineCount) {
   });
 }
 
-function getCitationError(result, lineNumber) {
+function getCitationError(result, lineNumber, checkedCategories) {
   const categories = result?.errors?.[String(lineNumber)] || {};
-  for (const category of ['rule', 'justification']) {
+  for (const category of checkedCategories) {
     for (const severity of Object.values(categories[category] || {})) {
       const message = Object.keys(severity || {})[0];
       if (message) return message;
@@ -72,9 +94,18 @@ function getCitationError(result, lineNumber) {
   return '';
 }
 
+// rule-less provided line(s) only need to come earlier, citing into a closed subproof is left to grading
+function getCitedLineError(justification, lineNumber) {
+  const { nums, ranges } = justParse(justification);
+  const cited = [...nums, ...ranges.flat()];
+  return cited.every((line) => Number.isInteger(line) && line >= 1 && line < lineNumber)
+    ? ''
+    : 'must cite earlier lines';
+}
+
 /*
 validates author owned proof-argument-extraction data
-leaves snapshots unchanged and permits blank student owned citations
+leaves snapshots unchanged and permits blank formulas and blank or partly provided justifications but never both on one line
 rejects invalid questions before saving or grading with an invalid question error
 unrelated question types pass through unchanged
 */
@@ -89,10 +120,14 @@ export async function assertValidQuestionSnapshot(question, options = {}) {
   const lines = question?.lines;
 
   // theorems are proved from zero premises
-  requireFormulaList(premises, 'Premise', Formula, { allowEmpty: true });
-  requireFormulaList(lines, 'Proof line', Formula);
+  requireFormulaList(premises, 'Premise', Formula);
+  requireProofLines(lines, Formula);
 
   const justifications = getProvidedJustifications(question, lines.length);
+  const emptyLine = findEmptyProofLine(lines, justifications);
+  if (emptyLine >= 0) {
+    throw new InvalidQuestionError(`Proof line ${emptyLine + 1} needs a formula or a provided justification.`);
+  }
   const parsedScopes = parseAssumptionScopes(
     question?.assumptionScopes,
     lines.length,
@@ -112,8 +147,9 @@ export async function assertValidQuestionSnapshot(question, options = {}) {
     );
   }
 
-  const providedIndexes = justifications
-    .map((value, index) => (value ? index : -1))
+  const provided = justifications.map((value) => describeProvidedJustification(value, logicSystem));
+  const providedIndexes = provided
+    .map(({ hasCitations, hasRule }, index) => (hasCitations || hasRule ? index : -1))
     .filter((index) => index >= 0);
   if (providedIndexes.length === 0) return;
 
@@ -127,12 +163,32 @@ export async function assertValidQuestionSnapshot(question, options = {}) {
     },
     false,
     true,
-    { ...options, logicSystem, notation }
+    { ...options, logicSystem, notation, checkBlankJustifications: true }
   );
+
+  const blankFormulas = lines.map((formula) => !String(formula ?? '').trim());
+  const isBlankLine = (lineNumber) => blankFormulas[lineNumber - premises.length - 1] === true;
+  const citesBlankLine = (justification) => {
+    const { nums, ranges } = justParse(justification);
+    return nums.some(isBlankLine) || ranges.some(([start, end]) => (
+      Array.from({ length: end - start + 1 }, (_, offset) => start + offset).some(isBlankLine)
+    ));
+  };
 
   for (const index of providedIndexes) {
     const lineNumber = premises.length + index + 1;
-    const citationError = getCitationError(result, lineNumber);
+    const { hasRule, isComplete } = provided[index];
+    /*
+    a rule applied to lines the student still has to write can only be judged at grading
+    and a rule still waiting on the student's line(s) can only be wrong as a rule
+    */
+    const checkedCategories = [
+      ...(citesBlankLine(justifications[index]) ? [] : ['rule']),
+      ...(isComplete ? ['justification'] : []),
+    ];
+    const citationError = hasRule
+      ? getCitationError(result, lineNumber, checkedCategories)
+      : getCitedLineError(justifications[index], lineNumber);
     if (citationError) {
       throw new InvalidQuestionError(
         `Provided justification for line ${lineNumber} is invalid: ${citationError}`
@@ -140,7 +196,8 @@ export async function assertValidQuestionSnapshot(question, options = {}) {
     }
   }
 
-  if (providedIndexes.length === lines.length && result?.successstatus !== 'correct') {
+  const isFullyProvided = provided.every(({ isComplete }, index) => isComplete && !blankFormulas[index]);
+  if (isFullyProvided && result?.successstatus !== 'correct') {
     throw new InvalidQuestionError('The fully provided proof is not valid.');
   }
 }

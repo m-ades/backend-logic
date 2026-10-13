@@ -44,7 +44,7 @@ export default async function(
         ansclone,
         question.prems,
         question.conc,
-        { allowOpenScopeCitations: true, assumptionMode: 'flat' }
+        { allowOpenScopeCitations: true, assumptionMode: 'flat', checkBlankJustifications: options?.checkBlankJustifications }
     ).report();
     addRequiredRuleErrors(checkResult, ansclone, require, requireAny, normalizeRuleName);
     // only correct if no errors

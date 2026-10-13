@@ -1,3 +1,5 @@
+import { justParse } from './justification-parse.js';
+
 // assumptionScopes indexes question.lines, excluding premises. Parsing returns
 // sorted ranges or an empty list plus an author-facing error. Each valid range
 // is one subproof: start through end is inside, and the final conclusion stays
@@ -14,9 +16,7 @@ export function getAssumptionRuleRequirements(scopes, logicSystem) {
 }
 
 export function getJustificationRule(value) {
-  const pieces = String(value ?? '').trim().split(/[, \u2009]+/).filter(Boolean);
-  const rule = pieces.find((piece) => !/^[0-9?]+(?:[-–—−][0-9?]+)?$/.test(piece));
-  return rule?.toUpperCase() ?? '';
+  return justParse(String(value ?? '')).citedrules[0]?.toUpperCase() ?? '';
 }
 
 export function parseAssumptionScopes(value, lineCount, logicSystem) {

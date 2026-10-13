@@ -182,6 +182,7 @@ function normalizeProofArgumentExtraction(submission) {
   const givenans = { argumentLine };
   if (isPlainObject(proofInput)) givenans.proof = proofInput;
   if (Array.isArray(raw.justifications)) givenans.justifications = raw.justifications;
+  if (Array.isArray(raw.formulas)) givenans.formulas = raw.formulas;
   return { valid: true, givenans };
 }
 
