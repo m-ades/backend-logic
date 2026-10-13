@@ -24,9 +24,9 @@ function getQuestionType(question) {
   return question?.type || question?.problemType || question?.logic_problem_type;
 }
 
-function requireFormulaList(value, label, Formula) {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new InvalidQuestionError(`${label} must be a non-empty array.`);
+function requireFormulaList(value, label, Formula, { allowEmpty = false } = {}) {
+  if (!Array.isArray(value) || (value.length === 0 && !allowEmpty)) {
+    throw new InvalidQuestionError(`${label} must be ${allowEmpty ? 'an' : 'a non-empty'} array.`);
   }
   value.forEach((formula, index) => {
     if (typeof formula !== 'string' || !formula.trim()) {
@@ -88,7 +88,8 @@ export async function assertValidQuestionSnapshot(question, options = {}) {
   const premises = question?.prems;
   const lines = question?.lines;
 
-  requireFormulaList(premises, 'Premise', Formula);
+  // theorems are proved from zero premises
+  requireFormulaList(premises, 'Premise', Formula, { allowEmpty: true });
   requireFormulaList(lines, 'Proof line', Formula);
 
   const justifications = getProvidedJustifications(question, lines.length);
