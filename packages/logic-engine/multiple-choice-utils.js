@@ -33,13 +33,19 @@ export const isMultiSelectSubquestion = (subq) => (
   || hasNonEmptyAnswerIndices(subq)
 )
 
-// restores a scalar or array selection to the shape isMultiSelectSubquestion expects
-export function normalizeSubquestionSelection(subq, value) {
-  const values = (Array.isArray(value) ? value : [value])
+// keeps the distinct choice indexes that point at a real choice, in their original order
+export function normalizeAnswerIndices(values, choiceCount) {
+  const indices = (Array.isArray(values) ? values : [values])
     .filter((entry) => entry !== '' && entry != null)
     .map(Number)
-    .filter((index) => Number.isInteger(index) && index >= 0 && index < getSubquestionChoices(subq).length)
-  return isMultiSelectSubquestion(subq) ? [...new Set(values)] : (values[0] ?? '')
+    .filter((index) => Number.isInteger(index) && index >= 0 && index < choiceCount)
+  return [...new Set(indices)]
+}
+
+// restores a scalar or array selection to the shape isMultiSelectSubquestion expects
+export function normalizeSubquestionSelection(subq, value) {
+  const indices = normalizeAnswerIndices(value, getSubquestionChoices(subq).length)
+  return isMultiSelectSubquestion(subq) ? indices : (indices[0] ?? '')
 }
 
 const trueFalseChoices = Object.freeze(['True', 'False'])
