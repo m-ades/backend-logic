@@ -4,6 +4,9 @@
   "description": "Philo 275 Backend API",
   "main": "server.js",
   "type": "module",
+  "engines": {
+    "node": "22.23.4"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
