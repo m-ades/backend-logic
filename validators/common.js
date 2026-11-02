@@ -31,6 +31,11 @@ export const assignmentIdQuery = query('assignmentId')
   .toInt()
   .withMessage('assignmentId must be a positive integer');
 
+export const courseIdBody = body('course_id')
+  .isInt({ gt: 0 })
+  .toInt()
+  .withMessage('course_id must be a positive integer');
+
 export const assignmentIdBody = body('assignment_id')
   .isInt({ gt: 0 })
   .toInt()
