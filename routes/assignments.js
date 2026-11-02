@@ -1,6 +1,6 @@
 import { createCrudRouter } from './crud.js';
 import { handleValidationResult } from '../middleware/validation.js';
-import { assignmentIdParam, userIdOptionalQuery } from '../validators/common.js';
+import { assignmentIdParam, courseIdBody, userIdOptionalQuery } from '../validators/common.js';
 import {
   Assignment,
   AssignmentQuestion,
@@ -8,6 +8,7 @@ import {
   AssignmentQuestionOverride,
   Accommodation,
   AssignmentGrade,
+  Course,
   CourseEnrollment,
   Submission,
   User,
@@ -26,6 +27,22 @@ import { lockAssignmentGrades, recomputeAssignmentGrades } from '../utils/grades
 
 // fields that move a student's effective deadline or late penalty
 const DEADLINE_FIELDS = ['due_date', 'late_window_days', 'late_penalty_percent'];
+
+// a copy leaves publication and everything tied to students behind
+const COPIED_ASSIGNMENT_FIELDS = [
+  'kind',
+  'description',
+  'group_questions_by_type',
+  'chapter',
+  'subchapter',
+  'due_date',
+  'late_window_days',
+  'late_penalty_percent',
+  'total_points',
+];
+const COPIED_QUESTION_FIELDS = ['question_snapshot', 'order_index', 'points_value', 'attempt_limit'];
+
+const pickFields = (record, fields) => Object.fromEntries(fields.map((field) => [field, record[field]]));
 
 function sanitizeAssignment(record) {
   const data = record?.toJSON ? record.toJSON() : record;
@@ -263,6 +280,57 @@ router.get('/:id/questions', [assignmentIdParam, handleValidationResult], async 
       ? questions
       : await projectQuestionsForStudent(questions, req.user.id);
     res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// copies an assignment and its questions into a class, the source class itself for duplicates
+router.post('/:id/copy', [assignmentIdParam, courseIdBody, handleValidationResult], async (req, res, next) => {
+  try {
+    const [source, target] = await Promise.all([
+      Assignment.findByPk(req.params.id, {
+        include: [{ model: Course, attributes: ['logic_system'] }],
+      }),
+      Course.findByPk(req.body.course_id, { attributes: ['id', 'logic_system'] }),
+    ]);
+    if (!source) {
+      return res.status(404).json({ message: 'Not found' });
+    }
+    if (!target) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+    // the source counts too since a copy reveals its answer keys
+    const courseIds = [...new Set([source.course_id, target.id])];
+    const canCopy = (await Promise.all(
+      courseIds.map((courseId) => requireInstructorOrAdmin(courseId, req.user.id))
+    )).every(Boolean);
+    if (!canCopy) {
+      return res.status(403).json({ message: 'Instructor access to both classes required' });
+    }
+    // proofs are graded by the class logic system so they only carry over between matching classes
+    if (source.Course.logic_system !== target.logic_system) {
+      return res.status(409).json({ message: 'Classes use different logic systems' });
+    }
+
+    const questions = await AssignmentQuestion.findAll({ where: { assignment_id: source.id } });
+    const copy = await sequelize.transaction(async (transaction) => {
+      const created = await Assignment.create(normalizePublicationWrite({
+        ...pickFields(source, COPIED_ASSIGNMENT_FIELDS),
+        title: target.id === source.course_id ? `${source.title} (Copy)` : source.title,
+        course_id: target.id,
+      }, { defaultLocked: true }), { transaction });
+      // a brand new assignment has no grades so the usual grade lock and recompute are skipped
+      await AssignmentQuestion.bulkCreate(
+        questions.map((question) => ({
+          ...pickFields(question, COPIED_QUESTION_FIELDS),
+          assignment_id: created.id,
+        })),
+        { transaction }
+      );
+      return created;
+    });
+    res.status(201).json(sanitizeAssignment(copy));
   } catch (error) {
     next(error);
   }
