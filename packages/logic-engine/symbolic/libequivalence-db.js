@@ -15,6 +15,9 @@ import { arrayUnion } from '../misc.js';
 
 const equivDB = {};
 
+// long formulas have exponentially many rewrites; past this many, the tableau has to decide
+const maxCombinations = 5000;
+
 // create object in window if need be
 if ((typeof window != 'undefined') && !window?.equivDB) {
     window.equivDB = equivDB;
@@ -282,6 +285,7 @@ export function equivProliferate(f, switches = {}, notationname) {
         // if not already apply a switch on that variable
         if (!(v in switches)) {
             for (const somevar of someVariables) {
+                if (equivs.length >= maxCombinations) { break; }
                 // don't redo switch and don't switch free variables
                 if (somevar in switches) { continue; }
                 if (somevar == v) { continue; }
@@ -447,22 +451,19 @@ export function loadEquivalents(wffstr, notationname) {
 
 function proliferateCombine(f, g, op, switches, notationname) {
     const Formula = getFormulaClass(notationname);
-    let results = [];
+    const results = new Set();
     const fequivs = equivProliferate(f, switches, notationname);
     const gequivs = equivProliferate(g, switches, notationname);
     for (const fe of fequivs) {
         for (const ge of gequivs) {
-            results = arrayUnion(results,
-                [Formula.from(fe.wrapifneeded() + op + ge.wrapifneeded())]
-            );
+            results.add(Formula.from(fe.wrapifneeded() + op + ge.wrapifneeded()));
             if (issymmetric(op, Formula)) {
-                results = arrayUnion(results,
-                    [Formula.from(ge.wrapifneeded() + op + fe.wrapifneeded())]
-                );
+                results.add(Formula.from(ge.wrapifneeded() + op + fe.wrapifneeded()));
             }
+            if (results.size >= maxCombinations) { return [...results]; }
         }
     }
-    return results;
+    return [...results];
 }
 
 export function saveEquivalents(wffstr, equivs, notationname) {
