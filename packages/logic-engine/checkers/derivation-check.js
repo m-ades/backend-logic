@@ -1251,46 +1251,49 @@ export class formFit {
         }
     }
 
-    checkDiffersBy() {
-        if (!this.form?.differsatmostby) { return true; }
+    // narrows the term choices to substitutions that fit, or null if none do
+    narrowDiffersBy(assigns) {
         const Formula = this.Formula;
-        const fgetschema = this.form.differsatmostby[0];
-        const fstartschema = this.form.differsatmostby[1];
-        const newtermschema = this.form.differsatmostby[2];
-        const oldtermschema = this.form.differsatmostby[3];
-        if (!(fgetschema in this.assigns)) { return true; }
-        const fget = Formula.from(this.assigns[fgetschema]);
-        if (!(fstartschema in this.assigns)) { return true; }
-        const fstart = Formula.from(this.assigns[fstartschema]);
-        if (!(newtermschema in this.assigns)) { return true; }
-        const possnewterms = this.assigns[newtermschema];
-        if (!(oldtermschema in this.assigns)) { return true; }
-        const possoldterms = this.assigns[oldtermschema];
+        const [fgetschema, fstartschema, newtermschema, oldtermschema] =
+            this.form.differsatmostby;
+        if (!(fgetschema in assigns) || !(fstartschema in assigns) ||
+            !(newtermschema in assigns) || !(oldtermschema in assigns)) {
+            return assigns;
+        }
+        const fget = Formula.from(assigns[fgetschema]);
+        const fstart = Formula.from(assigns[fstartschema]);
         const newpossibilities = {};
         let allposslist = [];
-        for (const newterm of possnewterms) {
-            const newposslist = [];
-            for (const oldterm of possoldterms) {
-                if (Formula.differsAtMostBy(fget, fstart, newterm, oldterm)) {
-                    newposslist.push(oldterm);
-                }
-            }
+        for (const newterm of assigns[newtermschema]) {
+            const newposslist = assigns[oldtermschema].filter((oldterm) =>
+                Formula.differsAtMostBy(fget, fstart, newterm, oldterm));
             if (newposslist.length > 0) {
                 newpossibilities[newterm] = newposslist;
                 allposslist = arrayUnion(allposslist, newposslist);
             }
         }
-        this.assigns[newtermschema] = Object.keys(newpossibilities);
-        this.assigns[oldtermschema] = allposslist;
-        if (this.assigns[newtermschema].length == 0) {
-            this.possible = false;
-            if (this.message != '') { this.message += '; '; }
-            this.message += 'the formula ' + this.assigns[fgetschema] +
-                ' does not differ from ' + this.assigns[fstartschema] +
-                ' only by the substitution of the one term for the other';
-            return false;
+        if (Object.keys(newpossibilities).length == 0) { return null; }
+        return {
+            ...assigns,
+            [newtermschema]: Object.keys(newpossibilities),
+            [oldtermschema]: allposslist
+        };
+    }
+
+    checkDiffersBy() {
+        if (!this.form?.differsatmostby) { return true; }
+        const narrowed = this.narrowDiffersBy(this.assigns);
+        if (narrowed) {
+            this.assigns = narrowed;
+            return true;
         }
-        return true;
+        const [fgetschema, fstartschema] = this.form.differsatmostby;
+        this.possible = false;
+        if (this.message != '') { this.message += '; '; }
+        this.message += 'the formula ' + this.assigns[fgetschema] +
+            ' does not differ from ' + this.assigns[fstartschema] +
+            ' only by the substitution of the one term for the other';
+        return false;
     }
 
     checkNewness() {
@@ -1315,6 +1318,7 @@ export class formFit {
         }
         const allOrders = perms(premLines.length);
         let foundgood = false;
+        let firstfit = null;
         for (const order of allOrders) {
             const assignstry = { ...this.assigns };
             let madeitthrough = true;
@@ -1334,10 +1338,20 @@ export class formFit {
                 }
             }
             if (madeitthrough) {
+                // two cited identities fit either order, so let the substitution decide
+                if (this.form.differsatmostby && !this.narrowDiffersBy(assignstry)) {
+                    if (!firstfit) { firstfit = assignstry; }
+                    continue;
+                }
                 foundgood = true;
                 this.assigns = assignstry;
                 break;
             }
+        }
+        // keep the first fit so checkDiffersBy still explains the failure
+        if (!foundgood && firstfit) {
+            foundgood = true;
+            this.assigns = firstfit;
         }
         if (!foundgood) {
             this.possible = false;
