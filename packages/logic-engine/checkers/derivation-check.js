@@ -338,8 +338,7 @@ export default class DerivationCheck {
             } else {
                 needednumranges = [0];
             }
-            if (this.flatAssumptions &&
-                (rulechecked === 'CP' || rulechecked === 'IP' || ruleinfo?.closes)) {
+            if (this.flatAssumptions && FLAT_CLOSING_RULES.has(rulechecked)) {
                 needednumranges = [0,1];
             }
             if (needednumranges.indexOf(ranges.length) == -1) {
