@@ -104,8 +104,8 @@ export async function fetchStudentPerformance(sequelize, userId, courseId) {
         AVG(s.score)::float AS avg_score,
         COUNT(*)::float / NULLIF(COUNT(DISTINCT s.assignment_question_id), 0) AS avg_attempt,
         SUM(CASE WHEN s.is_correct THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) AS correct_rate,
-        SUM(CASE WHEN s.is_correct AND s.attempt = 1 THEN 1 ELSE 0 END)::float
-          / NULLIF(COUNT(DISTINCT s.assignment_question_id), 0)
+        -- auto submitted drafts are unfinished work not a student's answer
+        (AVG(s.is_correct::int) FILTER (WHERE s.attempt = 1 AND NOT s.auto_submitted))::float
           AS first_try_correct_rate
       FROM submissions s
       JOIN assignment_questions aq ON aq.id = s.assignment_question_id
@@ -338,40 +338,35 @@ export async function fetchInstructorAssignmentStats(sequelize, courseId) {
     const [assignmentStats] = await sequelize.query(assignmentStatsQuery, {
       replacements: { courseId },
     });
+    if (!Array.isArray(assignmentStats) || assignmentStats.length === 0) {
+      return assignmentStats;
+    }
+
     const medians = assignmentStats
       .map((row) => row.median_minutes_per_question)
-      .filter((value) => value !== null && value !== undefined)
-      .map(Number)
-      .filter(Number.isFinite)
-      .sort((a, b) => a - b);
-    const courseMedian = medians.length
-      ? medians[Math.floor(medians.length / 2)]
-      : null;
+      .filter((v) => typeof v === 'number' && Number.isFinite(v));
+    const courseMedian =
+      medians.length > 0
+        ? medians.slice().sort((a, b) => a - b)[Math.floor(medians.length / 2)]
+        : null;
 
     const classifyDifficulty = (row) => {
-      if (
-        row.median_minutes_per_question === null ||
-        row.median_minutes_per_question === undefined ||
-        row.correct_rate === null ||
-        row.correct_rate === undefined
-      ) {
+      const medianMinutes = typeof row.median_minutes_per_question === 'number'
+        ? row.median_minutes_per_question
+        : null;
+      const correctRate = typeof row.correct_rate === 'number'
+        ? row.correct_rate
+        : null;
+      if (medianMinutes == null || !Number.isFinite(medianMinutes) || courseMedian == null || !Number.isFinite(courseMedian)) {
         return null;
       }
-      const medianMinutes = Number(row.median_minutes_per_question);
-      const correctRate = Number(row.correct_rate);
-      if (
-        !Number.isFinite(medianMinutes) ||
-        !Number.isFinite(correctRate) ||
-        courseMedian == null ||
-        courseMedian <= 0
-      ) {
+      const tRel = courseMedian > 0 ? medianMinutes / courseMedian : null;
+      if (tRel == null || !Number.isFinite(tRel) || correctRate == null) {
         return null;
       }
-
-      const relativeTime = medianMinutes / courseMedian;
-      if (relativeTime < 0.7 && correctRate >= 0.85) return 'too_easy';
-      if (relativeTime > 1.5 && correctRate <= 0.5) return 'too_hard';
-      if (relativeTime < 0.9 && correctRate <= 0.5) return 'confusing';
+      if (tRel < 0.7 && correctRate >= 0.85) return 'too_easy';
+      if (tRel > 1.5 && correctRate <= 0.5) return 'too_hard';
+      if (tRel < 0.9 && correctRate <= 0.5) return 'confusing';
       return 'balanced';
     };
 

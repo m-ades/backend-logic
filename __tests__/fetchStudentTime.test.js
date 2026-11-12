@@ -17,7 +17,6 @@ describe('fetchStudentTime', () => {
   it('merges the cached cohort median into the student time stats', async () => {
     const sequelize = {
       query: jest.fn().mockResolvedValue([[{
-        avg_minutes_per_question: 3,
         median_minutes_per_question: 2.5,
         p75_minutes_per_question: 4,
       }]]),
@@ -27,7 +26,6 @@ describe('fetchStudentTime', () => {
     const result = await fetchStudentTime(sequelize, 42, 7);
 
     expect(result).toEqual({
-      avg_minutes_per_question: 3,
       median_minutes_per_question: 2.5,
       p75_minutes_per_question: 4,
       cohort_median_minutes_per_question: 3.1,
