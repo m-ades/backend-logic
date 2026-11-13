@@ -338,7 +338,7 @@ export default class DerivationCheck {
             } else {
                 needednumranges = [0];
             }
-            if (rulechecked === 'CP' || rulechecked === 'IP' || ruleinfo?.closes) {
+            if (this.flatAssumptions && FLAT_CLOSING_RULES.has(rulechecked)) {
                 needednumranges = [0,1];
             }
             if (needednumranges.indexOf(ranges.length) == -1) {
@@ -1542,6 +1542,12 @@ export class formFit {
         if (!this.form.subderivs ||
             this.form.subderivs.length == 0) { return; }
         const subDerivs = this.line.citedsubderivs.slice(0, this.form.subderivs.length);
+        if (subDerivs.length === 0) {
+            this.message = 'does not cite a subderivation that could show this line by ' +
+                this.rulename;
+            this.possible = false;
+            return false;
+        }
         while (subDerivs.length < this.form.subderivs.length) {
             subDerivs.push(subDerivs[0]);
         }
