@@ -27,7 +27,10 @@ branches have the following properties:
     - growing (boolean): whether it is still growing
     - closed (boolean): whether it has a contradiction; an open branch is
             one that is not growing and closed
-    - undecided (boolean): if gave up on a branch b/c suspected loop
+    - undecided (boolean): gave up on the branch b/c of the deadline, a
+            malformed formula, or instances skipped when out of names
+    - incomplete (boolean): full mode ran out of new names and skipped an
+            instance, so the branch can close but can't end open
     - queue (obj) {
         high: regular unbranching statements
         medium: statements creating existential instantiations
@@ -38,11 +41,14 @@ branches have the following properties:
         existentials to the terms to which they have been applied already
     - terms: constants used anywhere in the branch
     - termsleft: constants waiting to appear in branch before end
+    - identical (obj): maps a term to one it equals; follow the chain to
+            get the representative compared in closure checks
 }
 
 Possible modes:
     'abbreviatedtt': abbreviated TT; ignores quantifiers and terms 
-    'full': full tableaux, which quits when no terms left for the branch
+    'full': full tableaux; once out of new names it skips instances and
+        marks the branch incomplete instead of quitting
     'small': assumes there are exactly three entities in domain (or
         exactly many as mentioned in problem if more than three), so
         universals are conjunctions and existentials are disjunctions
@@ -265,7 +271,9 @@ function apply(branch, s, mode, Formula) {
 
     }
     // should be atomic or negation of atomic; check for contradiction
-    if (identityCloses(branch, f, mode, Formula) ||
+    const lit = literalOf(f, symbols);
+    recordIdentity(branch, lit);
+    if (identityCloses(branch, lit, mode, Formula) ||
         contradicts(branch, s, mode, Formula)) {
         return closebranch(branch);
     }
@@ -334,20 +342,21 @@ function representative(branch, term) {
     return term;
 }
 
+function recordIdentity(branch, lit) {
+    if (!lit || lit.pletter != '=' || !lit.positive) { return; }
+    const [a, b] = lit.terms.map((t) => representative(branch, t));
+    if (a != b) { branch.identical[a] = b; }
+}
+
 // closes on t ≠ t, or on an atom and its negation once identicals are swapped in
-function identityCloses(branch, f, mode, Formula) {
-    const symbols = Formula.syntax.symbols;
-    const lit = literalOf(f, symbols);
+function identityCloses(branch, lit, mode, Formula) {
     if (!lit) { return false; }
+    const symbols = Formula.syntax.symbols;
     const identity = (lit.pletter == '=');
     // the abbreviated table pictures a single object, so every identity holds
     if (mode == 'abbreviatedtt') { return identity && !lit.positive; }
-    if (identity && lit.positive) {
-        const [a, b] = lit.terms.map((t) => representative(branch, t));
-        if (a == b) { return false; }
-        branch.identical[a] = b;
-    } else if (Object.keys(branch.identical).length == 0) {
-        return identity && lit.terms[0] == lit.terms[1];
+    if (Object.keys(branch.identical).length == 0) {
+        return identity && !lit.positive && lit.terms[0] == lit.terms[1];
     }
     // once terms are identified, compare every line with identicals swapped in
     const positives = new Set();
