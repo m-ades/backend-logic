@@ -79,6 +79,28 @@ export const regressions = [
       }
     }
   }],
+  ['translation checking knows the logic of identity', async () => {
+    for (const [key, answer, correct] of [
+      ['a = b', 'b = a', true],
+      ['a ≠ b', '¬a = b', true],
+      ['F(a)', 'F(a) ∧ a = a', true],
+      ['a = b ∧ F(a)', 'a = b ∧ F(b)', true],
+      ['∃x(x = a ∧ F(x))', 'F(a)', true],
+      ['F(a) ∧ ∀x(F(x) → x = a)', '∀x(F(x) ↔ x = a)', true],
+      ['∃x(F(x) ∧ ∀y(F(y) → y = x))', '∃x∀y(F(y) ↔ y = x)', true],
+      ['∀x∀y((F(x) ∧ F(y)) → x = y)', '¬∃x∃y((F(x) ∧ F(y)) ∧ x ≠ y)', true],
+      ['∃x((K(x) ∧ ∀y(K(y) → x = y)) ∧ B(x))', '∃x(∀y(K(y) ↔ y = x) ∧ B(x))', true],
+      ['∃x∃y(((F(x) ∧ F(y)) ∧ x ≠ y) ∧ ∀z(F(z) → (z = x ∨ z = y)))', '∃x∃y(x ≠ y ∧ ∀z(F(z) ↔ (z = x ∨ z = y)))', true],
+      ['a = b', 'a = c', false],
+      ['a = b ∧ F(a)', 'F(b)', false],
+      ['∃x(x = a ∧ F(x))', '∃xF(x)', false],
+      ['∀x∀y((F(x) ∧ F(y)) → x = y)', '∃x(F(x) ∧ ∀y(F(y) → y = x))', false],
+      ['∃x∃y((F(x) ∧ F(y)) ∧ x ≠ y)', '∃x∃y∃z((F(x) ∧ F(y)) ∧ (F(z) ∧ ((x ≠ y ∧ x ≠ z) ∧ y ≠ z)))', false],
+    ]) {
+      const result = await checkers['symbolic-translation']({}, key, answer, false, false, { notation: 'calgary' });
+      assert.equal(result.successstatus, correct ? 'correct' : 'incorrect', `${answer} against ${key}`);
+    }
+  }],
   ['missing translations and malformed hurley subderivations earn no credit', async () => {
     for (const input of [null, undefined, '', ' ', 7, {}]) {
       const result = await checkers['symbolic-translation']({}, 'A', input, false, false, { notation: 'hurley', pred: false });

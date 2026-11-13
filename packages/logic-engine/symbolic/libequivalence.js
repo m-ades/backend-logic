@@ -14,7 +14,7 @@ import { loadEquivalents, saveEquivalents, equivalentsOf } from './libequivalenc
 // only support small interpretations with a domain of three things
 // and at most two-place relations
 const smallInterpSize = 3;
-const termLimit = 2;
+const termLimit = 4;
 
 ///////////////////////////////////////////////////////////////////////
 // TREE/TABLEAUX FUNCTIONS
@@ -27,7 +27,10 @@ branches have the following properties:
     - growing (boolean): whether it is still growing
     - closed (boolean): whether it has a contradiction; an open branch is
             one that is not growing and closed
-    - undecided (boolean): if gave up on a branch b/c suspected loop
+    - undecided (boolean): gave up on the branch b/c of the deadline, a
+            malformed formula, or instances skipped when out of names
+    - incomplete (boolean): full mode ran out of new names and skipped an
+            instance, so the branch can close but can't end open
     - queue (obj) {
         high: regular unbranching statements
         medium: statements creating existential instantiations
@@ -38,11 +41,14 @@ branches have the following properties:
         existentials to the terms to which they have been applied already
     - terms: constants used anywhere in the branch
     - termsleft: constants waiting to appear in branch before end
+    - identical (obj): maps a term to one it equals; follow the chain to
+            get the representative compared in closure checks
 }
 
 Possible modes:
     'abbreviatedtt': abbreviated TT; ignores quantifiers and terms 
-    'full': full tableaux, which quits when no terms left for the branch
+    'full': full tableaux; once out of new names it skips instances and
+        marks the branch incomplete instead of quitting
     'small': assumes there are exactly three entities in domain (or
         exactly many as mentioned in problem if more than three), so
         universals are conjunctions and existentials are disjunctions
@@ -134,8 +140,9 @@ function apply(branch, s, mode, Formula) {
         }
         // "full" mode, use a new term if there is one
         if (branch.termsleft.length == 0) {
-            // if we have run out, it's time to give up
-            return undecided(branch);
+            // out of new names, so skip it; the branch can still close
+            branch.incomplete = true;
+            return grow(branch, mode, Formula);
         }
         let t = branch.termsleft.shift();
         branch.terms.push(t);
@@ -212,8 +219,9 @@ function apply(branch, s, mode, Formula) {
             }
             // "full" mode, use a new term
             if (branch.termsleft.length == 0) {
-                // if we have run out, it's time to give up
-                return undecided(branch);
+                // out of new names, so skip it; the branch can still close
+                branch.incomplete = true;
+                return grow(branch, mode, Formula);
             }
             let t = branch.termsleft.shift();
             branch.terms.push(t);
@@ -263,7 +271,10 @@ function apply(branch, s, mode, Formula) {
 
     }
     // should be atomic or negation of atomic; check for contradiction
-    if (contradicts(branch, s, mode, Formula)) {
+    const lit = literalOf(f, symbols);
+    recordIdentity(branch, lit);
+    if (identityCloses(branch, lit, mode, Formula) ||
+        contradicts(branch, s, mode, Formula)) {
         return closebranch(branch);
     }
     // processing the atomic didn't do anything; move on
@@ -313,6 +324,54 @@ function contradicts(branch, s, mode, Formula) {
         }
     }
     return false;
+}
+
+// reads an atom or negated atom as sign, predicate and terms, taking ≠ as ¬=
+function literalOf(f, symbols) {
+    const positive = (f.op != symbols.NOT);
+    const atom = positive ? f : f.right;
+    if (!atom || atom.op || !atom.pletter) { return null; }
+    if (atom.pletter == '≠') {
+        return { positive: !positive, pletter: '=', terms: atom.terms };
+    }
+    return { positive, pletter: atom.pletter, terms: atom.terms };
+}
+
+function representative(branch, term) {
+    while (branch.identical[term]) { term = branch.identical[term]; }
+    return term;
+}
+
+function recordIdentity(branch, lit) {
+    if (!lit || lit.pletter != '=' || !lit.positive) { return; }
+    const [a, b] = lit.terms.map((t) => representative(branch, t));
+    if (a != b) { branch.identical[a] = b; }
+}
+
+// closes on t ≠ t, or on an atom and its negation once identicals are swapped in
+function identityCloses(branch, lit, mode, Formula) {
+    if (!lit) { return false; }
+    const symbols = Formula.syntax.symbols;
+    const identity = (lit.pletter == '=');
+    // the abbreviated table pictures a single object, so every identity holds
+    if (mode == 'abbreviatedtt') { return identity && !lit.positive; }
+    if (Object.keys(branch.identical).length == 0) {
+        return identity && !lit.positive && lit.terms[0] == lit.terms[1];
+    }
+    // once terms are identified, compare every line with identicals swapped in
+    const positives = new Set();
+    const negatives = new Set();
+    for (const pstr of branch.processed) {
+        const p = literalOf(Formula.from(pstr), symbols);
+        if (!p) { continue; }
+        const terms = p.terms.map((t) => representative(branch, t));
+        if (p.pletter == '=') {
+            if (!p.positive && terms[0] == terms[1]) { return true; }
+            terms.sort();
+        }
+        (p.positive ? positives : negatives).add(p.pletter + '(' + terms.join(',') + ')');
+    }
+    return [...positives].some((key) => negatives.has(key));
 }
 
 export function treeEquivtest(fp, fq, Formula) {
@@ -404,6 +463,8 @@ function grow(branch, mode, Formula) {
             }
         }
     }
+    // a branch that skipped instances can't vouch for a countermodel
+    if (branch.incomplete) { return undecided(branch); }
     // if we made it here, there's nothing to do and the branch is open!
     branch.growing = false;
     branch.undecided = false;
@@ -418,6 +479,7 @@ function newbranch(terms, termsleft) {
         undecided: false,
         processed: [],
         univ: {},
+        identical: {},
         deadline: (new Date()).getTime() + 5000,
         terms: terms,
         termsleft: termsleft
