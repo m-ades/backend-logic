@@ -3,6 +3,9 @@ import { EFFECTIVELY_PUBLISHED_SQL } from '../utils/publicationPolicy.js';
 import { RECENT_TIME_WINDOW_DAYS } from '../utils/analyticsTimeWindow.js';
 import { getCohortMedianMinutesPerQuestion } from '../utils/cohortMedianCache.js';
 
+// let tas see their own stats while course wide stats stay student only
+const STUDENT_VIEW_ROLES = `'student', 'ta'`;
+
 /**
  * fetch assignment analytics with submission stats.
  * @param {import('sequelize').Sequelize} sequelize - db instance
@@ -113,7 +116,7 @@ export async function fetchStudentPerformance(sequelize, userId, courseId) {
       JOIN course_enrollments ce
         ON ce.user_id = s.user_id
         AND ce.course_id = a.course_id
-        AND ce.role = 'student'
+        AND ce.role IN (${STUDENT_VIEW_ROLES})
       WHERE s.user_id = :userId
         AND a.kind <> 'practice'
         AND (:courseId::int IS NULL OR a.course_id = :courseId::int);
@@ -145,7 +148,7 @@ export async function fetchStudentSubmissionCount(sequelize, userId, courseId) {
       JOIN course_enrollments ce
         ON ce.user_id = s.user_id
         AND ce.course_id = a.course_id
-        AND ce.role = 'student'
+        AND ce.role IN (${STUDENT_VIEW_ROLES})
       WHERE s.user_id = :userId
         AND (:courseId::int IS NULL OR a.course_id = :courseId::int);
     `;
@@ -176,7 +179,7 @@ export async function fetchStudentSubmittedAssignments(sequelize, userId, course
       JOIN course_enrollments ce
         ON ce.user_id = s.user_id
         AND ce.course_id = a.course_id
-        AND ce.role = 'student'
+        AND ce.role IN (${STUDENT_VIEW_ROLES})
       WHERE s.user_id = :userId
         AND a.kind = 'assignment'
         AND (:courseId::int IS NULL OR a.course_id = :courseId::int);
@@ -216,7 +219,7 @@ export async function fetchStudentTime(sequelize, userId, courseId) {
         JOIN course_enrollments ce
           ON ce.user_id = qs.user_id
           AND ce.course_id = a.course_id
-          AND ce.role = 'student'
+          AND ce.role IN (${STUDENT_VIEW_ROLES})
         WHERE qs.ended_at IS NOT NULL
           AND qs.user_id = :userId
           AND qs.started_at >= NOW() - make_interval(days => :recentWindowDays)
