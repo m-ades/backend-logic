@@ -15,6 +15,11 @@ import { arrayUnion } from '../misc.js';
 
 const equivDB = {};
 
+// recombining parts is the only step that multiplies, so it spends from one budget per pass
+const maxCombinations = 10000;
+const overBudget = Symbol('overBudget');
+let combinationsLeft = 0;
+
 // create object in window if need be
 if ((typeof window != 'undefined') && !window?.equivDB) {
     window.equivDB = equivDB;
@@ -42,7 +47,18 @@ function applyswitches(str, switches) {
     return str;
 }
 
-export function equivProliferate(f, switches = {}, notationname) {
+export function equivalentsOf(f, notationname) {
+    combinationsLeft = maxCombinations;
+    try {
+        return equivProliferate(f, {}, notationname);
+    } catch (e) {
+        // too many rewrites to list, so leave it to the tableau
+        if (e === overBudget) { return []; }
+        throw e;
+    }
+}
+
+function equivProliferate(f, switches = {}, notationname) {
     const Formula = getFormulaClass(notationname);
 
     const varCP = Formula.syntax.notation.variableRange.codePointAt(0);
@@ -424,7 +440,7 @@ export function loadEquivalents(wffstr, notationname) {
     //using equivProliferate
     if (useMemory) {
         if (!(wffstr in equivDB)) {
-            let equivs = equivProliferate(Formula.from(wffstr), {}, notationname);
+            let equivs = equivalentsOf(Formula.from(wffstr), notationname);
             equivDB[wffstr] = equivs.map((f)=>(f.normal));
         }
         return equivDB[wffstr];
@@ -436,7 +452,7 @@ export function loadEquivalents(wffstr, notationname) {
     // if no file, then start afresh
     if (!equivs) { equivs = []; }
     if (equivs.length == 0) {
-        let equivsff = equivProliferate(Formula.from(wffstr), {}, notationname);
+        let equivsff = equivalentsOf(Formula.from(wffstr), notationname);
         equivs = equivsff.map((f) =>(f.normal));
         if (equivs.length != 0) {
             saveEquivalents(wffstr, equivs, notationname);
@@ -447,22 +463,20 @@ export function loadEquivalents(wffstr, notationname) {
 
 function proliferateCombine(f, g, op, switches, notationname) {
     const Formula = getFormulaClass(notationname);
-    let results = [];
+    const results = new Set();
     const fequivs = equivProliferate(f, switches, notationname);
     const gequivs = equivProliferate(g, switches, notationname);
+    combinationsLeft -= fequivs.length * gequivs.length;
+    if (combinationsLeft < 0) { throw overBudget; }
     for (const fe of fequivs) {
         for (const ge of gequivs) {
-            results = arrayUnion(results,
-                [Formula.from(fe.wrapifneeded() + op + ge.wrapifneeded())]
-            );
+            results.add(Formula.from(fe.wrapifneeded() + op + ge.wrapifneeded()));
             if (issymmetric(op, Formula)) {
-                results = arrayUnion(results,
-                    [Formula.from(ge.wrapifneeded() + op + fe.wrapifneeded())]
-                );
+                results.add(Formula.from(ge.wrapifneeded() + op + fe.wrapifneeded()));
             }
         }
     }
-    return results;
+    return [...results];
 }
 
 export function saveEquivalents(wffstr, equivs, notationname) {

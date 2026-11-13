@@ -9,7 +9,7 @@
 
 import getFormulaClass from './formula.js';
 import { arrayUnion, randomString } from '../misc.js';
-import { loadEquivalents, saveEquivalents, equivProliferate } from './libequivalence-db.js';
+import { loadEquivalents, saveEquivalents, equivalentsOf } from './libequivalence-db.js';
 
 // only support small interpretations with a domain of three things
 // and at most two-place relations
@@ -587,7 +587,7 @@ export function quickDBCheck(fp, fq, notationname) {
 // one in the database for the right answer
 export function bidirectionalDBCheck(fp, fq, notationname) {
     const equivs = loadEquivalents(fp.normal, notationname);
-    const givenequivs = equivProliferate(fq, {}, notationname);
+    const givenequivs = equivalentsOf(fq, notationname);
     for (const g of givenequivs) {
         const isEquiv = (equivs.indexOf(g.normal) != -1);
         if (isEquiv) {
