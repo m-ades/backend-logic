@@ -12,6 +12,10 @@ import notations from './notations.js';
 const DEFAULT_NOTATION = 'hurley';
 const syntaxes = {};
 
+export const openBrackets = { '(': ')', '[': ']', '{': '}' };
+export const closeBrackets = Object.fromEntries(
+    Object.entries(openBrackets).map(([open, close]) => [close, open]));
+
 const subscriptDigits = {
     '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4',
     '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9'
@@ -99,6 +103,16 @@ function normalizeSubscriptIndices(s) {
             .join(''));
 }
 
+// single characters read as each connective, the frontend's typing shortcuts use it too
+export const connectiveAliases = Object.fromEntries(Object.entries({
+    AND: '&^∧•·.*',
+    OR: '|',
+    IFF: '↔≡',
+    IFTHEN: '→⇒⊃>',
+    NOT: '~¬!',
+    FALSUM: '⊥✖#',
+}).flatMap(([op, aliases]) => Array.from(aliases, (alias) => [alias, op])));
+
 function symbolfix(s) {
     let rv = String(s ?? '');
     rv = rv.replace(/[\uFE0E\uFE0F]/g, '');
@@ -114,16 +128,9 @@ function symbolfix(s) {
     rv = rv.replace(/->/g, this.symbols.IFTHEN);
     rv = rv.replace(/–>/g, this.symbols.IFTHEN);
     rv = rv.replace(/=>/g, this.symbols.IFTHEN);
-    rv = rv.replace(/>/g, this.symbols.IFTHEN);
     rv = rv.replace(/\/\\/g, this.symbols.AND);
     rv = rv.replace(/\\\//g, this.symbols.OR);
-    rv = rv.replace(/[&^∧•·]/g, this.symbols.AND);
-    rv = rv.replace(/[|]/g, this.symbols.OR);
-    rv = rv.replace(/[↔≡]/g, this.symbols.IFF);
-    rv = rv.replace(/[→⇒⊃]/g, this.symbols.IFTHEN);
-    rv = rv.replace(/[~¬!]/g, this.symbols.NOT);
-    rv = rv.replace(/[⊥✖]/g, this.symbols.FALSUM);
-    return rv;
+    return Array.from(rv, (c) => this.symbols[connectiveAliases[c]] ?? c).join('');
 }
 
 // shared between the derivation checker and the frontend's live rule-name
@@ -177,10 +184,7 @@ function stripmatching(s) {
     // the `(x)` in F(x) must be stripped normally.
     const qMatch = s.match(this.qaRegEx);
     if (qMatch) { return s;}
-    
-    const openBrackets = { '(': ')', '[': ']', '{': '}' };
-    const closeBrackets = { ')': '(', ']': '[', '}': '{' };
-    
+
     // track matching brackets/braces/parentheses 
     const stack = [];
     for (let i=0; i< (s.length - 1); i++) {

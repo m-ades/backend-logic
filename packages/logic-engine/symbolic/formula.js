@@ -7,7 +7,7 @@
 /////////////////////////////////////////////////////////////////////////
 
 
-import getSyntax from './libsyntax.js';
+import getSyntax, { closeBrackets, openBrackets } from './libsyntax.js';
 import { arrayUnion } from '../misc.js';
 
 const formulaClasses = {};
@@ -172,6 +172,8 @@ function generateFormulaClass(notationname = 'hurley') {
             // cut string at the operator spot
             const leftstring =
                 this.parsedstr.substring(0,this.opspot).trim();
+            // display reuses the typed bracket
+            this._leftbracket = leftstring[0];
             // use repository if already one for string in question
             this._left = Formula.from(leftstring);
             return this._left;
@@ -180,31 +182,46 @@ function generateFormulaClass(notationname = 'hurley') {
         // normal form is the canonical representation of Formula as a
         // string should be identical for identical formulae
         get normal() {
-            if ("_normal" in this) {
-                return this._normal;
-            }
+            if (!("_normal" in this)) { this._normal = this.serialize('normal'); }
+            return this._normal;
+        }
+
+        // normal form but keeping the brackets the formula was typed with
+        get display() {
+            if (!("_display" in this)) { this._display = this.serialize('display'); }
+            return this._display;
+        }
+
+        // brackets a part, picked by depth for normal or as typed for display
+        wrappart(part, typed, form) {
+            if (form == 'normal') { return part.wrapit(); }
+            const open = openBrackets[typed] ? typed : '(';
+            return open + part.display + openBrackets[open];
+        }
+
+        // builds the normal or display string
+        serialize(form) {
             // get left and right sides and
             // add parentheses if needed (when binary)
             let leftstr = '';
             if (this.left) {
                 if (Formula.syntax.isbinaryop(this.left.op)) {
-                    leftstr = this.left.wrapit();
+                    leftstr = this.wrappart(this.left, this._leftbracket, form);
                 } else {
-                    leftstr = this.left.normal;
+                    leftstr = this.left[form];
                 }
             }
             let rightstr = '';
             if (this.right) {
                 if (Formula.syntax.isbinaryop(this.right.op)) {
-                    rightstr = this.right.wrapit();
+                    rightstr = this.wrappart(this.right, this._rightbracket, form);
                 } else {
-                    rightstr = this.right.normal;
+                    rightstr = this.right[form];
                 }
             }
             // binary op
             if (Formula.syntax.isbinaryop(this.op)) {
-                this._normal = leftstr + ' ' + this.op + ' ' + rightstr;
-                return this._normal;
+                return leftstr + ' ' + this.op + ' ' + rightstr;
             }
             // monadic op
             if (Formula.syntax.ismonop(this.op)) {
@@ -216,16 +233,15 @@ function generateFormulaClass(notationname = 'hurley') {
                 // wrap parens after monadic op with identity
                 if (!(this?.right?.op) && (this?.right?.pletter == '=' ||
                     this?.right?.pletter == '≠')) {
-                        this._normal = o+ '(' + rightstr + ')';
-                        return this._normal;
+                        return o + (form == 'normal'
+                            ? '(' + rightstr + ')'
+                            : this.wrappart(this.right, this._rightbracket, form));
                 }
-                this._normal = o + rightstr;
-                return this._normal;
+                return o + rightstr;
             }
             // zero-adic op, which just is the result we're after
             if (this.op) {
-                this._normal = this.op;
-                return this._normal;
+                return this.op;
             }
             // otherwise, atomic
             const terms = this.terms ?? [];
@@ -250,9 +266,7 @@ function generateFormulaClass(notationname = 'hurley') {
                 atomicstr = this.terms[0] + ' ' + pletter + ' '
                     + this.terms[1];
             }
-            // return value
-            this._normal = atomicstr;
-            return this._normal;
+            return atomicstr;
         }
 
         // gets main operator by determining the main operator
@@ -308,8 +322,6 @@ function generateFormulaClass(notationname = 'hurley') {
             let mainopcat = -1;
             let finaldepth = 0;
             // track bracket/brace/paren matching
-            const openBrackets = { '(': ')', '[': ']', '{': '}' };
-            const closeBrackets = { ')': '(', ']': '[', '}': '{' };
             const bracketStack = [];
             for (let i=0; i<this.parsedstr.length; i++) {
                 // get this character, and the remainder of the string
@@ -477,6 +489,7 @@ function generateFormulaClass(notationname = 'hurley') {
                 this._right = false;
                 return this._right;
             }
+            this._rightbracket = rightstring[0];
             // get formula
             this._right = Formula.from(rightstring);
             return this._right;
@@ -819,10 +832,10 @@ export default function getFormulaClass(notationname = 'hurley') {
     return formulaClasses[notationname];
 }
 
-export function canonicalizeFormula(value, notationname = 'hurley') {
+export function tidyFormula(value, notationname = 'hurley') {
     const Formula = getFormulaClass(notationname);
     const normalized = Formula.syntax.inputfix(String(value ?? '')).replace(/\s+/g, ' ').trim();
     if (!normalized) { return normalized; }
     const formula = Formula.from(normalized);
-    return formula.wellformed ? formula.normal : normalized;
+    return formula.wellformed ? formula.display : normalized;
 }
