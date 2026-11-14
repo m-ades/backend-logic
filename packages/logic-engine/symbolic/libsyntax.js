@@ -12,7 +12,9 @@ import notations from './notations.js';
 const DEFAULT_NOTATION = 'hurley';
 const syntaxes = {};
 
-export const openBrackets = { '(': ')', '[': ']', '{': '}' };
+export const openBrackets = { '(': ')', '[': ']' };
+// kept free for set notation later so they never group
+export const setBraces = '{}';
 export const closeBrackets = Object.fromEntries(
     Object.entries(openBrackets).map(([open, close]) => [close, open]));
 

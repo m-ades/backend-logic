@@ -7,7 +7,7 @@
 /////////////////////////////////////////////////////////////////////////
 
 
-import getSyntax, { closeBrackets, openBrackets } from './libsyntax.js';
+import getSyntax, { closeBrackets, openBrackets, setBraces } from './libsyntax.js';
 import { arrayUnion } from '../misc.js';
 
 const formulaClasses = {};
@@ -339,6 +339,8 @@ function generateFormulaClass(notationname = 'hurley') {
                     }
                     currdepth--;
                     finaldepth--;
+                } else if (setBraces.includes(c)) {
+                    this.syntaxError('curly braces are not allowed, use ( ) or [ ] instead');
                 }
                 // if more right parens than left, that's a problem
                 if (currdepth < 0) {
@@ -802,20 +804,8 @@ function generateFormulaClass(notationname = 'hurley') {
         // puts parentheses around anything, picking nice ones based
         // on its depth
         wrapit() {
-            switch (this.depth % 3) {
-                case 0:
-                    return '{' + this.normal + '}';
-                    break;
-                case 1:
-                    return '(' + this.normal + ')';
-                    break;
-                case 2:
-                    return '[' + this.normal + ']';
-                    break;
-                default: // shouldn't be here
-                    return this.normal;
-            }
-            return this.normal; // shouldn't be here either
+            const [open, close] = this.depth % 2 ? '()' : '[]';
+            return open + this.normal + close;
         }
     }
     // return the class
