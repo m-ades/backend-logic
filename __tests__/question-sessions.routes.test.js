@@ -120,7 +120,8 @@ describe('question sessions routes', () => {
       expect(create).toHaveBeenCalledWith({
         assignment_question_id: 10,
         user_id: 42,
-        started_at: '2026-04-09T00:00:00Z',
+        started_at: expect.any(Date),
+        ended_at: null,
       });
     });
 
@@ -139,7 +140,8 @@ describe('question sessions routes', () => {
       expect(create).toHaveBeenCalledWith({
         assignment_question_id: 10,
         user_id: 7,
-        started_at: '2026-04-09T00:00:00Z',
+        started_at: expect.any(Date),
+        ended_at: null,
       });
     });
 

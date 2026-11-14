@@ -5,6 +5,12 @@ import { isSystemAdmin } from '../utils/authorization.js';
 import { requireEnrollmentForAssignmentQuestion } from '../utils/enrollment.js';
 import { handleValidationResult } from '../middleware/validation.js';
 
+// times use the server clock like submissions so a closing client only says how long ago it stopped
+const closedAt = (record, endedMsAgo) => {
+  const msAgo = Math.max(Number(endedMsAgo) || 0, 0);
+  return new Date(Math.max(Date.now() - msAgo, new Date(record.started_at).getTime()));
+};
+
 const router = createCrudRouter(QuestionSession, {
   listFilter: (req) => (isSystemAdmin(req.user) ? {} : { where: { user_id: req.user.id } }),
   authorizeRecord: (req, record) => (
@@ -20,13 +26,15 @@ const router = createCrudRouter(QuestionSession, {
     }
 
     await requireEnrollmentForAssignmentQuestion(req.user, assignmentQuestionId);
-    return isSystemAdmin(req.user) ? payload : { ...payload, user_id: req.user.id };
+    const session = { ...payload, started_at: new Date(), ended_at: null };
+    return isSystemAdmin(req.user) ? session : { ...session, user_id: req.user.id };
   },
   beforeUpdate: async (req, payload, record) => {
-    const effective = isSystemAdmin(req.user) ? payload : { ...payload, user_id: record.user_id };
+    const { ended_ms_ago: endedMsAgo, ...fields } = payload;
+    const effective = isSystemAdmin(req.user) ? fields : { ...fields, user_id: record.user_id };
     const assignmentQuestionId = effective.assignment_question_id ?? record.assignment_question_id;
     await requireEnrollmentForAssignmentQuestion(req.user, assignmentQuestionId);
-    return effective;
+    return { ...effective, started_at: record.started_at, ended_at: closedAt(record, endedMsAgo) };
   },
 });
 
@@ -49,7 +57,7 @@ router.post(
         return res.status(403).json({ message: 'Forbidden' });
       }
       if (!record.ended_at) {
-        await record.update({ ended_at: new Date() });
+        await record.update({ ended_at: closedAt(record, req.body?.ended_ms_ago) });
       }
       res.status(204).end();
     } catch (error) {
