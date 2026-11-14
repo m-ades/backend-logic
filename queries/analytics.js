@@ -1,7 +1,5 @@
 import { EFFECTIVE_DUE_SQL } from '../utils/assignmentPolicy.js';
 import { EFFECTIVELY_PUBLISHED_SQL } from '../utils/publicationPolicy.js';
-import { RECENT_TIME_WINDOW_DAYS } from '../utils/analyticsTimeWindow.js';
-import { getCohortMedianMinutesPerQuestion } from '../utils/cohortMedianCache.js';
 
 /**
  * fetch assignment analytics with submission stats.
@@ -89,74 +87,6 @@ export async function fetchStudentAssignments(sequelize, userId, courseId) {
 }
 
 /**
- * fetch performance aggregates for a student.
- * @param {import('sequelize').Sequelize} sequelize - db instance
- * @param {number} userId - student id
- * @param {number|null} courseId - filter by course (null for all)
- * @returns {Promise<object|null>} performance row
- */
-export async function fetchStudentPerformance(sequelize, userId, courseId) {
-  try {
-    const performanceQuery = `
-      SELECT
-        AVG(s.score)::float AS avg_score,
-        AVG(s.attempt)::float AS avg_attempt,
-        SUM(CASE WHEN s.is_correct THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) AS correct_rate,
-        SUM(CASE WHEN s.is_correct AND s.attempt = 1 THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0)
-          AS first_try_correct_rate
-      FROM submissions s
-      JOIN assignment_questions aq ON aq.id = s.assignment_question_id
-      JOIN assignments a ON a.id = aq.assignment_id
-      JOIN course_enrollments ce
-        ON ce.user_id = s.user_id
-        AND ce.course_id = a.course_id
-        AND ce.role = 'student'
-      WHERE s.user_id = :userId
-        AND a.kind <> 'practice'
-        AND (:courseId::int IS NULL OR a.course_id = :courseId::int);
-    `;
-
-    const [[performance]] = await sequelize.query(performanceQuery, {
-      replacements: { userId, courseId: courseId ?? null },
-    });
-    return performance;
-  } catch (error) {
-    throw new Error(`failed to fetch student performance for user ${userId}: ${error.message}`);
-  }
-}
-
-/**
- * fetch assignment submission count for a student.
- * @param {import('sequelize').Sequelize} sequelize - db instance
- * @param {number} userId - student id
- * @param {number|null} courseId - filter by course (null for all)
- * @returns {Promise<object|null>} submission count row
- */
-export async function fetchStudentSubmissionCount(sequelize, userId, courseId) {
-  try {
-    const submissionCountQuery = `
-      SELECT COUNT(DISTINCT aq.assignment_id)::int AS submission_count
-      FROM submissions s
-      JOIN assignment_questions aq ON aq.id = s.assignment_question_id
-      JOIN assignments a ON a.id = aq.assignment_id
-      JOIN course_enrollments ce
-        ON ce.user_id = s.user_id
-        AND ce.course_id = a.course_id
-        AND ce.role = 'student'
-      WHERE s.user_id = :userId
-        AND (:courseId::int IS NULL OR a.course_id = :courseId::int);
-    `;
-
-    const [[submissionCount]] = await sequelize.query(submissionCountQuery, {
-      replacements: { userId, courseId: courseId ?? null },
-    });
-    return submissionCount;
-  } catch (error) {
-    throw new Error(`failed to fetch submission count for user ${userId}: ${error.message}`);
-  }
-}
-
-/**
  * fetch assignment ids with submissions for a student.
  * @param {import('sequelize').Sequelize} sequelize - db instance
  * @param {number} userId - student id
@@ -190,47 +120,71 @@ export async function fetchStudentSubmittedAssignments(sequelize, userId, course
   }
 }
 
-/**
- * fetch time-on-task stats for a student, plus cohort median.
- * the cohort median is the same value for every student in a course, so it is
- * computed and cached separately instead of being re-scanned per request -
- * see utils/cohortMedianCache.js.
- * @param {import('sequelize').Sequelize} sequelize - db instance
- * @param {number} userId - student id
- * @param {number|null} courseId - optional course filter
- * @returns {Promise<object|null>} time stats row
- */
+// sessions stop on tab out and idle, so breaks up to this long still count as working
+const WORK_BREAK_MINUTES = 10;
+
+/*
+one student's working minutes per assignment from closed sessions up to their last submission
+sessions merge into stretches across short breaks and overlaps are only counted once
+*/
 export async function fetchStudentTime(sequelize, userId, courseId) {
   try {
     const timeQuery = `
-      WITH student_durations AS (
+      WITH last_submission AS (
+        SELECT aq.assignment_id, MAX(s.submitted_at) AS submitted_at
+        FROM submissions s
+        JOIN assignment_questions aq ON aq.id = s.assignment_question_id
+        WHERE s.user_id = :userId
+        GROUP BY aq.assignment_id
+      ),
+      work AS (
         SELECT
-          EXTRACT(EPOCH FROM (qs.ended_at - qs.started_at)) / 60.0 AS minutes
+          qs.id,
+          aq.assignment_id,
+          qs.started_at,
+          LEAST(qs.ended_at, ls.submitted_at) AS ended_at
         FROM question_sessions qs
         JOIN assignment_questions aq ON aq.id = qs.assignment_question_id
         JOIN assignments a ON a.id = aq.assignment_id
-        JOIN course_enrollments ce
-          ON ce.user_id = qs.user_id
-          AND ce.course_id = a.course_id
-          AND ce.role = 'student'
-        WHERE qs.ended_at IS NOT NULL
-          AND qs.user_id = :userId
-          AND qs.started_at >= NOW() - make_interval(days => :recentWindowDays)
+        JOIN last_submission ls ON ls.assignment_id = aq.assignment_id
+        WHERE qs.user_id = :userId
+          AND qs.ended_at IS NOT NULL
+          AND qs.started_at < ls.submitted_at
           AND (:courseId::int IS NULL OR a.course_id = :courseId::int)
+      ),
+      flagged AS (
+        SELECT
+          *,
+          CASE
+            WHEN started_at <= (MAX(ended_at) OVER earlier) + make_interval(mins => :breakMinutes) THEN 0
+            ELSE 1
+          END AS starts_stretch
+        FROM work
+        WINDOW earlier AS (
+          PARTITION BY assignment_id ORDER BY started_at, id
+          ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+        )
+      ),
+      stretches AS (
+        SELECT assignment_id, MIN(started_at) AS started_at, MAX(ended_at) AS ended_at
+        FROM (
+          SELECT *, SUM(starts_stretch) OVER (PARTITION BY assignment_id ORDER BY started_at, id) AS stretch
+          FROM flagged
+        ) numbered
+        GROUP BY assignment_id, stretch
       )
       SELECT
-        (SELECT AVG(minutes)::float FROM student_durations) AS avg_minutes_per_question,
-        (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY minutes)
-           FROM student_durations) AS median_minutes_per_question,
-        (SELECT percentile_cont(0.75) WITHIN GROUP (ORDER BY minutes)
-           FROM student_durations) AS p75_minutes_per_question;
+        assignment_id,
+        (SUM(EXTRACT(EPOCH FROM (ended_at - started_at))) / 60.0)::float AS minutes,
+        MAX(ended_at) AS last_worked_at
+      FROM stretches
+      GROUP BY assignment_id;
     `;
 
-    const [[time]] = await sequelize.query(timeQuery, {
-      replacements: { userId, courseId: courseId ?? null, recentWindowDays: RECENT_TIME_WINDOW_DAYS },
+    const [rows] = await sequelize.query(timeQuery, {
+      replacements: { userId, courseId: courseId ?? null, breakMinutes: WORK_BREAK_MINUTES },
     });
-    const cohortMedian = await getCohortMedianMinutesPerQuestion(sequelize, courseId ?? null);
-    return { ...time, cohort_median_minutes_per_question: cohortMedian };
+    return rows;
   } catch (error) {
     throw new Error(`failed to fetch time stats for user ${userId}: ${error.message}`);
   }

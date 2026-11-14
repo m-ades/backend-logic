@@ -21,8 +21,6 @@ import {
 import {
   fetchAssignmentAnalytics,
   fetchStudentAssignments,
-  fetchStudentPerformance,
-  fetchStudentSubmissionCount,
   fetchStudentSubmittedAssignments,
   fetchStudentTime,
   fetchAssignmentGradeSummary,
@@ -91,10 +89,8 @@ router.get(
       return;
     }
 
-    const [assignmentsRaw, performance, submissionCount, submittedAssignments, time] = await Promise.all([
+    const [assignmentsRaw, submittedAssignments, sessionTimes] = await Promise.all([
       fetchStudentAssignments(sequelize, userId, courseId),
-      fetchStudentPerformance(sequelize, userId, courseId),
-      fetchStudentSubmissionCount(sequelize, userId, courseId),
       fetchStudentSubmittedAssignments(sequelize, userId, courseId),
       fetchStudentTime(sequelize, userId, courseId),
     ]);
@@ -230,13 +226,17 @@ router.get(
       };
     });
 
-    const safeTime = {
-      avg_minutes_per_question: null,
-      median_minutes_per_question: null,
-      p75_minutes_per_question: null,
-      cohort_median_minutes_per_question: null,
-      ...(time || {}),
-    };
+    // finished assignments only so half done work never drags the typical time down
+    const timeByAssignment = new Map(sessionTimes.map((row) => [row.assignment_id, row]));
+    const assignmentTimes = assignments
+      .filter((a) => completedAssignmentIds.has(a.id) && timeByAssignment.has(a.id))
+      .map((a) => ({
+        assignment_id: a.id,
+        title: a.title,
+        minutes: timeByAssignment.get(a.id).minutes,
+        last_worked_at: timeByAssignment.get(a.id).last_worked_at,
+      }))
+      .sort((a, b) => new Date(b.last_worked_at) - new Date(a.last_worked_at));
 
     res.json({
       assignments: {
@@ -249,14 +249,7 @@ router.get(
         upcomingList,
       },
       assignmentGrades,
-      performance: performance || {
-        avg_score: null,
-        avg_attempt: null,
-        correct_rate: null,
-        first_try_correct_rate: null,
-      },
-      time: safeTime,
-      submissionCount: submissionCount?.submission_count || 0,
+      assignmentTimes,
       submittedAssignmentIds: submittedAssignments || [],
     });
   } catch (error) {

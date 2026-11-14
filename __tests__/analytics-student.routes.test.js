@@ -2,6 +2,7 @@ import { jest } from '@jest/globals';
 import { col, fn } from 'sequelize';
 
 const fetchStudentAssignments = jest.fn();
+const fetchStudentTime = jest.fn();
 const submissionFindAll = jest.fn();
 const enrollmentFindAll = jest.fn();
 
@@ -23,10 +24,8 @@ jest.unstable_mockModule('../routes/instructor.js', () => ({
 
 jest.unstable_mockModule('../queries/analytics.js', () => ({
   fetchStudentAssignments,
-  fetchStudentPerformance: jest.fn(async () => ({})),
-  fetchStudentSubmissionCount: jest.fn(async () => ({})),
   fetchStudentSubmittedAssignments: jest.fn(async () => []),
-  fetchStudentTime: jest.fn(async () => ({})),
+  fetchStudentTime,
   fetchAssignmentAnalytics: jest.fn(),
   fetchAssignmentGradeSummary: jest.fn(),
   fetchInstructorAssignmentStats: jest.fn(),
@@ -50,6 +49,7 @@ const requestDashboard = async () => {
 describe('student dashboard completion', () => {
   beforeEach(() => {
     fetchStudentAssignments.mockReset();
+    fetchStudentTime.mockReset().mockResolvedValue([]);
     submissionFindAll.mockReset().mockResolvedValue([]);
     enrollmentFindAll.mockReset().mockResolvedValue([]);
   });
@@ -119,6 +119,29 @@ describe('student dashboard completion', () => {
     const result = await requestDashboard();
 
     expect(result.assignments.completed).toBe(2);
+  });
+
+  it('reports time only for finished assignments, newest first', async () => {
+    fetchStudentAssignments.mockResolvedValue([1, 2, 3].map((id) => ({
+      id, title: `a${id}`, course_id: 1, is_locked: false, question_count: 2,
+    })));
+    submissionFindAll.mockResolvedValue([
+      { user_id: 7, assignment_id: 1, submitted_count: 2 },
+      { user_id: 7, assignment_id: 2, submitted_count: 1 },
+      { user_id: 7, assignment_id: 3, submitted_count: 2 },
+    ]);
+    fetchStudentTime.mockResolvedValue([
+      { assignment_id: 1, minutes: 30, last_worked_at: new Date('2026-11-01') },
+      { assignment_id: 2, minutes: 5, last_worked_at: new Date('2026-11-03') },
+      { assignment_id: 3, minutes: 50, last_worked_at: new Date('2026-11-02') },
+    ]);
+
+    const result = await requestDashboard();
+
+    expect(result.assignmentTimes.map((row) => [row.title, row.minutes])).toEqual([
+      ['a3', 50],
+      ['a1', 30],
+    ]);
   });
 
   it('returns zero completions without querying submissions for an empty course', async () => {
