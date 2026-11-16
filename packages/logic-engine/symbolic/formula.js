@@ -230,9 +230,9 @@ function generateFormulaClass(notationname = 'hurley') {
                     let v = this.boundvar ?? '';
                     o = Formula.syntax.mkquantifier(v, o);
                 }
-                // wrap parens after monadic op with identity
+                // wrap parens after monadic op with identity, calgary writes negated identity bare
                 if (!(this?.right?.op) && (this?.right?.pletter == '=' ||
-                    this?.right?.pletter == '≠')) {
+                    this?.right?.pletter == '≠') && !this.isBareNegatedIdentity()) {
                         return o + (form == 'normal'
                             ? '(' + rightstr + ')'
                             : this.wrappart(this.right, this._rightbracket, form));
@@ -575,6 +575,10 @@ function generateFormulaClass(notationname = 'hurley') {
                     this._wellformed = false;
                 }
                 Object.assign(this._syntaxerrors, this.right._syntaxerrors);
+                if (this.isBareNegatedIdentity() && openBrackets[this._rightbracket]) {
+                    this.syntaxError('an identity is atomic so its negation takes no brackets, write ' +
+                        this.op + this.right.normal);
+                }
                 const garbagebefore = (this.opspot != 0);
                 if (garbagebefore) {
                     this.syntaxError('unexpected character(s) appear before ' +
@@ -669,7 +673,7 @@ function generateFormulaClass(notationname = 'hurley') {
                 // monadic operator not a quantifier is just it plus right side.
                 // except if identity
                 if (!(this.right.op) && (this.right.pletter == '=' ||
-                    this.right.pletter == '≠')) {
+                    this.right.pletter == '≠') && !this.isBareNegatedIdentity()) {
                         return this.op + '(' + r.normal + ')';
                     }
                 return this.op + r.wrapifneeded();
@@ -791,6 +795,12 @@ function generateFormulaClass(notationname = 'hurley') {
         syntaxError(reason) {
             this._syntaxerrors[reason] = true;
             this._wellformed = false;
+        }
+
+        isBareNegatedIdentity() {
+            return Boolean(Formula.syntax.notation.bareNegatedIdentity &&
+                this.op == Formula.syntax.symbols.NOT && this.right &&
+                !this.right.op && (this.right.pletter == '=' || this.right.pletter == '≠'));
         }
 
         // puts parentheses around formulae with binary operators
