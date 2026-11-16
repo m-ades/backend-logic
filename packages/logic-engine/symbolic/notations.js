@@ -21,6 +21,7 @@ const notations = {
         quantifierForm: 'Qx',
         schematicLetters: '𝒜𝒜𝓍𝒸𝒸',
         useTermParensCommas: true,
+        bareNegatedIdentity: true,
         variableRange: 'x-zs-w'
     },
     hurley: {
