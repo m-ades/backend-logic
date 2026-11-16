@@ -225,10 +225,15 @@ function generateFormulaClass(notationname = 'hurley') {
             }
             // monadic op
             if (Formula.syntax.ismonop(this.op)) {
+                if (form != 'normal' && this.neqterms) { return this.neqterms.join(' ≠ '); }
                 let o = this.op;
                 if (Formula.syntax.isquant(o)) {
                     let v = this.boundvar ?? '';
                     o = Formula.syntax.mkquantifier(v, o);
+                }
+                // book style ∀x x ≠ a needs the space
+                if (form != 'normal' && this.right?.neqterms && Formula.syntax.isvar(o.at(-1))) {
+                    return o + ' ' + rightstr;
                 }
                 // wrap parens after monadic op with identity, calgary writes negated identity bare
                 if (!(this?.right?.op) && (this?.right?.pletter == '=' ||
@@ -276,6 +281,7 @@ function generateFormulaClass(notationname = 'hurley') {
             if (!this.parsedstr) { return false; }
             // return saved val
             if ("_op" in this) { return this._op; }
+            if (this.neqterms) { return Formula.syntax.symbols.NOT; }
             const opspot = this.opspot;
             // if not found, treat main op as falsy
             if (opspot == -1) { return false; }
@@ -312,6 +318,7 @@ function generateFormulaClass(notationname = 'hurley') {
             if ("_opspot" in this) {
                 return this._opspot;
             }
+            if (this.neqterms) { return 0; }
             // -1 means no operator found so far
             this._opspot = -1;
             let currdepth = 0;
@@ -467,6 +474,10 @@ function generateFormulaClass(notationname = 'hurley') {
             if ("_right" in this) {
                 return this._right;
             }
+            if (this.neqterms) {
+                this._right = Formula.from(this.neqterms.join(' = '));
+                return this._right;
+            }
             // if no main op, return something falsy
             if (this.opspot == -1 || Formula.syntax.symbolcat[
                 Formula.syntax.operators[this.op]] == 0) {
@@ -575,9 +586,10 @@ function generateFormulaClass(notationname = 'hurley') {
                     this._wellformed = false;
                 }
                 Object.assign(this._syntaxerrors, this.right._syntaxerrors);
-                if (this.isBareNegatedIdentity() && openBrackets[this._rightbracket]) {
-                    this.syntaxError('an identity is atomic so its negation takes no brackets, write ' +
-                        this.op + this.right.normal);
+                if ((this.isBareNegatedIdentity() || this.right.neqterms) && openBrackets[this._rightbracket]) {
+                    const o = Formula.syntax.isquant(this.op)
+                        ? Formula.syntax.mkquantifier(this.boundvar, this.op) + ' ' : this.op;
+                    this.syntaxError('a negated identity takes no brackets, write ' + o + this.right.display);
                 }
                 const garbagebefore = (this.opspot != 0);
                 if (garbagebefore) {
@@ -795,6 +807,20 @@ function generateFormulaClass(notationname = 'hurley') {
         syntaxError(reason) {
             this._syntaxerrors[reason] = true;
             this._wellformed = false;
+        }
+
+        // calgary reads t ≠ s as ¬t = s but still shows it with ≠
+        get neqterms() {
+            if (!("_neqterms" in this)) {
+                const sides = Formula.syntax.notation.bareNegatedIdentity
+                    ? String(this.parsedstr ?? '').split(' ≠ ') : [];
+                const isterm = (t) => {
+                    const m = t.match(Formula.syntax.termsRegEx);
+                    return m?.length == 1 && m[0] == t;
+                };
+                this._neqterms = (sides.length == 2 && sides.every(isterm)) ? sides : false;
+            }
+            return this._neqterms;
         }
 
         isBareNegatedIdentity() {
