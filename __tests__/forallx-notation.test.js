@@ -31,7 +31,7 @@ describe('forallx notation', () => {
     ['S(x₁,x₂,a₁,b,y,x₁)', 'S(x_1,x_2,a_1,b,y,x_1)'],
     ['∀x₁(M(x₂) ↔ L(x₂,x₁))', '∀x_1(M(x_2) ↔ L(x_2,x_1))'],
     ['a₁ = b₂', 'a_1 = b_2'],
-    ['x₁ ≠ a₂', '¬x_1 = a_2'],
+    ['x₁ ≠ a₂', 'x_1 ≠ a_2'],
   ])('accepts indexed FOL symbols in %s', (input, expected) => {
     const formula = Formula.from(input);
 
