@@ -146,6 +146,10 @@ export function normalizeRuleSymbolName(rule, syntax) {
         connective = syntax?.symbols?.OR ?? '∨';
     } else if (connective === '-' || connective === '–') {
         connective = syntax?.symbols?.NOT ?? '¬';
+    } else if (/^all$/i.test(connective)) {
+        connective = syntax?.symbols?.FORALL ?? '∀';
+    } else if (/^some$/i.test(connective)) {
+        connective = syntax?.symbols?.EXISTS ?? '∃';
     } else if (syntax?.symbolfix) {
         connective = syntax.symbolfix(connective);
     }
